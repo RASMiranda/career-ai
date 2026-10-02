@@ -133,3 +133,18 @@ that leaves nothing to do. The old root-level file is not read as a fallback
 (it could put one person's details on another's application); the error says
 to move it.
 
+## ADR-013 · 2026-10-02 · The applicant lives inside profile.yaml (supersedes the file split in ADR-012)
+Context: after ADR-012 a profile had `profile.yaml` plus a separate gitignored
+`applicant.yaml`; two files per person to keep in step.
+Decision: `applicant:` (name, contact) and `answers:` (pre-approved form answers)
+are sections of `profiles/<id>/profile.yaml`, and `profile.example.yaml` is the
+single template for the whole profile. `apply run` reads them from the loaded
+profile; a profile with no usable applicant is skipped as in ADR-012. The old
+`applicant.yaml` files are not read; the error says to move their contents. The
+`applicant.yaml` gitignore rule stays so a leftover file is never committed.
+Consequences: the profile file is committed, so the applicant's contact details
+are now in the private data repo and visible to the cloud routine, which reads
+profile.yaml. Mitigations: the repo must stay private; CLAUDE.md forbids the
+routine to read or repeat those sections; they are only filled in if `apply run`
+is used. Empty fields still mean "unknown, hand the form back to the human".
+

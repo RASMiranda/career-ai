@@ -32,27 +32,29 @@ from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
 from .queue import Queue
 
 
-def _applicant(root: Path, profile_id: str) -> tuple[dict, dict]:
-    """The person behind one profile: profiles/<id>/applicant.yaml (never committed)."""
-    path = root / "profiles" / profile_id / "applicant.yaml"
-    if not path.is_file():
-        hint = (" An old <data>/applicant.yaml is no longer read: move it there."
-                if (root / "applicant.yaml").is_file() else "")
-        raise ConfigError(f"Missing {path} (copy applicant.example.yaml next to it and fill it in).{hint}")
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    app, answers = data.get("applicant") or {}, data.get("answers") or {}
+def _applicant(root: Path, profile: dict) -> tuple[dict, dict]:
+    """The person behind one profile: its `applicant:` and `answers:` in profile.yaml.
+
+    Empty answers mean "unknown": the form is handed back to the human.
+    """
+    pid = profile["id"]
+    app, answers = profile.get("applicant") or {}, profile.get("answers") or {}
+    legacy = [str(p.relative_to(root)) for p in (root / "applicant.yaml",
+                                                 root / "profiles" / pid / "applicant.yaml") if p.is_file()]
+    hint = f" Move the contents of {legacy[0]} into it; that file is no longer read." if legacy else ""
     missing = [k for k in ("first_name", "last_name", "email") if not app.get(k)]
     if missing:
-        raise ConfigError(f"profiles/{profile_id}/applicant.yaml is missing: {', '.join(missing)}")
+        raise ConfigError(f"profiles/{pid}/profile.yaml: applicant is missing "
+                          f"{', '.join(missing)} (see profile.example.yaml).{hint}")
     return app, answers
 
 
 def _known_applicants(root: Path, cfg: dict) -> dict[str, tuple[dict, dict]]:
-    """Every profile whose applicant.yaml loads; the rest are reported by the caller."""
+    """Every profile with a usable applicant; the rest are reported by the caller."""
     found = {}
     for profile in cfg["profiles"]:
         try:
-            found[profile["id"]] = _applicant(root, profile["id"])
+            found[profile["id"]] = _applicant(root, profile)
         except ConfigError:
             pass
     return found
@@ -139,8 +141,11 @@ def cmd_run(args, root, cfg, auth):
     run_id = uuid.uuid4().hex[:8]
     approved = sorted(q.by_status("approved"), key=lambda i: -i.get("fit", 0))
     for pid in sorted({i.get("profile") for i in approved} - set(applicants)):
+        profile = cv.profile_by_id(cfg, pid)
         try:
-            _applicant(root, pid)
+            if profile is None:
+                raise ConfigError(f"profiles/{pid}/profile.yaml not found")
+            _applicant(root, profile)
         except ConfigError as exc:
             print(f"  SKIPPED profile {pid!r}: {exc}", file=sys.stderr)
     todo = [i for i in approved if i.get("profile") in applicants][:limit]
