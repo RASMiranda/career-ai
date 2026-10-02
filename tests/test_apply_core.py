@@ -8,6 +8,7 @@ from jobscan.apply import cli, faillog, policy, summary
 from jobscan.apply.adapters import ApplyFailure, Code, detect_ats, resolve_value
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
+from jobscan.config import ConfigError
 
 BL = Blacklist(["Proxify"])
 AUTH_ON = {"application_submission": {"allow_auto_submit": True, "acknowledged_on": "2026-10-15"}}
@@ -151,7 +152,7 @@ def make_data(tmp_path, mode="manual", switch=False):
         "active": True,
         "application_submission": {"allow_auto_submit": switch,
                                    "acknowledged_on": "2026-10-15" if switch else ""}}))
-    (tmp_path / "applicant.yaml").write_text(yaml.safe_dump({
+    (tmp_path / "profiles/p/applicant.yaml").write_text(yaml.safe_dump({
         "applicant": {"first_name": "Ana", "last_name": "Silva", "email": "a@b.test"}}))
     cands = {"candidates": [
         {"candidate_key": "aaaa1111bbbb2222", "profile": "p", "source": "s", "title": "Java",
@@ -278,3 +279,50 @@ def test_blacklist_cli(tmp_path, capsys):
     assert "BLOCKED by Proxify" in capsys.readouterr().out
     run_cli(base, "blacklist", "test", "Acme")
     assert "not blacklisted" in capsys.readouterr().out
+
+
+def test_applicant_is_read_per_profile(tmp_path):
+    (tmp_path / "profiles/a").mkdir(parents=True)
+    (tmp_path / "profiles/a/applicant.yaml").write_text(yaml.safe_dump({
+        "applicant": {"first_name": "Ana", "last_name": "S", "email": "a@b.test"},
+        "answers": {"notice period": "1 month"}}))
+    app, answers = cli._applicant(tmp_path, "a")
+    assert app["first_name"] == "Ana" and answers == {"notice period": "1 month"}
+    with pytest.raises(ConfigError, match="profiles.b.applicant.yaml"):
+        cli._applicant(tmp_path, "b")
+
+
+def test_old_root_level_applicant_file_is_not_silently_used(tmp_path):
+    (tmp_path / "profiles/a").mkdir(parents=True)
+    (tmp_path / "applicant.yaml").write_text(yaml.safe_dump({
+        "applicant": {"first_name": "Ana", "last_name": "S", "email": "a@b.test"}}))
+    with pytest.raises(ConfigError, match="move it there"):
+        cli._applicant(tmp_path, "a")
+
+
+def test_run_skips_a_profile_without_applicant_but_runs_the_rest(tmp_path, monkeypatch, capsys):
+    base = make_data(tmp_path, mode="assisted")
+    q = Queue(tmp_path)
+    for key, prof in (("aaaa1111bbbb2222", "p"), ("eeee5555ffff6666", "ghost")):
+        q.add(key, {"profile": prof, "title": "Java", "company": key[:4], "url": "https://jobs.lever.co/x/1",
+                    "fit": 90, "tier": "core", "status": "approved"})
+    q.save()
+    seen = []
+    class Spy:
+        def apply(self, job, applicant, *a, **k):
+            seen.append(applicant["first_name"])
+            raise ApplyFailure(Code.FORM_CHANGED, "no form", "reach_form")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Spy())
+    assert run_cli(base, "run", "--dry-run") == 0
+    assert seen == ["Ana"]                                  # only the profile with a file
+    assert "SKIPPED profile 'ghost'" in capsys.readouterr().err
+    assert Queue(tmp_path).items["eeee5555ffff6666"]["status"] == "approved"   # left for later
+
+
+def test_run_exits_nonzero_when_no_approved_job_has_an_applicant(tmp_path, monkeypatch):
+    base = make_data(tmp_path, mode="assisted")
+    q = Queue(tmp_path)
+    q.add("eeee5555ffff6666", {"profile": "ghost", "title": "Java", "company": "X",
+                               "url": "https://jobs.lever.co/x/1", "fit": 90, "status": "approved"})
+    q.save()
+    assert run_cli(base, "run", "--dry-run") == 2

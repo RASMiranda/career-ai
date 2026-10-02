@@ -66,7 +66,7 @@ python -m jobscan.apply bundle              # redacted failures → paste into C
 ```
 
 The LLM never drives the browser; adapters are deterministic code that answers
-only from your `applicant.yaml`. Unknown required question, CAPTCHA, login wall
+only from the profile's `profiles/<id>/applicant.yaml`. Unknown required question, CAPTCHA, login wall
 or layout change → it stops, logs a redacted failure, and hands the job to you
 with the link. See `docs/ARCHITECTURE.md` and `GETTING-STARTED.md`.
 

@@ -32,16 +32,30 @@ from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
 from .queue import Queue
 
 
-def _applicant(root: Path) -> tuple[dict, dict]:
-    path = root / "applicant.yaml"
+def _applicant(root: Path, profile_id: str) -> tuple[dict, dict]:
+    """The person behind one profile: profiles/<id>/applicant.yaml (never committed)."""
+    path = root / "profiles" / profile_id / "applicant.yaml"
     if not path.is_file():
-        raise ConfigError(f"Missing {path} (copy applicant.example.yaml and fill it in)")
+        hint = (" An old <data>/applicant.yaml is no longer read: move it there."
+                if (root / "applicant.yaml").is_file() else "")
+        raise ConfigError(f"Missing {path} (copy applicant.example.yaml next to it and fill it in).{hint}")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     app, answers = data.get("applicant") or {}, data.get("answers") or {}
     missing = [k for k in ("first_name", "last_name", "email") if not app.get(k)]
     if missing:
-        raise ConfigError(f"applicant.yaml is missing: {', '.join(missing)}")
+        raise ConfigError(f"profiles/{profile_id}/applicant.yaml is missing: {', '.join(missing)}")
     return app, answers
+
+
+def _known_applicants(root: Path, cfg: dict) -> dict[str, tuple[dict, dict]]:
+    """Every profile whose applicant.yaml loads; the rest are reported by the caller."""
+    found = {}
+    for profile in cfg["profiles"]:
+        try:
+            found[profile["id"]] = _applicant(root, profile["id"])
+        except ConfigError:
+            pass
+    return found
 
 
 def _cv_for(item: dict, root: Path, cfg: dict) -> str | None:
@@ -110,8 +124,9 @@ def cmd_run(args, root, cfg, auth):
               "allow_auto_submit: true AND acknowledged_on: <date>. Refusing.", file=sys.stderr)
         return 2
 
-    applicant, answers = _applicant(root)
-    secrets = [applicant.get(k, "") for k in ("first_name", "last_name", "email", "phone")]
+    applicants = _known_applicants(root, cfg)
+    secrets = [a.get(k, "") for a, _ in applicants.values()
+               for k in ("first_name", "last_name", "email", "phone")]
     flog, q = faillog.FailureLog(root, secrets), Queue(root)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
@@ -122,7 +137,16 @@ def cmd_run(args, root, cfg, auth):
         return 0
 
     run_id = uuid.uuid4().hex[:8]
-    todo = sorted(q.by_status("approved"), key=lambda i: -i.get("fit", 0))[:limit]
+    approved = sorted(q.by_status("approved"), key=lambda i: -i.get("fit", 0))
+    for pid in sorted({i.get("profile") for i in approved} - set(applicants)):
+        try:
+            _applicant(root, pid)
+        except ConfigError as exc:
+            print(f"  SKIPPED profile {pid!r}: {exc}", file=sys.stderr)
+    todo = [i for i in approved if i.get("profile") in applicants][:limit]
+    if approved and not todo:
+        return 2        # approved jobs exist but none has a usable applicant.yaml
+
     print(f"run {run_id}: mode={mode} dry_run={args.dry_run} items={len(todo)}")
 
     for n, item in enumerate(todo):
@@ -134,6 +158,7 @@ def cmd_run(args, root, cfg, auth):
             adapter = pick_adapter(item["url"], acfg["auto"]["allowed_adapters"])
             if adapter is None:
                 raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
+            applicant, answers = applicants[item["profile"]]
             result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
                                    submit=submit, headless=headless, hold=mode == "assisted")
             if result.status == "submitted":
