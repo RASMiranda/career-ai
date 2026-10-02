@@ -1,0 +1,161 @@
+"""Step 4: render the report and the email body, then update state.
+
+All external text is HTML-escaped and every link is checked to be http(s)
+before it reaches the template: job descriptions are untrusted input.
+"""
+
+import argparse
+import html
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+from .config import ConfigError, data_root, load_authorization, load_config
+from .normalize import is_http_url
+from .state import Journal, Seen
+
+PENDING_FIT_FLOOR = 70
+PENDING_LIMIT = 6
+
+
+def _bucket(candidates: dict, decisions: list) -> tuple[list, list]:
+    cand = {c["candidate_key"]: c for c in candidates["candidates"]}
+    matches, pending = [], []
+    for d in decisions:
+        c = cand.get(d["candidate_key"])
+        if not c:
+            continue
+        row = {**c, **d}
+        if d["disposition"] == "email":
+            matches.append(row)
+        elif (d["disposition"] == "low-confidence"
+              and d["fit"] >= PENDING_FIT_FLOOR and is_http_url(c.get("url", ""))):
+            pending.append(row)
+    matches.sort(key=lambda r: r["fit"], reverse=True)
+    pending.sort(key=lambda r: r["fit"], reverse=True)
+    return matches, pending[:PENDING_LIMIT]
+
+
+def render_markdown(day: str, matches: list, pending: list, errors: list) -> str:
+    lines = [f"# Job scan — {day}", "",
+             f"{len(matches)} match(es), {len(pending)} to verify.", ""]
+    if not matches:
+        lines += ["_No confirmed matches today._", ""]
+    for m in matches:
+        lines += [
+            f"## {m['title']} — {m['company']}",
+            f"- **Fit** {m['fit']} ({m['confidence']} confidence) · {m['tier']}",
+            f"- **Where** {m.get('location') or 'n/a'} · {m.get('contract_type') or 'n/a'}"
+            + (f" · {m['salary']}" if m.get("salary") else ""),
+            f"- **Why** {m['why']}",
+            f"- **Caution** {m.get('caution') or '—'}",
+            f"- **Next** {m.get('next_action') or '—'}",
+            f"- **Link** {m['url']} ({m['source']})", "",
+        ]
+    if pending:
+        lines += ["## To verify (thin source data)", ""]
+        lines += [f"- {p['title']} — {p['company']} · fit {p['fit']} · {p['url']}"
+                  for p in pending] + [""]
+    if errors:
+        lines += ["## Run notes", ""] + [f"- {e}" for e in errors] + [""]
+    lines += ["---", "_Nothing was submitted or sent on your behalf._"]
+    return "\n".join(lines)
+
+
+def _card(row: dict) -> str:
+    e = html.escape
+    url = row["url"] if is_http_url(row.get("url", "")) else ""
+    link = f'<a href="{e(url)}" style="color:#0b5cad">Open posting</a>' if url else "no link"
+    meta = " · ".join(filter(None, [e(row.get("location") or ""),
+                                    e(row.get("contract_type") or ""),
+                                    e(row.get("salary") or "")]))
+    return (
+        '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 12px">'
+        f'<div style="font-weight:600;font-size:15px">{e(row["title"])}</div>'
+        f'<div style="color:#555">{e(row["company"])}{" · " + meta if meta else ""}</div>'
+        f'<div style="margin:8px 0"><b>Fit {row["fit"]}</b> '
+        f'({e(row["confidence"])}) · {e(row.get("tier",""))}</div>'
+        f'<div>{e(row["why"])}</div>'
+        + (f'<div style="color:#8a6d3b;margin-top:6px">⚠ {e(row["caution"])}</div>'
+           if row.get("caution") else "")
+        + f'<div style="margin-top:8px">{link}</div></div>'
+    )
+
+
+def render_email(day: str, matches: list, pending: list, extra_html: str = "") -> str:
+    body = [f'<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px">',
+            f'<h2 style="margin:0 0 4px">Job scan · {html.escape(day)}</h2>',
+            f'<p style="color:#666;margin:0 0 16px">{len(matches)} match(es), '
+            f'{len(pending)} to verify.</p>']
+    body += [_card(m) for m in matches] or ['<p>No confirmed matches today.</p>']
+    if pending:
+        body.append('<h3>To verify</h3>')
+        body += [_card(p) for p in pending]
+    body.append(extra_html)
+    body.append('<p style="color:#888;font-size:12px;margin-top:20px">'
+                'Automated scan. Applications are only ever submitted if you enabled it; see the Applications section.</p></div>')
+    return "\n".join(body)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Render report and email; update state.")
+    ap.add_argument("--data")
+    ap.add_argument("--candidates", default="candidates.json")
+    ap.add_argument("--decisions", default="decisions.json")
+    ap.add_argument("--extra-html", help="HTML fragment appended to the email (applications section)")
+    ap.add_argument("--commit", action="store_true",
+                    help="persist seen-state and journal (omit for a dry run)")
+    args = ap.parse_args(argv)
+
+    try:
+        root = data_root(args.data)
+        load_config(root)
+        auth = load_authorization(root)
+    except ConfigError as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
+
+    candidates = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
+    decisions = json.loads(Path(args.decisions).read_text(encoding="utf-8"))
+    if isinstance(decisions, dict):
+        decisions = decisions.get("decisions", [])
+
+    journal = Journal(root)
+    if journal.has_open_send():
+        print("a previous delivery is stuck in 'sending' — review it by hand first",
+              file=sys.stderr)
+        return 1
+
+    day = candidates.get("generated_on") or date.today().isoformat()
+    matches, pending = _bucket(candidates, decisions)
+
+    md = render_markdown(day, matches, pending, candidates.get("errors", []))
+    (root / "reports").mkdir(exist_ok=True)
+    (root / "reports" / f"{day}.md").write_text(md, encoding="utf-8")
+    extra = Path(args.extra_html).read_text(encoding="utf-8") if args.extra_html and Path(args.extra_html).is_file() else ""
+    Path("email.html").write_text(render_email(day, matches, pending, extra), encoding="utf-8")
+
+    print(f"report: reports/{day}.md")
+    print(f"email body: email.html")
+    print(f"recipients allowed: {', '.join(auth.get('allowed_recipients', []))}")
+    print(f"matches: {len(matches)}  to verify: {len(pending)}")
+
+    if not args.commit:
+        print("dry run — state not written (pass --commit after the email is sent)")
+        return 0
+
+    seen = Seen(root)
+    for row in [*matches, *pending]:
+        seen.add(row["candidate_key"], row["title"], row["company"])
+    for c in candidates["candidates"]:
+        seen.add(c["candidate_key"], c["title"], c["company"])
+    seen.save()
+    journal.record(day, "completed", matches=len(matches), pending=len(pending))
+    journal.save()
+    print("state committed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
