@@ -2,7 +2,8 @@
 
 You are running the daily job scan. Both repositories are cloned for you.
 
-Read `career-ai/CLAUDE.md` and follow it exactly, in order. It is the contract
+Start with `cd career-ai && export PYTHONPATH=src`. Read `career-ai/CLAUDE.md` and
+follow it exactly, in order. It is the contract
 for this run. In short:
 
 1. Verify `career-data/authorization.yaml` has `active: true`; otherwise stop.
