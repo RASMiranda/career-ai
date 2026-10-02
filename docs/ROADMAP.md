@@ -12,6 +12,12 @@ spent. The criteria file should include 5-10 past postings labelled would-open /
 would-not, as the baseline for false positives.
 Exit: two weeks of dry runs where you would genuinely open most emailed matches.
 
+Known P0 defects to fix in Claude Code before relying on Adzuna/JSearch:
+`collect` returns silently empty and still spends budget when a source's key is
+missing. Prompt: "In jobscan.collect, if a source requires a secret that is not
+set, record `<source>: missing credentials, skipped` in errors and do not call
+budget.spend. Add a test with a fake source. Do not change any other behaviour."
+
 ## P1 · Two more users, separate data
 Do: one **private data repo per person** (never share one repo between people);
 same engine, different `--data`.
