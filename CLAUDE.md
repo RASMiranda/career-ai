@@ -18,7 +18,10 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
 
 ## Order of steps
 
-1. `pip install -r career-ai/requirements.txt` (if the setup script has not).
+1. Work from inside `career-ai`: `cd career-ai && export PYTHONPATH=src`, and
+   `pip install -r requirements.txt` if PyYAML is missing. Confirm
+   `../career-data/authorization.yaml` exists. If the two repos are not siblings,
+   **stop** and report where they are; do not guess paths.
 2. `python -m jobscan.collect --data ../career-data --out /tmp/candidates.json`
    (blacklisted companies are already removed; do not re-add them).
 3. **Your only judgement task:** read
