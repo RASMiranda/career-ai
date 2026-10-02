@@ -120,3 +120,16 @@ places is an error), so old data repos keep working.
 Consequences: adding a user is adding a folder; a profile's data is
 self-contained, which is the shape a per-user table needs later.
 
+## ADR-012 · 2026-10-02 · The applicant is per profile: profiles/<id>/applicant.yaml
+Context: `apply run` read one `applicant.yaml` at the data-repo root, so every
+queued job was filled in with the same person's details, wrong for a second
+profile and the last per-person file outside `profiles/`.
+Decision: the applicant (name, contact, pre-approved answers) is
+`profiles/<id>/applicant.yaml`, still gitignored and local to the machine that
+runs `apply run`; `applicant.example.yaml` is the template beside it. Each
+queued job uses the applicant of its own profile. A profile without a usable
+file is skipped with a message and its jobs stay `approved`; the run exits 2 if
+that leaves nothing to do. The old root-level file is not read as a fallback
+(it could put one person's details on another's application); the error says
+to move it.
+
