@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 import yaml
@@ -145,15 +146,14 @@ def make_data(tmp_path, mode="manual", switch=False):
     (tmp_path / "config.yaml").write_text(yaml.safe_dump({
         "blacklist": {"companies": ["Proxify"]},
         "apply": {"mode": mode},
-        "profiles": [{"id": "p", "criteria": "x", "cv": {"dir": "cv-files"}}]}))
+        "profiles": [{"id": "p", "criteria": "x", "cv": {"dir": "cv-files"},
+                      "applicant": {"first_name": "Ana", "last_name": "Silva", "email": "a@b.test"}}]}))
     (tmp_path / "cv-files").mkdir()
     (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
         "active": True,
         "application_submission": {"allow_auto_submit": switch,
                                    "acknowledged_on": "2026-10-15" if switch else ""}}))
-    (tmp_path / "profiles/p/applicant.yaml").write_text(yaml.safe_dump({
-        "applicant": {"first_name": "Ana", "last_name": "Silva", "email": "a@b.test"}}))
     cands = {"candidates": [
         {"candidate_key": "aaaa1111bbbb2222", "profile": "p", "source": "s", "title": "Java",
          "company": "Acme", "url": "https://jobs.lever.co/acme/1"},
@@ -281,23 +281,25 @@ def test_blacklist_cli(tmp_path, capsys):
     assert "not blacklisted" in capsys.readouterr().out
 
 
-def test_applicant_is_read_per_profile(tmp_path):
+def test_applicant_comes_from_the_profile():
+    profile = {"id": "a", "applicant": {"first_name": "Ana", "last_name": "S", "email": "a@b.test"},
+               "answers": {"notice period": "1 month"}}
+    app, answers = cli._applicant(Path("."), profile)
+    assert app["first_name"] == "Ana" and answers == {"notice period": "1 month"}
+
+
+@pytest.mark.parametrize("applicant", [None, {}, {"first_name": "Ana"}])
+def test_incomplete_applicant_is_an_error(applicant):
+    with pytest.raises(ConfigError, match="applicant is missing"):
+        cli._applicant(Path("."), {"id": "a", "applicant": applicant})
+
+
+def test_old_applicant_files_are_not_silently_used(tmp_path):
     (tmp_path / "profiles/a").mkdir(parents=True)
     (tmp_path / "profiles/a/applicant.yaml").write_text(yaml.safe_dump({
-        "applicant": {"first_name": "Ana", "last_name": "S", "email": "a@b.test"},
-        "answers": {"notice period": "1 month"}}))
-    app, answers = cli._applicant(tmp_path, "a")
-    assert app["first_name"] == "Ana" and answers == {"notice period": "1 month"}
-    with pytest.raises(ConfigError, match="profiles.b.applicant.yaml"):
-        cli._applicant(tmp_path, "b")
-
-
-def test_old_root_level_applicant_file_is_not_silently_used(tmp_path):
-    (tmp_path / "profiles/a").mkdir(parents=True)
-    (tmp_path / "applicant.yaml").write_text(yaml.safe_dump({
         "applicant": {"first_name": "Ana", "last_name": "S", "email": "a@b.test"}}))
-    with pytest.raises(ConfigError, match="move it there"):
-        cli._applicant(tmp_path, "a")
+    with pytest.raises(ConfigError, match="Move the contents of profiles/a/applicant.yaml into it; that file is no longer read"):
+        cli._applicant(tmp_path, {"id": "a"})
 
 
 def test_run_skips_a_profile_without_applicant_but_runs_the_rest(tmp_path, monkeypatch, capsys):
