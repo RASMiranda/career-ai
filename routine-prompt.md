@@ -9,7 +9,8 @@ for this run. In short:
 1. Verify `career-data/authorization.yaml` has `active: true`; otherwise stop.
 2. Collect (blacklist already applied), then write exactly one decision per
    candidate to `/tmp/decisions.json` using only
-   `career-data/profiles/rui/01-knowledge/05-job-match.md` as criteria.
+   `career-data/profiles/rui/01-knowledge/05-job-match.md` as criteria, and
+   pick the best CV (`cv`) for each match from `career-data/profiles/rui/cv/`.
 3. Validate. If it fails, stop and report. Send nothing.
 4. Enqueue applications and build the applications summary. You do NOT submit
    anything and you do NOT run `apply run`.

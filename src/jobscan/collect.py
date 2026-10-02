@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .config import ConfigError, data_root, load_config, secret
 from .blacklist import Blacklist
+from .cv import catalog
 from .normalize import is_http_url
 from .sources import REGISTRY
 from .state import Budget, Seen
@@ -101,6 +102,8 @@ def main(argv=None) -> int:
         "blocked_by": blocked,
         "errors": errors,
         "candidates": [c.to_dict() for c in collected.values()],
+        # CV variants per profile: the AI picks one per match from profiles/<id>/cv/<variant>.md
+        "cv_variants": {p["id"]: sorted(catalog(root, p)) for p in cfg["profiles"]},
     }
     Path(args.out).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     budget.save()

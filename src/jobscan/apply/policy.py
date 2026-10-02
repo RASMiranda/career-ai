@@ -18,15 +18,12 @@ DEFAULTS = {
         "one_per_company_days": 30,
         "allowed_adapters": ["greenhouse", "lever", "ashby"],
     },
-    "cv_variants": {"default": "general", "by_tier": {}, "files": {}},
 }
 
 
 def apply_cfg(cfg: dict) -> dict:
     out = {**DEFAULTS, **(cfg.get("apply") or {})}
     out["auto"] = {**DEFAULTS["auto"], **((cfg.get("apply") or {}).get("auto") or {})}
-    out["cv_variants"] = {**DEFAULTS["cv_variants"],
-                          **((cfg.get("apply") or {}).get("cv_variants") or {})}
     return out
 
 

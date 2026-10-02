@@ -9,13 +9,16 @@ import sys
 from pathlib import Path
 
 from .blacklist import Blacklist
+from .cv import catalog
 from .config import ConfigError, data_root, load_authorization, load_config, recipient_problems
 from .models import CONFIDENCE, DISPOSITION, Decision
 from .normalize import is_http_url
 
 
 def validate(candidates: dict, decisions: list, auth: dict,
-             blacklist: Blacklist | None = None, cfg: dict | None = None) -> tuple[list, list]:
+             blacklist: Blacklist | None = None, cfg: dict | None = None,
+             cvs: dict[str, set] | None = None) -> tuple[list, list]:
+    """``cvs`` maps profile id -> CV variant ids the AI may choose from."""
     problems, ok = [], []
     cand_by_key = {c["candidate_key"]: c for c in candidates["candidates"]}
     seen_keys = set()
@@ -49,6 +52,15 @@ def validate(candidates: dict, decisions: list, auth: dict,
                 continue
             if not is_http_url(cand_by_key[key].get("url", "")):
                 problems.append(f"{key}: emailable match has no valid http(s) link")
+                continue
+        if cvs is not None:
+            options = cvs.get(cand_by_key[key].get("profile"), set())
+            chosen = raw.get("cv") or ""
+            if chosen and chosen not in options:
+                problems.append(f"{key}: unknown cv {chosen!r} (choose from {sorted(options) or 'none'})")
+                continue
+            if raw["disposition"] == "email" and options and not chosen:
+                problems.append(f"{key}: emailable match has no cv chosen")
                 continue
         if blacklist and raw["disposition"] != "discarded":
             hit = blacklist.match(cand_by_key[key])
@@ -89,7 +101,8 @@ def main(argv=None) -> int:
     if isinstance(decisions, dict):
         decisions = decisions.get("decisions", [])
 
-    ok, problems = validate(candidates, decisions, auth, Blacklist.from_config(cfg), cfg)
+    cvs = {p["id"]: set(catalog(root, p)) for p in cfg["profiles"]}
+    ok, problems = validate(candidates, decisions, auth, Blacklist.from_config(cfg), cfg, cvs)
     if problems:
         print("VALIDATION FAILED — nothing will be delivered:", file=sys.stderr)
         for p in problems:

@@ -70,6 +70,17 @@ only from your `applicant.yaml`. Unknown required question, CAPTCHA, login wall
 or layout change → it stops, logs a redacted failure, and hands the job to you
 with the link. See `docs/ARCHITECTURE.md` and `GETTING-STARTED.md`.
 
+### CVs, per profile
+
+Each profile sets `cv.dir` (a folder with one subfolder per CV, as in Google
+Drive; names can vary) and `cv.default` in `config.yaml`. For every match the AI
+picks a variant from the profile's cards, `profiles/<id>/cv/<variant>.md`, and
+`apply run` uploads that variant's file (PDF preferred over DOCX).
+
+```bash
+python -m jobscan.cv --data ../career-data   # variants found: cards vs files
+```
+
 ## Sources
 
 Sources are registry entries declared in `career-data/config.yaml → sources`,
