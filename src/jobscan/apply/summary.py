@@ -27,7 +27,8 @@ def sections(queue: Queue, days: int = 7, profile: str | None = None) -> dict[st
 
 
 def _line(i: dict) -> str:
-    return f"{i['title']} — {i['company']} · fit {i.get('fit', '?')} · `{i['candidate_key'][:8]}`"
+    cv = f" · CV {i['cv']}" if i.get("cv") else ""
+    return f"{i['title']} — {i['company']} · fit {i.get('fit', '?')}{cv} · `{i['candidate_key'][:8]}`"
 
 
 def render_markdown(queue: Queue, days: int = 7) -> str:
@@ -69,7 +70,9 @@ def render_html(queue: Queue, days: int = 7, profile: str | None = None) -> str:
         url = i["url"] if is_http_url(i.get("url", "")) else ""
         link = f' · <a href="{e(url)}" style="color:#0b5cad">Open posting</a>' if url else ""
         return (f'<li style="margin:0 0 8px"><b>{e(i["title"])}</b> — {e(i["company"])} '
-                f'· fit {e(str(i.get("fit", "?")))} · <code>{e(i["candidate_key"][:8])}</code>'
+                f'· fit {e(str(i.get("fit", "?")))}'
+                + (f' · CV {e(i["cv"])}' if i.get("cv") else "")
+                + f' · <code>{e(i["candidate_key"][:8])}</code>'
                 f'{link}{extra}</li>')
 
     parts = ['<div style="font-family:system-ui,Arial,sans-serif;max-width:640px;margin-top:24px">',

@@ -39,6 +39,7 @@ class Decision:
     why: str
     caution: str = ""
     next_action: str = ""
+    cv: str = ""            # CV variant id from the profile's catalog (see jobscan.cv)
 
     @staticmethod
     def required_fields() -> tuple:

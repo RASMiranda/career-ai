@@ -24,6 +24,7 @@ from pathlib import Path
 
 import yaml
 
+from .. import cv
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
 from . import faillog, policy, summary
@@ -43,14 +44,16 @@ def _applicant(root: Path) -> tuple[dict, dict]:
     return app, answers
 
 
-def _cv_for(item: dict, acfg: dict) -> str | None:
-    cv = acfg["cv_variants"]
-    variant = (cv.get("by_tier") or {}).get(item.get("tier")) or cv.get("default")
-    raw = (cv.get("files") or {}).get(variant)
-    if not raw:
+def _cv_for(item: dict, root: Path, cfg: dict) -> str | None:
+    """The CV the AI chose for this job, else the profile's default."""
+    profile = cv.profile_by_id(cfg, item.get("profile"))
+    if profile is None:
         return None
-    path = Path(raw).expanduser()
-    if not path.is_file():
+    variant = item.get("cv") or cv.settings(profile)["default"]
+    if not variant:
+        return None
+    path = cv.find(cv.local_files(root, profile), variant)
+    if path is None or not path.is_file():
         raise ApplyFailure(Code.CV_MISSING, f"CV variant {variant!r} not found", "prepare")
     return str(path)
 
@@ -73,7 +76,8 @@ def cmd_enqueue(args, root, cfg, auth):
         c = cands[key]
         item = {"title": c["title"], "company": c["company"], "url": c["url"],
                 "source": c["source"], "fit": d["fit"], "tier": d["tier"],
-                "confidence": d["confidence"], "profile": c.get("profile")}
+                "confidence": d["confidence"], "profile": c.get("profile"),
+                "cv": d.get("cv") or ""}
         bl = Blacklist.from_config(cfg, c.get("profile"))
         status, notes = policy.initial_status(item, acfg, auth, q, bl)
         q.add(key, {**item, "status": status, "policy_notes": notes,
@@ -130,7 +134,7 @@ def cmd_run(args, root, cfg, auth):
             adapter = pick_adapter(item["url"], acfg["auto"]["allowed_adapters"])
             if adapter is None:
                 raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
-            result = adapter.apply(item, applicant, answers, _cv_for(item, acfg),
+            result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
                                    submit=submit, headless=headless, hold=mode == "assisted")
             if result.status == "submitted":
                 q.set(key, "submitted"); print(f"  submitted  {label}")

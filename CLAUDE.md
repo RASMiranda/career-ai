@@ -26,8 +26,8 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
 2. `python -m jobscan.collect --data ../career-data --out /tmp/candidates.json`
    (blacklisted companies are already removed; do not re-add them).
 3. **Your only judgement task:** read
-   `career-data/profiles/<id>/01-knowledge/05-job-match.md` and
-   `/tmp/candidates.json`. Write `/tmp/decisions.json`: a JSON array with
+   `career-data/profiles/<id>/01-knowledge/05-job-match.md`, the CV cards in
+   `career-data/profiles/<id>/cv/*.md` and `/tmp/candidates.json`. Write `/tmp/decisions.json`: a JSON array with
    **exactly one** object per candidate:
 
    ```json
@@ -35,8 +35,13 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
     "confidence": "high|medium|low",
     "disposition": "email|low-confidence|discarded",
     "why": "short factual justification",
-    "caution": "main risk or gap", "next_action": "recommended human action"}
+    "caution": "main risk or gap", "next_action": "recommended human action",
+    "cv": "variant id"}
    ```
+
+   `cv` is the CV variant that best fits the job, chosen from
+   `candidates.json → cv_variants[<profile>]` (the card file names). Required
+   for `email`, optional otherwise; omit it if the profile has no cards.
 
 4. `python -m jobscan.validate --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json`
    — if non-zero, **stop**. Send nothing. Report the errors.
@@ -61,6 +66,10 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
 - LinkedIn alert emails carry title, company and location only: those go to
   `low-confidence`, never straight to `email`.
 - Never invent a salary, contract type or remote policy. Absent means absent.
+- Pick the CV by what the role is (lead, architect, project manager, developer),
+  using each card's "Use for". When unsure, use the profile's default
+  (`config.yaml → profiles[].cv.default`). Never a card that says "never" for
+  that kind of job.
 - Staffing/talent-marketplace postings that hide the end client are
   `low-confidence` at best.
 

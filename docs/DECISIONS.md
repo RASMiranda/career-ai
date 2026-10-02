@@ -93,3 +93,17 @@ Consequences: the routine may email only the `to` list of each delivery entry.
 The recipient limit is still an instruction to the model (ADR-007), now backed
 by a manifest built by code rather than a list the model reads and matches.
 
+## ADR-010 · 2026-10-02 · CVs are per profile, and the AI picks one per job
+Context: CV files were one global `apply.cv_variants` map of placeholder paths,
+chosen only by tier. Each user keeps several CVs (general, tech lead, architect,
+project manager…) in a Drive folder, one subfolder per variant, with free naming.
+Decision: each profile declares `cv.dir` (Drive-style folder, or a folder in the
+data repo) and `cv.default`. Variant ids are derived from folder names (person's
+name, shared prefix and "resume"/"cv" dropped). The cloud scan cannot reach the
+files, so each variant has a card in `profiles/<id>/cv/<variant>.md`; the AI
+chooses `cv` per decision from those cards, `validate` rejects unknown ids and
+emailable matches without one, and `apply run` resolves the id to a file locally
+(PDF over DOCX). A missing file is `CV_MISSING`, never a silent fallback.
+Consequences: adding a CV means adding the folder and its card;
+`python -m jobscan.cv` shows mismatches between the two.
+

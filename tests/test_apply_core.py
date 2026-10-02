@@ -144,7 +144,9 @@ def make_data(tmp_path, mode="manual", switch=False):
     (tmp_path / "config.yaml").write_text(yaml.safe_dump({
         "blacklist": {"companies": ["Proxify"]},
         "apply": {"mode": mode},
-        "profiles": [{"id": "p", "criteria": "x"}]}))
+        "profiles": [{"id": "p", "criteria": "x", "cv": {"dir": "cv-files"}}]}))
+    (tmp_path / "cv-files").mkdir()
+    (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
         "active": True,
         "application_submission": {"allow_auto_submit": switch,
@@ -157,7 +159,7 @@ def make_data(tmp_path, mode="manual", switch=False):
         {"candidate_key": "cccc3333dddd4444", "profile": "p", "source": "s", "title": "Java",
          "company": "Proxify", "url": "https://x.test/2"}]}
     decs = [{"candidate_key": k, "fit": 90, "tier": "core", "confidence": "high",
-             "disposition": "email", "why": "w"} for k in ("aaaa1111bbbb2222", "cccc3333dddd4444")]
+             "disposition": "email", "why": "w", "cv": "general"} for k in ("aaaa1111bbbb2222", "cccc3333dddd4444")]
     (tmp_path / "c.json").write_text(json.dumps(cands))
     (tmp_path / "d.json").write_text(json.dumps(decs))
     return ["--data", str(tmp_path)]
@@ -173,6 +175,7 @@ def test_cli_manual_flow(tmp_path, capsys):
                    "--decisions", str(tmp_path / "d.json")) == 0
     q = Queue(tmp_path)
     assert q.items["aaaa1111bbbb2222"]["status"] == "queued"
+    assert q.items["aaaa1111bbbb2222"]["cv"] == "general"
     assert q.items["cccc3333dddd4444"]["status"] == "skipped"         # blacklisted
     assert run_cli(base, "approve", "aaaa11") == 0
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["approval"] == "user"
@@ -251,11 +254,22 @@ def test_dry_run_failure_is_logged_but_status_unchanged(tmp_path, monkeypatch):
     assert list((tmp_path / "logs/apply").glob("*.jsonl"))
 
 
-def test_missing_cv_is_a_clean_failure():
-    acfg = policy.apply_cfg({"apply": {"cv_variants": {"default": "g", "files": {"g": "/nope/cv.pdf"}}}})
+def test_missing_cv_is_a_clean_failure(tmp_path):
+    cfg = {"profiles": [{"id": "p", "cv": {"default": "g", "files": {"g": "/nope/cv.pdf"}}}]}
     with pytest.raises(ApplyFailure) as e:
-        cli._cv_for({"tier": "core"}, acfg)
+        cli._cv_for({"profile": "p"}, tmp_path, cfg)
     assert e.value.code == Code.CV_MISSING
+
+
+def test_chosen_cv_wins_over_default(tmp_path):
+    for name in ("Ana Silva Resume General", "Ana Silva Resume Tech Lead"):
+        (tmp_path / "CV" / name).mkdir(parents=True)
+        (tmp_path / "CV" / name / f"{name}.pdf").write_bytes(b"%PDF")
+    cfg = {"profiles": [{"id": "p", "display_name": "Ana",
+                         "cv": {"dir": "CV", "default": "general"}}]}
+    assert cli._cv_for({"profile": "p", "cv": "tech-lead"}, tmp_path, cfg).endswith("Tech Lead.pdf")
+    assert cli._cv_for({"profile": "p"}, tmp_path, cfg).endswith("General.pdf")
+    assert cli._cv_for({"profile": "other"}, tmp_path, cfg) is None
 
 
 def test_blacklist_cli(tmp_path, capsys):

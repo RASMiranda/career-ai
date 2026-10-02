@@ -52,7 +52,8 @@ def render_markdown(day: str, matches: list, pending: list, errors: list) -> str
             + (f" · {m['salary']}" if m.get("salary") else ""),
             f"- **Why** {m['why']}",
             f"- **Caution** {m.get('caution') or '—'}",
-            f"- **Next** {m.get('next_action') or '—'}",
+            f"- **Next** {m.get('next_action') or '—'}"
+            + (f" · **CV** {m['cv']}" if m.get("cv") else ""),
             f"- **Link** {m['url']} ({m['source']})", "",
         ]
     if pending:
@@ -71,7 +72,8 @@ def _card(row: dict) -> str:
     link = f'<a href="{e(url)}" style="color:#0b5cad">Open posting</a>' if url else "no link"
     meta = " · ".join(filter(None, [e(row.get("location") or ""),
                                     e(row.get("contract_type") or ""),
-                                    e(row.get("salary") or "")]))
+                                    e(row.get("salary") or ""),
+                                    e(f"CV: {row['cv']}") if row.get("cv") else ""]))
     return (
         '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 12px">'
         f'<div style="font-weight:600;font-size:15px">{e(row["title"])}</div>'
