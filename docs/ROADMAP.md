@@ -5,6 +5,11 @@ Each prompt is run in Claude Code, inside `career-ai`.
 
 ## P0 · Prove it for one person (now)
 Do: setup per GETTING-STARTED.md; manual apply mode; fill the five knowledge docs.
+Sources for P0: only the four already implemented (Remotive, Arbeitnow, Adzuna,
+JSearch). The registry in `career-data/config.yaml` lists the rest as planned.
+Measure per run: candidates, emailed, opened by you, dismissed as noise, minutes
+spent. The criteria file should include 5-10 past postings labelled would-open /
+would-not, as the baseline for false positives.
 Exit: two weeks of dry runs where you would genuinely open most emailed matches.
 
 ## P1 · Two more users, separate data
@@ -21,8 +26,17 @@ behaviour; all tests must still pass.
    and state code behind FileStore. Sources become registered plugins, each with
    a JSON-schema for its params.
 3. Load config from the Store, not hard-coded paths.
+3b. Add SourceManifest (id, access_method enum with no "scrape", terms_reviewed,
+   rate_limit, redistribution_allowed, params JSON-schema). The registry rejects a
+   manifest with missing fields or a denylisted domain (LinkedIn first). Add
+   SourceHealth (ok | degraded | empty-unexpectedly | failed) per source per run
+   and have the Notifier report any change. Implement ats_board (greenhouse,
+   lever, ashby) and hn_hiring as the first new plugins, tested against recorded
+   fixtures with no live network in tests.
 4. Add a UsageLedger recording API calls and LLM tokens per tenant per run.
-5. Add tests for every seam using fakes.
+5. Add tests for every seam using fakes, plus: incomplete manifest rejected,
+   denylisted domain rejected, every plugin's output validates as a Candidate,
+   an unexpectedly empty source raises SourceHealth, not silence.
 Do not add a web server, database or auth yet.
 ```
 Exit: a second tenant runs from a fake in-memory Store in tests.

@@ -11,7 +11,8 @@ data).
 matches, and hands you ready-to-act applications. You stay in control."
 
 ## What it does
-1. Collects jobs from configurable sources (APIs, feeds, email alerts).
+1. Collects jobs from configurable sources: open and keyed APIs, feeds, company
+   ATS boards, and alert emails (see ARCHITECTURE §2b).
 2. Removes duplicates and blacklisted companies deterministically.
 3. Scores fit against **your** written criteria, with a reason and a caution.
 4. Delivers a short digest.
@@ -24,6 +25,14 @@ matches, and hands you ready-to-act applications. You stay in control."
 - Not a LinkedIn scraper or Easy-Apply automator.
 - Not a CAPTCHA solver, not an identity-spoofing tool.
 - Not a promise of interviews or offers.
+
+## Sources
+Sources are configuration. Each is enabled per profile and declares how it is
+reached. Registered today: Remotive, Arbeitnow, Adzuna, JSearch (in use);
+Greenhouse, Lever, Ashby, Hacker News "Who is hiring" (planned, P2); LinkedIn,
+Indeed, Glassdoor, Braintrust (registered; alert emails or manual channel);
+Malt, Toptal, Shakers, Turing (manual checklist). Direct scanning of closed
+platforms is not part of the product until a superseding ADR says so (ADR-008).
 
 ## Free vs paid (HYPOTHESIS — validate with real users before building billing)
 | | Free | Paid |
@@ -48,3 +57,5 @@ Not a goal: number of applications sent.
 ## Out of scope until the core is proven
 Mobile app, CV generation marketplace, recruiter CRM, team accounts,
 white-label, any server-side auto-submission on behalf of paying users.
+Direct scraping or automated submission on closed platforms (LinkedIn, Indeed,
+Glassdoor, Braintrust) for any user.

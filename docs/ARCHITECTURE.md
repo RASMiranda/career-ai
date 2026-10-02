@@ -21,7 +21,7 @@ is **data**, everything behaviour-specific sits behind an **interface**.
 
 | Seam | Today | Product |
 |---|---|---|
-| `Source` | functions in `sources/`, params in `config.yaml` | plugin registry; each declares a JSON-schema for its params; the portal renders the settings form from the schema, so a new source needs no UI work |
+| `Source` | `REGISTRY` in `sources/` (name → fetch function); queries and params in `config.yaml` | plugin registry; each plugin ships a manifest (access method, terms status, rate limit, params JSON-schema); the portal renders the settings form from the schema, so a new source needs no UI work |
 | `Evaluator` | Claude inside the routine | API worker: small model for triage, larger for borderline; cached criteria prompt; hard token cap per run |
 | `Notifier` | Gmail connector | email, Telegram, Slack per user |
 | `Store` | files in the private repo | Postgres, `user_id` on every row, row-level security |
@@ -32,6 +32,50 @@ is **data**, everything behaviour-specific sits behind an **interface**.
 Rules that keep it clean: the engine takes a `TenantContext` (user, profile,
 entitlements); no step reads globals or hard-coded paths; the worker never
 knows about Stripe, only about entitlements.
+
+## 2b. Source registry (sources are configuration, not code paths)
+
+Every job source is a registry entry. Enabling, disabling or adding one is a
+config change; a new *kind* of source is a plugin.
+
+**Access methods** (the only allowed values; there is deliberately no `scrape`):
+
+| `access_method` | Meaning | Examples |
+|---|---|---|
+| `public_api` | Open JSON API, no key | Remotive, Arbeitnow, Hacker News "Who is hiring" (Algolia) |
+| `keyed_api` | Official API with a key and quota | Adzuna, JSearch (RapidAPI) |
+| `feed` | RSS/Atom | We Work Remotely and similar |
+| `ats_board` | Per-company public job board of an applicant-tracking system; you configure *which companies*, it does not search the market | Greenhouse, Lever, Ashby (Workable, SmartRecruiters, Recruitee: same shape, to verify) |
+| `email_alert` | Alert emails the user receives or forwards | LinkedIn, Indeed, Glassdoor, Braintrust (if it sends alerts) |
+| `manual_channel` | No machine access; listed as a checklist in the report | Malt, Toptal, Shakers, Turing |
+
+**Manifest** every plugin declares: `id`, `access_method`, `terms_reviewed`
+(date + link), `rate_limit`, `redistribution_allowed` (matters for the paid
+product: aggregator terms often restrict storing or reselling results), `params`
+(JSON-schema). The registry refuses a plugin missing any field. All sources emit
+the one normalised `Candidate`; blacklist and dedupe run after normalisation.
+
+**Closed platforms** (LinkedIn, Indeed, Glassdoor, Braintrust) are registered
+now so the source list is complete, with `email_alert` or `manual_channel` as the
+provisional method. Direct scanning or submission against them is **not**
+approved by the current decisions: it needs a superseding ADR first (ADR-008).
+
+**SourceHealth** (per source, per run): `ok | degraded | empty-unexpectedly |
+failed`. The Notifier alerts on any change. A source that silently returns zero
+results is worse than one that errors, because it quietly breaks "fewer, better".
+Today `collect` records per-source errors in `candidates.json`; the status model
+is P2 work.
+
+**Status as of 2026-10-02**
+
+| Source | Method | State |
+|---|---|---|
+| remotive, arbeitnow, adzuna, jsearch | public_api / keyed_api | implemented, in use |
+| greenhouse, lever, ashby | ats_board | planned (P2); public endpoints answered HTTP 200 on 2026-10-02, terms not reviewed |
+| hn_hiring | public_api | planned (P2); endpoint answered HTTP 200 on 2026-10-02, terms not reviewed |
+| linkedin, indeed, glassdoor | email_alert | registered, not implemented; alert ingestion waits on the routine-exposure review (ADR-007) |
+| braintrust | email_alert / manual_channel | registered; verify whether any API or alert email exists |
+| malt, toptal, shakers, turing | manual_channel | listed in `config.yaml → manual_channels` |
 
 ## 3. Data model (multi-tenant)
 
@@ -65,7 +109,10 @@ user B.
   rest, decrypted only inside the worker.
 - Untrusted input: job text, alert emails, web pages. The model returns a
   schema-validated decision and nothing else; the validator fails closed.
-- The model has no network tools, no browser, no send capability.
+- Target (P4 `ApiEvaluator`): the model has no network tools, no browser, no send
+  capability. In P0 the routine session has a shell and the Gmail connector, so
+  the guarantee is *mitigated, not eliminated*: custom network allow-list,
+  proxy-injected API credentials, Gmail as the only connector (ADR-007).
 - Every external effect passes through code that checks `authorization`
   (today a YAML file, later `entitlements` + `consents`).
 - Logs are redacted at write time; bundles shared with an AI contain no names,

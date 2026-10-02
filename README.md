@@ -72,13 +72,24 @@ with the link. See `docs/ARCHITECTURE.md` and `GETTING-STARTED.md`.
 
 ## Sources
 
-| Source | Key needed | Notes |
-|---|---|---|
-| Remotive | no | Remote-first roles, good signal for contract/remote |
-| Arbeitnow | no | EU/remote board, no auth |
-| Adzuna | yes | Country-scoped; free developer tier |
-| JSearch (RapidAPI) | yes | Broad aggregation; monthly quota, budget-tracked |
-| LinkedIn job alerts | no | Read via the Gmail connector by the routine, not by this code |
+Sources are registry entries declared in `career-data/config.yaml → sources`,
+each with an `access_method` (`public_api`, `keyed_api`, `feed`, `ats_board`,
+`email_alert`, `manual_channel`; there is no `scrape`). See
+`docs/ARCHITECTURE.md` §2b and ADR-008.
+
+| Source | Method | Key | State |
+|---|---|---|---|
+| Remotive | public_api | no | implemented |
+| Arbeitnow | public_api | no | implemented |
+| Adzuna | keyed_api | yes | implemented (free developer tier) |
+| JSearch (RapidAPI) | keyed_api | yes | implemented (monthly quota, budget-tracked) |
+| Greenhouse, Lever, Ashby | ats_board | no | planned (P2) |
+| Hacker News "Who is hiring" | public_api | no | planned (P2) |
+| LinkedIn, Indeed, Glassdoor | email_alert | no | registered, not implemented |
+| Braintrust | email_alert / manual | no | registered; verify access |
+
+Closed platforms are listed so the registry is complete. Direct scanning or
+submission against them needs a superseding ADR first.
 
 ## Licence
 
