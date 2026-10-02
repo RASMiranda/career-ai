@@ -1,7 +1,7 @@
 import pytest
 from jobscan.validate import validate
 
-AUTH = {"active": True, "allowed_recipients": ["me@example.test"]}
+AUTH = {"active": True}
 CANDS = {"candidates": [
     {"candidate_key": "k1", "title": "A", "company": "X", "url": "https://x.test/1"},
     {"candidate_key": "k2", "title": "B", "company": "Y", "url": ""},
@@ -50,3 +50,24 @@ def test_fit_must_be_int_0_100(bad):
 def test_inactive_authorization_blocks_everything():
     _, problems = validate(CANDS, [d("k1"), d("k2")], {"active": False})
     assert any("active is not true" in p for p in problems)
+
+
+def _cfg(**notify):
+    return {"profiles": [{"id": "p", "notify": notify}]}
+
+
+def test_recipients_come_from_each_profile_not_authorization():
+    _, problems = validate(CANDS, [d("k1"), d("k2")], AUTH,
+                           cfg=_cfg(email=["me@mail.test"]))
+    assert problems == []
+
+
+@pytest.mark.parametrize("notify, needle", [
+    ({}, "no notify.email"),
+    ({"email": []}, "no notify.email"),
+    ({"email": ["not-an-address"]}, "invalid address"),
+    ({"email": ["REPLACE-WITH-YOUR-EMAIL@example.com"]}, "placeholder"),
+])
+def test_profile_without_a_usable_recipient_fails(notify, needle):
+    _, problems = validate(CANDS, [d("k1"), d("k2")], AUTH, cfg=_cfg(**notify))
+    assert any(needle in p for p in problems)

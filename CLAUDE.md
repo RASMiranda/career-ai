@@ -7,7 +7,8 @@ mid-run. If a step fails, **stop and report** — never improvise a workaround.
 
 - `career-ai` (this repo) — code. Never commit personal data here.
 - `career-data` — private. Criteria, state, queue, reports. Read
-  `authorization.yaml` first; if `active` is not `true`, stop.
+  `authorization.yaml` first; if `active` is not `true`, stop. Who gets the
+  email is per profile: `config.yaml → profiles[].notify.email`.
 
 ## What you may and may not do
 
@@ -40,12 +41,13 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
 4. `python -m jobscan.validate --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json`
    — if non-zero, **stop**. Send nothing. Report the errors.
 5. `python -m jobscan.apply --data ../career-data enqueue --candidates /tmp/candidates.json --decisions /tmp/decisions.json`
-6. `python -m jobscan.apply --data ../career-data summary --html /tmp/apply.html`
-7. `python -m jobscan.report --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json --extra-html /tmp/apply.html`
-8. Send `email.html` via the Gmail connector to the addresses in
-   `authorization.yaml` **and no others**. Subject
-   `[Job Scan] <date> — <n> matches`. If there are no matches, nothing to
-   verify and `/tmp/apply.html` is empty, skip the email.
+6. `python -m jobscan.apply --data ../career-data summary`
+7. `python -m jobscan.report --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json --out-dir /tmp/out`
+8. Read `/tmp/out/deliveries.json`. For each entry with `"send": true`, send
+   its `body` file via the Gmail connector to that entry's `to` addresses
+   **and no others**, with that entry's `subject`. Recipients come from each
+   profile's `notify.email` in `config.yaml`; never mix one profile's email
+   with another's recipients. Entries with `"send": false` get no email.
 9. Re-run step 7 with `--commit`, then commit `reports/`, `state/`,
    `applications/` and `logs/` in `career-data` and push to `main`. If the push
    is rejected, push to `claude/job-scan` instead and say so in your final report.

@@ -8,3 +8,5 @@ report.md
 email.html
 *.local.yaml
 .env
+email-*.html
+deliveries.json

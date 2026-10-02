@@ -146,7 +146,7 @@ def make_data(tmp_path, mode="manual", switch=False):
         "apply": {"mode": mode},
         "profiles": [{"id": "p", "criteria": "x"}]}))
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
-        "active": True, "allowed_recipients": ["a@b.test"],
+        "active": True,
         "application_submission": {"allow_auto_submit": switch,
                                    "acknowledged_on": "2026-10-15" if switch else ""}}))
     (tmp_path / "applicant.yaml").write_text(yaml.safe_dump({

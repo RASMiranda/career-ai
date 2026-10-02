@@ -16,7 +16,7 @@ Four steps. Only step 2 uses AI.
 | 1. `collect` | Python | Query sources, normalise, dedupe against seen-state, write `candidates.json` |
 | 2. *evaluate* | Claude | Read `05-job-match.md` + `candidates.json`, write one decision per candidate |
 | 3. `validate` | Python | Schema, score range, link validity, one-decision-per-candidate. Fails closed |
-| 4. `report` | Python | Render `report.md` + `email.html`, update seen/budget/journal |
+| 4. `report` | Python | Render `report.md` + one `email-<profile>.html` each, plus `deliveries.json` (recipients from `profiles[].notify.email`); update seen/budget/journal |
 
 Claude never sees credentials, never calls a job API, never sends the email
 itself from inside the Python steps. Delivery is a separate, explicitly

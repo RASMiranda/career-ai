@@ -9,13 +9,13 @@ import sys
 from pathlib import Path
 
 from .blacklist import Blacklist
-from .config import ConfigError, data_root, load_authorization, load_config
+from .config import ConfigError, data_root, load_authorization, load_config, recipient_problems
 from .models import CONFIDENCE, DISPOSITION, Decision
 from .normalize import is_http_url
 
 
 def validate(candidates: dict, decisions: list, auth: dict,
-             blacklist: Blacklist | None = None) -> tuple[list, list]:
+             blacklist: Blacklist | None = None, cfg: dict | None = None) -> tuple[list, list]:
     problems, ok = [], []
     cand_by_key = {c["candidate_key"]: c for c in candidates["candidates"]}
     seen_keys = set()
@@ -63,8 +63,8 @@ def validate(candidates: dict, decisions: list, auth: dict,
 
     if not auth.get("active"):
         problems.append("authorization.yaml: active is not true")
-    if not auth.get("allowed_recipients"):
-        problems.append("authorization.yaml: no allowed_recipients")
+    if cfg is not None:
+        problems += recipient_problems(cfg)
 
     return ok, problems
 
@@ -89,7 +89,7 @@ def main(argv=None) -> int:
     if isinstance(decisions, dict):
         decisions = decisions.get("decisions", [])
 
-    ok, problems = validate(candidates, decisions, auth, Blacklist.from_config(cfg))
+    ok, problems = validate(candidates, decisions, auth, Blacklist.from_config(cfg), cfg)
     if problems:
         print("VALIDATION FAILED — nothing will be delivered:", file=sys.stderr)
         for p in problems:

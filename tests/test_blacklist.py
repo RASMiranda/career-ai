@@ -76,7 +76,7 @@ def test_validate_rejects_blacklisted_job_that_was_not_discarded():
                              "url": "https://x.test/1"}]}
     dec = {"candidate_key": "k", "fit": 90, "tier": "core", "confidence": "high",
            "disposition": "email", "why": "w"}
-    auth = {"active": True, "allowed_recipients": ["a@b.test"]}
+    auth = {"active": True}
     _, problems = validate(cands, [dec], auth, Blacklist(DEFAULT))
     assert any("blacklisted" in p for p in problems)
     _, problems = validate(cands, [{**dec, "disposition": "discarded"}], auth, Blacklist(DEFAULT))
