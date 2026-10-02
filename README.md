@@ -73,7 +73,7 @@ with the link. See `docs/ARCHITECTURE.md` and `GETTING-STARTED.md`.
 ### CVs, per profile
 
 Each profile sets `cv.dir` (a folder with one subfolder per CV, as in Google
-Drive; names can vary) and `cv.default` in `config.yaml`. For every match the AI
+Drive; names can vary) and `cv.default` in its `profiles/<id>/profile.yaml`. For every match the AI
 picks a variant from the profile's cards, `profiles/<id>/cv/<variant>.md`, and
 `apply run` uploads that variant's file (PDF preferred over DOCX).
 

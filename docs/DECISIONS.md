@@ -43,7 +43,7 @@ connector, and it reads untrusted job text.
 Decision: the environment restrictions in GETTING-STARTED Part 5 are mandatory for
 P0: custom network allow-list (never "Full"), API keys as proxy-injected
 credentials (never in the shell), Gmail as the only connector, recipients limited
-per profile by `config.yaml → profiles[].notify.email` (see ADR-009). The ADR-003 claim is amended to "mitigated in P0,
+per profile by `notify.email` in `profiles/<id>/profile.yaml` (see ADR-009, ADR-011). The ADR-003 claim is amended to "mitigated in P0,
 eliminated in P4 when `ApiEvaluator` is a tool-less API call". Email-alert
 ingestion (a third untrusted channel) stays off until this is verified on a real run.
 Consequences: residual risk is the Gmail connector (can send to any address; the
@@ -83,7 +83,7 @@ Context: … · Decision: … · Consequences: …
 Context: `authorization.yaml` held one `allowed_recipients` list, and the report
 rendered one combined email. With several people (PRODUCT: owner plus family,
 separate profiles) that would send everyone's matches to everyone.
-Decision: each profile declares `notify.email` in `config.yaml`. `report` renders
+Decision: each profile declares `notify.email` (originally in `config.yaml`, now its own file, ADR-011). `report` renders
 one `email-<profile>.html` per profile with only that profile's matches and
 application queue, and writes `deliveries.json` mapping each body to its
 recipients. `validate` fails closed if any profile has no usable address.
@@ -106,4 +106,17 @@ emailable matches without one, and `apply run` resolves the id to a file locally
 (PDF over DOCX). A missing file is `CV_MISSING`, never a silent fallback.
 Consequences: adding a CV means adding the folder and its card;
 `python -m jobscan.cv` shows mismatches between the two.
+
+## ADR-011 · 2026-10-02 · A profile's settings live in its own folder
+Context: every per-user setting (email, CV folder, queries, thresholds) sat in a
+`profiles:` list inside the shared `config.yaml`, so adding or editing a user
+meant touching global config.
+Decision: each profile is `profiles/<id>/profile.yaml`; the folder name is the
+id and the criteria default to `profiles/<id>/01-knowledge/05-job-match.md`.
+`load_config` builds `cfg["profiles"]` from those files, so nothing downstream
+changed. `config.yaml` keeps the global settings (sources, budgets, blacklist,
+apply, manual channels). Inline `profiles:` still loads (an id defined in both
+places is an error), so old data repos keep working.
+Consequences: adding a user is adding a folder; a profile's data is
+self-contained, which is the shape a per-user table needs later.
 
