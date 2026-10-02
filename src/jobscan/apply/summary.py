@@ -13,8 +13,11 @@ def _recent(item: dict, days: int) -> bool:
     return bool(ts) and datetime.fromisoformat(ts) >= datetime.now(timezone.utc) - timedelta(days=days)
 
 
-def sections(queue: Queue, days: int = 7) -> dict[str, list[dict]]:
-    pick = lambda *s: sorted(queue.by_status(*s), key=lambda i: -i.get("fit", 0))  # noqa: E731
+def sections(queue: Queue, days: int = 7, profile: str | None = None) -> dict[str, list[dict]]:
+    """``profile`` limits the sections to one profile's items (None = all)."""
+    pick = lambda *s: sorted((i for i in queue.by_status(*s)  # noqa: E731
+                              if profile is None or i.get("profile") == profile),
+                             key=lambda i: -i.get("fit", 0))
     return {
         "failed": pick("failed"),
         "queued": pick("queued"),
@@ -56,9 +59,9 @@ def render_markdown(queue: Queue, days: int = 7) -> str:
     return "\n".join(out)
 
 
-def render_html(queue: Queue, days: int = 7) -> str:
+def render_html(queue: Queue, days: int = 7, profile: str | None = None) -> str:
     e = html.escape
-    s = sections(queue, days)
+    s = sections(queue, days, profile)
     if not any(s.values()):
         return ""
 

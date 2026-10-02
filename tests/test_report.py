@@ -1,4 +1,6 @@
-from jobscan.report import _bucket, render_email, render_markdown
+import json
+
+from jobscan.report import _bucket, build_deliveries, render_email, render_markdown
 
 CANDS = {"generated_on": "2026-09-18", "errors": [], "candidates": [
     {"candidate_key": "k1", "title": "Senior Java Engineer", "company": "Acme",
@@ -45,3 +47,32 @@ def test_markdown_states_nothing_was_submitted():
     matches, pending = _bucket(CANDS, DECS)
     md = render_markdown("2026-09-18", matches, pending, [])
     assert "Nothing was submitted" in md
+
+
+def test_each_profile_gets_its_own_email_and_recipients(tmp_path):
+    cands = {"candidates": [dict(c, profile="a") for c in CANDS["candidates"][:2]]
+             + [dict(CANDS["candidates"][2], profile="b")]}
+    cfg = {"profiles": [{"id": "a", "notify": {"email": ["a@mail.test"]}},
+                        {"id": "b", "notify": {"email": "b@mail.test"}},
+                        {"id": "c", "notify": {"email": ["c@mail.test"]}}]}
+    out = {d["profile"]: d for d in build_deliveries("2026-09-18", cfg, cands, DECS,
+                                                    out_dir=tmp_path)}
+    assert out["a"]["to"] == ["a@mail.test"] and out["a"]["matches"] == 2
+    assert out["b"]["to"] == ["b@mail.test"] and out["b"]["pending"] == 1
+    assert out["c"]["send"] is False                 # nothing to report, no email
+    assert "Senior Java Engineer" not in (tmp_path / "email-b.html").read_text(encoding="utf-8")
+    assert out["a"]["subject"] == "[Job Scan] 2026-09-18 — 2 matches"
+    json.dumps(list(out.values()))                   # manifest is serialisable
+
+
+def test_applications_section_only_shows_that_profiles_queue(tmp_path):
+    from jobscan.apply.queue import Queue
+    q = Queue(tmp_path)
+    for key, prof, title in [("aaaa1111", "a", "Only-A role"), ("bbbb2222", "b", "Only-B role")]:
+        q.add(key, {"profile": prof, "title": title, "company": "X", "fit": 90,
+                    "url": "https://x.test", "status": "queued"})
+    cfg = {"profiles": [{"id": "a", "notify": {"email": ["a@mail.test"]}},
+                        {"id": "b", "notify": {"email": ["b@mail.test"]}}]}
+    build_deliveries("2026-09-18", cfg, {"candidates": []}, [], q, tmp_path)
+    a = (tmp_path / "email-a.html").read_text(encoding="utf-8")
+    assert "Only-A role" in a and "Only-B role" not in a

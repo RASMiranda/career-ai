@@ -43,7 +43,7 @@ connector, and it reads untrusted job text.
 Decision: the environment restrictions in GETTING-STARTED Part 5 are mandatory for
 P0: custom network allow-list (never "Full"), API keys as proxy-injected
 credentials (never in the shell), Gmail as the only connector, recipients limited
-by `authorization.yaml`. The ADR-003 claim is amended to "mitigated in P0,
+per profile by `config.yaml → profiles[].notify.email` (see ADR-009). The ADR-003 claim is amended to "mitigated in P0,
 eliminated in P4 when `ApiEvaluator` is a tool-less API call". Email-alert
 ingestion (a third untrusted channel) stays off until this is verified on a real run.
 Consequences: residual risk is the Gmail connector (can send to any address; the
@@ -78,3 +78,18 @@ decisions in this log supersede anything in that chat).
 ## Template
 ## ADR-n · YYYY-MM-DD · Title
 Context: … · Decision: … · Consequences: …
+
+## ADR-009 · 2026-10-02 · Email recipients are per profile, not global
+Context: `authorization.yaml` held one `allowed_recipients` list, and the report
+rendered one combined email. With several people (PRODUCT: owner plus family,
+separate profiles) that would send everyone's matches to everyone.
+Decision: each profile declares `notify.email` in `config.yaml`. `report` renders
+one `email-<profile>.html` per profile with only that profile's matches and
+application queue, and writes `deliveries.json` mapping each body to its
+recipients. `validate` fails closed if any profile has no usable address.
+`authorization.yaml` keeps the permissions (active, allowed actions, submission)
+and no longer holds addresses.
+Consequences: the routine may email only the `to` list of each delivery entry.
+The recipient limit is still an instruction to the model (ADR-007), now backed
+by a manifest built by code rather than a list the model reads and matches.
+

@@ -11,7 +11,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .config import ConfigError, data_root, load_authorization, load_config
+from .apply.queue import Queue
+from .apply.summary import render_html as render_applications
+from .config import ConfigError, data_root, load_authorization, load_config, recipients
 from .normalize import is_http_url
 from .state import Journal, Seen
 
@@ -98,20 +100,48 @@ def render_email(day: str, matches: list, pending: list, extra_html: str = "") -
     return "\n".join(body)
 
 
+def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
+                     queue: Queue | None = None, out_dir: Path = Path(".")) -> list[dict]:
+    """One email per profile, addressed only to that profile's notify.email.
+
+    Writes ``email-<profile>.html`` and returns the delivery manifest. ``send`` is
+    False when the profile has nothing to report, so no email goes out.
+    """
+    deliveries = []
+    for profile in cfg["profiles"]:
+        pid = profile["id"]
+        own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
+        matches, pending = _bucket(own, decisions)
+        apps = render_applications(queue, profile=pid) if queue else ""
+        body = out_dir / f"email-{pid}.html"
+        body.write_text(render_email(day, matches, pending, apps), encoding="utf-8")
+        deliveries.append({
+            "profile": pid,
+            "to": recipients(profile),
+            "subject": f"[Job Scan] {day} — {len(matches)} matches",
+            "body": str(body),
+            "matches": len(matches),
+            "pending": len(pending),
+            "send": bool(matches or pending or apps),
+        })
+    return deliveries
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Render report and email; update state.")
     ap.add_argument("--data")
     ap.add_argument("--candidates", default="candidates.json")
     ap.add_argument("--decisions", default="decisions.json")
-    ap.add_argument("--extra-html", help="HTML fragment appended to the email (applications section)")
+    ap.add_argument("--out-dir", default=".",
+                    help="where email-<profile>.html and deliveries.json are written")
     ap.add_argument("--commit", action="store_true",
                     help="persist seen-state and journal (omit for a dry run)")
     args = ap.parse_args(argv)
 
     try:
         root = data_root(args.data)
-        load_config(root)
-        auth = load_authorization(root)
+        cfg = load_config(root)
+        load_authorization(root)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
@@ -133,12 +163,17 @@ def main(argv=None) -> int:
     md = render_markdown(day, matches, pending, candidates.get("errors", []))
     (root / "reports").mkdir(exist_ok=True)
     (root / "reports" / f"{day}.md").write_text(md, encoding="utf-8")
-    extra = Path(args.extra_html).read_text(encoding="utf-8") if args.extra_html and Path(args.extra_html).is_file() else ""
-    Path("email.html").write_text(render_email(day, matches, pending, extra), encoding="utf-8")
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir)
+    (out_dir / "deliveries.json").write_text(json.dumps(deliveries, indent=2), encoding="utf-8")
 
     print(f"report: reports/{day}.md")
-    print(f"email body: email.html")
-    print(f"recipients allowed: {', '.join(auth.get('allowed_recipients', []))}")
+    print(f"deliveries: {out_dir / 'deliveries.json'}")
+    for d in deliveries:
+        status = f"send to {', '.join(d['to']) or 'NOBODY'}" if d["send"] else "nothing to send"
+        print(f"  {d['profile']}: {d['matches']} match(es), {d['pending']} to verify"
+              f" · {d['body']} · {status}")
     print(f"matches: {len(matches)}  to verify: {len(pending)}")
 
     if not args.commit:

@@ -39,6 +39,31 @@ def load_authorization(root: Path) -> dict:
     return yaml.safe_load(auth_path.read_text(encoding="utf-8")) or {}
 
 
+def recipients(profile: dict) -> list[str]:
+    """Addresses this profile's scan email goes to (config.yaml → profiles[].notify.email)."""
+    raw = (profile.get("notify") or {}).get("email") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [a.strip() for a in raw if isinstance(a, str) and a.strip()]
+
+
+def recipient_problems(cfg: dict) -> list[str]:
+    """Every profile needs at least one plausible, non-placeholder address."""
+    problems = []
+    for profile in cfg.get("profiles", []):
+        pid = profile.get("id", "?")
+        addrs = recipients(profile)
+        if not addrs:
+            problems.append(f"config.yaml: profile {pid!r} has no notify.email")
+        for a in addrs:
+            local, _, domain = a.partition("@")
+            if not local or "." not in domain or any(c.isspace() for c in a):
+                problems.append(f"config.yaml: profile {pid!r} has an invalid address {a!r}")
+            elif "REPLACE" in a.upper() or domain.lower().endswith("example.com"):
+                problems.append(f"config.yaml: profile {pid!r} still has a placeholder address")
+    return problems
+
+
 def secret(name: str) -> str | None:
     """Read a credential from the environment. Values are never logged."""
     value = os.environ.get(name)
