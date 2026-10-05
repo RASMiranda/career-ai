@@ -21,22 +21,34 @@ PENDING_FIT_FLOOR = 70
 PENDING_LIMIT = 6
 
 
-def _bucket(candidates: dict, decisions: list) -> tuple[list, list]:
+def _bucket(candidates: dict, decisions: list, profiles: list | None = None) -> tuple[list, list]:
+    """Split decisions into matches and "to verify" items.
+
+    Each candidate's profile may set ``pending_fit_floor`` and ``pending_limit``
+    (profile.yaml); the module defaults apply when it does not.
+    """
     cand = {c["candidate_key"]: c for c in candidates["candidates"]}
-    matches, pending = [], []
+    settings = {p["id"]: p for p in profiles or []}
+    matches, pending = [], {}
     for d in decisions:
         c = cand.get(d["candidate_key"])
         if not c:
             continue
         row = {**c, **d}
+        prof = settings.get(c.get("profile"), {})
         if d["disposition"] == "email":
             matches.append(row)
         elif (d["disposition"] == "low-confidence"
-              and d["fit"] >= PENDING_FIT_FLOOR and is_http_url(c.get("url", ""))):
-            pending.append(row)
+              and d["fit"] >= prof.get("pending_fit_floor", PENDING_FIT_FLOOR)
+              and is_http_url(c.get("url", ""))):
+            pending.setdefault(c.get("profile"), []).append(row)
     matches.sort(key=lambda r: r["fit"], reverse=True)
-    pending.sort(key=lambda r: r["fit"], reverse=True)
-    return matches, pending[:PENDING_LIMIT]
+    shown = []
+    for pid, rows in pending.items():
+        rows.sort(key=lambda r: r["fit"], reverse=True)
+        shown += rows[:settings.get(pid, {}).get("pending_limit", PENDING_LIMIT)]
+    shown.sort(key=lambda r: r["fit"], reverse=True)
+    return matches, shown
 
 
 def render_markdown(day: str, matches: list, pending: list, errors: list) -> str:
@@ -113,7 +125,7 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
     for profile in cfg["profiles"]:
         pid = profile["id"]
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
-        matches, pending = _bucket(own, decisions)
+        matches, pending = _bucket(own, decisions, [profile])
         apps = render_applications(queue, profile=pid) if queue else ""
         body = out_dir / f"email-{pid}.html"
         body.write_text(render_email(day, matches, pending, apps), encoding="utf-8")
@@ -160,7 +172,7 @@ def main(argv=None) -> int:
         return 1
 
     day = candidates.get("generated_on") or date.today().isoformat()
-    matches, pending = _bucket(candidates, decisions)
+    matches, pending = _bucket(candidates, decisions, cfg["profiles"])
 
     md = render_markdown(day, matches, pending, candidates.get("errors", []))
     (root / "reports").mkdir(exist_ok=True)

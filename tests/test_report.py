@@ -76,3 +76,20 @@ def test_applications_section_only_shows_that_profiles_queue(tmp_path):
     build_deliveries("2026-09-18", cfg, {"candidates": []}, [], q, tmp_path)
     a = (tmp_path / "email-a.html").read_text(encoding="utf-8")
     assert "Only-A role" in a and "Only-B role" not in a
+
+
+def test_pending_floor_and_limit_come_from_the_profile():
+    cands = {"candidates": [
+        {"candidate_key": f"k{i}", "profile": "a", "title": "T", "company": f"C{i}",
+         "url": "https://x.test/1", "source": "s"} for i in range(4)] + [
+        {"candidate_key": "z", "profile": "b", "title": "T", "company": "Z",
+         "url": "https://x.test/1", "source": "s"}]}
+    def dec(k, fit):
+        return {"candidate_key": k, "fit": fit, "tier": "radar", "confidence": "low",
+                "disposition": "low-confidence", "why": "w"}
+    decs = [dec("k0", 65), dec("k1", 62), dec("k2", 61), dec("k3", 59), dec("z", 65)]
+    # defaults: floor 70, so nothing shows
+    assert _bucket(cands, decs)[1] == []
+    profiles = [{"id": "a", "pending_fit_floor": 60, "pending_limit": 2}, {"id": "b"}]
+    _, pending = _bucket(cands, decs, profiles)
+    assert [p["candidate_key"] for p in pending] == ["k0", "k1"]   # a: floor 60, top 2; b keeps its 70 floor
