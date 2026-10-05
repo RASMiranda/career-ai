@@ -24,6 +24,8 @@ first and follow its security rules here too. This skill is for interactive work
 
 Never print or copy the `applicant` and `answers` sections of a `profile.yaml`.
 
+To onboard a person or add a CV, use the `add-profile` skill.
+
 ## Common tasks
 
 **Re-score without re-collecting.** Reuse the existing `/tmp/candidates.json`
