@@ -26,11 +26,21 @@ Never print or copy the `applicant` and `answers` sections of a `profile.yaml`.
 
 To onboard a person or add a CV, use the `add-profile` skill.
 
+## The pipeline (what the routine runs)
+
+`python -m jobscan.pipeline prepare|finish|commit|show --data ../career-data` chains
+collect, triage, validate, enqueue, report and the git push so a run costs few model
+turns. `prepare` auto-discards candidates by the profile's `prefilter` and prints a
+brief of the rest; `finish` merges `/tmp/auto-decisions.json` with the model's
+`/tmp/decisions.json`. To see what the prefilter dropped, read
+`/tmp/auto-decisions.json` (reason in `why`); tune `prefilter` in `profile.yaml`.
+Candidates over `prefilter.max_to_score` are deferred to the next run, not lost.
+
 ## Common tasks
 
 **Re-score without re-collecting.** Reuse the existing `/tmp/candidates.json`
-and rewrite `/tmp/decisions.json` (one decision per candidate, with a `cv` for
-every `email`). Collection costs API quota; scoring does not.
+and rewrite `/tmp/decisions.json` (one decision per candidate in the brief, with a
+`cv` for every `email`), then run `pipeline finish`. Collection costs API quota; scoring does not.
 
 **A run sent nothing.** In order: was `authorization.active` true? Did `collect`
 report source errors or missing keys? Were all candidates already in

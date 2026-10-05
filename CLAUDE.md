@@ -19,16 +19,22 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
 
 ## Order of steps
 
-1. Work from inside `career-ai`: `cd career-ai && export PYTHONPATH=src`, and
-   `pip install -r requirements.txt` if PyYAML is missing. Confirm
-   `../career-data/authorization.yaml` exists. If the two repos are not siblings,
-   **stop** and report where they are; do not guess paths.
-2. `python -m jobscan.collect --data ../career-data --out /tmp/candidates.json`
-   (blacklisted companies are already removed; do not re-add them).
-3. **Your only judgement task:** read
-   `career-data/profiles/<id>/01-knowledge/05-job-match.md`, the CV cards in
-   `career-data/profiles/<id>/cv/*.md` and `/tmp/candidates.json`. Write `/tmp/decisions.json`: a JSON array with
-   **exactly one** object per candidate:
+The pipeline chains the deterministic steps so each costs no model turn. Do not
+read `candidates.json`, re-run steps, or open files not named here: usage is limited.
+
+1. `cd career-ai && export PYTHONPATH=src`, and `pip install -r requirements.txt`
+   if PyYAML is missing. If the two repos are not siblings, **stop** and report
+   where they are; do not guess paths.
+2. `python -m jobscan.pipeline prepare --data ../career-data`. It stops if
+   `authorization.yaml` is not active, collects (blacklisted companies already
+   removed), auto-discards obvious rejects (`prefilter` in `profile.yaml`), and
+   prints a BRIEF of the candidates that need judgement.
+   **If it prints `NOTHING TO SCORE`, the run is already finished** (report
+   written, state committed and pushed): give the final report and stop.
+3. **Your only judgement task**, only when a brief was printed: read the criteria
+   file and CV cards named in each profile's brief header, nothing else. Write
+   `/tmp/decisions.json`: a JSON array with **exactly one** object per candidate
+   *in the brief* (not for the auto-discarded ones):
 
    ```json
    {"candidate_key": "…", "fit": 0, "tier": "core|radar",
@@ -39,23 +45,22 @@ apply-related actions are `enqueue` and `summary`, which submit nothing.
     "cv": "variant id"}
    ```
 
-   `cv` is the CV variant that best fits the job, chosen from
-   `candidates.json → cv_variants[<profile>]` (the card file names). Required
-   for `email`, optional otherwise; omit it if the profile has no cards.
-
-4. `python -m jobscan.validate --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json`
-   — if non-zero, **stop**. Send nothing. Report the errors.
-5. `python -m jobscan.apply --data ../career-data enqueue --candidates /tmp/candidates.json --decisions /tmp/decisions.json`
-6. `python -m jobscan.apply --data ../career-data summary`
-7. `python -m jobscan.report --data ../career-data --candidates /tmp/candidates.json --decisions /tmp/decisions.json --out-dir /tmp/out`
-8. Read `/tmp/out/deliveries.json`. For each entry with `"send": true`, send
-   its `body` file via the Gmail connector to that entry's `to` addresses
-   **and no others**, with that entry's `subject`. Recipients come from each
-   profile's `notify.email` in `profiles/<id>/profile.yaml`; never mix one profile's email
-   with another's recipients. Entries with `"send": false` get no email.
-9. Re-run step 7 with `--commit`, then commit `reports/`, `state/`,
-   `applications/` and `logs/` in `career-data` and push to `main`. If the push
-   is rejected, push to `claude/job-scan` instead and say so in your final report.
+   `cv` is the CV variant that best fits the job, from the variant list in the
+   brief header. Required for `email`, optional otherwise; omit it if the profile
+   has no CV cards. Keep `why`, `caution` and `next_action` under 25 words each.
+   If one borderline candidate needs more text:
+   `python -m jobscan.pipeline show <key> --data ../career-data`.
+4. `python -m jobscan.pipeline finish --data ../career-data`. It validates (non-zero
+   exit: **stop**, send nothing, report the errors), enqueues applications and builds
+   one email per profile. If no email is due, it also commits and pushes state.
+5. If `finish` lists emails to send: send each listed body file via the Gmail
+   connector to that entry's `to` addresses **and no others**, with that entry's
+   `subject`. Recipients come from each profile's `notify.email` in
+   `profiles/<id>/profile.yaml`; never mix one profile's email with another's
+   recipients. Then run `python -m jobscan.pipeline commit --data ../career-data`.
+6. Final report: the RUN SUMMARY the pipeline printed, whether emails were sent,
+   where state was pushed (`main`, or `claude/job-scan` if `main` was rejected:
+   say so), and anything that failed. Run no other git commands.
 
 ## Scoring rules
 
