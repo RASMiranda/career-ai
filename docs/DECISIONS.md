@@ -148,3 +148,23 @@ profile.yaml. Mitigations: the repo must stay private; CLAUDE.md forbids the
 routine to read or repeat those sections; they are only filled in if `apply run`
 is used. Empty fields still mean "unknown, hand the form back to the human".
 
+## ADR-014 · 2026-10-05 · Spend model usage only where judgement is needed
+Context: a scheduled run took 9 model turns and read about 490k cached tokens to
+score 8 candidates, 7 of which were obvious discards from title and company. Cost
+is dominated by turns (each re-reads the whole context), then by description text.
+Decision: (1) `jobscan.pipeline` chains collect, triage, validate, enqueue, report
+and the git push, so a run is `prepare`, optionally one scoring write, `finish`,
+optionally `commit`; when nothing needs scoring `prepare` finishes the run itself
+(one call). (2) A per-profile `prefilter` (junior/mid titles, required stack terms
+on described jobs) discards obvious rejects in code, with the reason recorded in
+`/tmp/auto-decisions.json`. (3) The model reads a compact brief (500-char excerpts,
+`pipeline show` for more) instead of `candidates.json`. (4) `max_to_score` (default
+40) caps a run; the rest is deferred, not marked seen. (5) `routine-prompt.md` is
+short and self-contained so `CLAUDE.md` need not be read on a normal run.
+Consequences: a prefilter reject never reaches the model, so rules must be
+conservative: they apply to described jobs only (alert emails always go to the
+model), and the terms list is broad. This narrows "broad collection, fine-grained
+elimination" slightly; the full reject list is auditable. Validation, the
+blacklist, the email recipient rule and the contract are unchanged. The model of the
+routine (Sonnet vs Haiku) is a separate, owner-controlled setting.
+

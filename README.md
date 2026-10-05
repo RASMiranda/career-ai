@@ -9,18 +9,30 @@ criteria and history are not.
 
 ## Design
 
-Four steps. Only step 2 uses AI.
+Four steps. Only step 2 uses AI, and only for candidates the code cannot settle.
 
 | Step | Runs | Responsibility |
 |---|---|---|
 | 1. `collect` | Python | Query sources, normalise, dedupe against seen-state, write `candidates.json` |
-| 2. *evaluate* | Claude | Read `05-job-match.md` + `candidates.json`, write one decision per candidate |
+| 1b. `triage` | Python | Discard obvious rejects by the profile's `prefilter` (junior titles, no stack terms), cap how many go to the model, print a short brief |
+| 2. *evaluate* | Claude | Read `05-job-match.md` + the brief, write one decision per briefed candidate |
 | 3. `validate` | Python | Schema, score range, link validity, one-decision-per-candidate. Fails closed |
 | 4. `report` | Python | Render `report.md` + one `email-<profile>.html` each, plus `deliveries.json` (recipients from `profiles[].notify.email`); update seen/budget/journal |
 
 Claude never sees credentials, never calls a job API, never sends the email
 itself from inside the Python steps. Delivery is a separate, explicitly
 authorised action.
+
+## Running it with few model turns
+
+`python -m jobscan.pipeline prepare | finish | commit` chains the steps below, so the
+routine needs about three tool calls on a quiet day (one when nothing needs scoring):
+
+```bash
+python -m jobscan.pipeline prepare --data ../career-data   # collect + triage + brief
+# ... Claude writes /tmp/decisions.json for the briefed candidates only ...
+python -m jobscan.pipeline finish  --data ../career-data   # validate, enqueue, report, push
+```
 
 ## Quick start
 
