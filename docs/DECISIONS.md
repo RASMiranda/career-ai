@@ -168,3 +168,19 @@ elimination" slightly; the full reject list is auditable. Validation, the
 blacklist, the email recipient rule and the contract are unchanged. The model of the
 routine (Sonnet vs Haiku) is a separate, owner-controlled setting.
 
+## ADR-015 · 2026-10-06 · Header-based API keys go through the credential proxy; failed source calls are errors
+Context: ADR-007 says API keys must not be in the shell of the routine, which reads
+untrusted job text. The environment can inject a credential into requests to an
+allowed host. JSearch authenticates with the header `X-RapidAPI-Key`, so it can use
+that; Adzuna sends `app_id`/`app_key` as URL query parameters, which a header cannot
+carry, so it still needs environment variables. Separately, a failed API call used to
+return an empty list, spending monthly budget and hiding a bad key or a blocked host.
+Decision: `auth: proxy` on a source in `config.yaml → sources` means the code sends no
+key and relies on the proxy (JSearch only today); `preflight` says so instead of
+"missing". `jsearch` and `adzuna` raise on a failed call, so `collect` records
+"<source>: ConnectionError" in the run's errors and spends no budget.
+Consequences: a key entered in the proxy is invisible to the code, so a wrong or missing
+credential shows up as a source error, not as a preflight line. Adzuna's key remains an
+environment variable and so visible to the routine's shell; it is a free read-only job
+search key, and the contract forbids printing credentials.
+

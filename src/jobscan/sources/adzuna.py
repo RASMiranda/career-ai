@@ -19,8 +19,8 @@ def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
             "content-type": "application/json",
         },
     )
-    if not payload:
-        return []
+    if payload is None:   # collect records the error and spends no budget
+        raise ConnectionError("no usable response (key rejected, quota, or host blocked)")
     out = []
     for job in payload.get("results", []):
         company = (job.get("company") or {}).get("display_name", "")
