@@ -69,7 +69,8 @@ def test_adzuna_without_keys_is_skipped(calls):
 
 
 def test_proxied_sources_and_preflight(tmp_path, monkeypatch):
-    monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
+    for var in ("RAPIDAPI_KEY", "ADZUNA_APP_ID", "ADZUNA_APP_KEY"):
+        monkeypatch.delenv(var, raising=False)
     cfg = {"profiles": [], "sources": {"jsearch": {"access_method": "keyed_api", "auth": "proxy"},
                                        "adzuna": {"access_method": "keyed_api"}}}
     assert collect.proxied_sources(cfg) == {"jsearch"}
