@@ -6,6 +6,8 @@ Per profile (``prefilter:`` in profile.yaml):
       min_description_chars: 300   # shorter text (e.g. alert emails) always goes to the model
       require_any: [java, angular] # a described job must mention one of these (whole words)
       reject_title: ['\\bjunior\\b'] # regexes; a matching title is discarded
+      reject_text: ['german[^.\\n]{0,40}\\b(c1|c2|fluent)\\b']  # regexes on title + full description
+      reject_language: [de]        # discard postings written in these languages (de, fr, nl, es, it)
       max_to_score: 40             # more than this per run waits for the next run
 
 Rejected candidates get a ``discarded`` decision written by code ("prefilter: ...");
@@ -23,6 +25,18 @@ DEFAULT_MAX_TO_SCORE = 40
 DEFAULT_MIN_DESCRIPTION = 300
 EXCERPT_CHARS = 500
 
+# Common function words per language; a text is "in" a language when they make up
+# a clear share of its words. Cheap, offline, no dependency.
+STOPWORDS = {
+    "de": "der die das und ist nicht mit für auf werden wir sie ein eine den dem von zu im als auch bei oder sich wird sind nach über".split(),
+    "fr": "le la les des est une pour dans avec sur nous vous pas qui que du au aux et ou votre notre sont par".split(),
+    "nl": "de het een en van is voor met op te niet wij je zijn aan ook bij als naar door of onze".split(),
+    "es": "el la los las de un una es para con por que en y nuestro tu se del al como más o son".split(),
+    "it": "il lo la le di un una è per con che in e nostro sono del della al come più non o gli".split(),
+}
+LANG_SHARE = 0.12
+MIN_LANG_WORDS = 40
+
 _TAGS = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
 
@@ -38,11 +52,30 @@ def rules_for(profile: dict) -> dict:
         reject = [re.compile(p, re.I) for p in raw.get("reject_title") or []]
     except re.error as exc:
         raise ConfigError(f"profile {profile.get('id')!r}: bad prefilter.reject_title regex: {exc}")
+    try:
+        reject_text = [re.compile(p, re.I) for p in raw.get("reject_text") or []]
+    except re.error as exc:
+        raise ConfigError(f"profile {profile.get('id')!r}: bad prefilter.reject_text regex: {exc}")
+    langs = [str(x).lower() for x in raw.get("reject_language") or []]
+    unknown = [x for x in langs if x not in STOPWORDS]
+    if unknown:
+        raise ConfigError(f"profile {profile.get('id')!r}: prefilter.reject_language {unknown} not in {sorted(STOPWORDS)}")
     terms = [t for t in raw.get("require_any") or [] if str(t).strip()]
     require = re.compile("|".join(rf"(?<!\w){re.escape(str(t).strip())}(?!\w)" for t in terms), re.I) if terms else None
-    return {"reject_title": reject, "require_any": require,
+    return {"reject_title": reject, "reject_text": reject_text, "reject_language": langs,
+            "require_any": require,
             "min_description_chars": int(raw.get("min_description_chars", DEFAULT_MIN_DESCRIPTION)),
             "max_to_score": int(raw.get("max_to_score", DEFAULT_MAX_TO_SCORE))}
+
+
+def detect_language(text: str) -> str | None:
+    """Best-matching language in STOPWORDS, or None if the text is short or unclear."""
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    if len(words) < MIN_LANG_WORDS:
+        return None
+    best = max(STOPWORDS, key=lambda lang: sum(w in STOPWORDS[lang] for w in words))
+    share = sum(w in STOPWORDS[best] for w in words) / len(words)
+    return best if share >= LANG_SHARE else None
 
 
 def reject_reason(candidate: dict, rules: dict) -> str | None:
@@ -51,6 +84,13 @@ def reject_reason(candidate: dict, rules: dict) -> str | None:
         if rx.search(title):
             return f"title matches {rx.pattern}"
     description = clean(candidate.get("description"))
+    for rx in rules["reject_text"]:
+        if rx.search(f"{title} {description}"):
+            return f"text matches {rx.pattern}"
+    if rules["reject_language"] and len(description) >= rules["min_description_chars"]:
+        lang = detect_language(description)
+        if lang in rules["reject_language"]:
+            return f"posting is written in {lang}"
     if (rules["require_any"] and len(description) >= rules["min_description_chars"]
             and not rules["require_any"].search(f"{title} {description}")):
         return "none of the required terms appear"

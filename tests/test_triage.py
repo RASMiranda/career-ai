@@ -67,3 +67,26 @@ def test_brief_is_compact_and_points_to_the_full_text(tmp_path):
     assert "## k1 | Engineer | Acme" in brief and "Lisbon | remote | contract" in brief
     assert "pipeline show k1" in brief and len(brief) < 600           # not the 2000-char description
     assert "(no description)" in render_brief([cand("k2")], cfg(), tmp_path)
+
+
+GERMAN = ("Wir suchen einen erfahrenen Entwickler für unser Team. Sie werden mit uns an der Entwicklung "
+          "von Anwendungen arbeiten und die Verantwortung für die Qualität übernehmen. " * 3)
+ENGLISH_C2 = LONG + " Java. Very good knowledge of German in written and spoken (C2 level)"
+
+
+def test_reject_text_catches_language_requirement_in_english_posting():
+    rules = rules_for({"prefilter": {"reject_text": [r"german[^.\n]{0,40}\b(c1|c2|fluent)\b"]}})
+    assert "text matches" in reject_reason(cand("a", desc=ENGLISH_C2), rules)
+    assert reject_reason(cand("b", desc=LONG + " German is a plus"), rules) is None
+
+
+def test_reject_language_catches_postings_written_in_german_only():
+    rules = rules_for({"prefilter": {"reject_language": ["de"]}})
+    assert reject_reason(cand("a", desc=GERMAN), rules) == "posting is written in de"
+    assert reject_reason(cand("b", desc=LONG * 2), rules) is None            # English
+    assert reject_reason(cand("c", desc="Entwickler für unser Team"), rules) is None  # too short
+
+
+def test_unknown_language_is_a_config_error():
+    with pytest.raises(ConfigError):
+        rules_for({"id": "p", "prefilter": {"reject_language": ["xx"]}})
