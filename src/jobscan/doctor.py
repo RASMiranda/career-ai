@@ -65,7 +65,8 @@ def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
         status, payload, error = probe_json(api, params, headers=headers)
         if status != 404:
             break
-    ok, msg = _verdict("jsearch", status, payload, error, "data", [key])
+    jobs = jsearch.jobs_of(payload)
+    ok, msg = _verdict("jsearch", status, {"data": jobs} if jobs is not None else payload, error, "data", [key])
     mode = "key from the environment" if key else "key added by the credential proxy"
     return ok, f"{msg} [{mode}, {api.rsplit('/', 1)[1]}]"
 
