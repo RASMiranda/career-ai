@@ -44,8 +44,9 @@ and rewrite `/tmp/decisions.json` (one decision per candidate in the brief, with
 
 **A source shows an error** such as `jsearch: ConnectionError`: the call got no usable
 response (key rejected or missing in the credential proxy, quota used, or the host is
-blocked by the environment's network policy). It spends no budget. Fix the credential
-or the allowed domains; `adzuna` needs `api.adzuna.com` allowed.
+blocked by the environment's network policy). It spends no budget. Run
+`python -m jobscan.doctor --data ../career-data` in a session started after the keys
+were saved: it names the cause. Setup and fixes are in `docs/API-KEYS.md`.
 
 **A run sent nothing.** In order: was `authorization.active` true? Did `collect`
 report source errors or missing keys? Were all candidates already in

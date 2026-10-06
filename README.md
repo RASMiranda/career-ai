@@ -95,6 +95,10 @@ python -m jobscan.cv --data ../career-data   # variants found: cards vs files
 
 ## Sources
 
+Keys for Adzuna and JSearch: where they come from, and exactly how they are set in
+the Claude environment, are in `docs/API-KEYS.md`. Check them with
+`python -m jobscan.doctor --data ../career-data`.
+
 Sources are registry entries declared in `career-data/config.yaml → sources`,
 each with an `access_method` (`public_api`, `keyed_api`, `feed`, `ats_board`,
 `email_alert`, `manual_channel`; there is no `scrape`). See
