@@ -33,6 +33,26 @@ def test_jsearch_with_proxy_auth_sends_no_key_itself(calls):
     assert calls[0]["headers"]["X-RapidAPI-Host"] == "jsearch.p.rapidapi.com"
 
 
+def test_jsearch_falls_back_to_the_older_endpoint(monkeypatch):
+    tried = []
+    def fake(url, params=None, headers=None, timeout=20):
+        tried.append(url)
+        return None if url.endswith("/search-v2") else {"data": []}
+    monkeypatch.setattr(jsearch, "get_json", fake)
+    assert jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"}) == []
+    assert [u.rsplit("/", 1)[1] for u in tried] == ["search-v2", "search"]
+
+
+@pytest.mark.parametrize("data", [
+    [{"job_id": "1", "job_title": "Java Dev", "employer_name": "Acme"}],
+    {"jobs": [{"job_id": "1", "job_title": "Java Dev", "employer_name": "Acme"}], "cursor": "c"},
+])
+def test_jsearch_reads_both_response_shapes(monkeypatch, data):
+    monkeypatch.setattr(jsearch, "get_json", lambda *a, **k: {"status": "OK", "data": data})
+    out = jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
+    assert [c.title for c in out] == ["Java Dev"]
+
+
 @pytest.mark.parametrize("fn, secrets", [
     (jsearch.fetch, {"RAPIDAPI_KEY": "k"}),
     (adzuna.fetch, {"ADZUNA_APP_ID": "i", "ADZUNA_APP_KEY": "k"}),

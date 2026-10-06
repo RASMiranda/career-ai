@@ -5,15 +5,16 @@ from ..normalize import candidate_key, truncate
 from ._http import get_json
 
 HOST = "jsearch.p.rapidapi.com"
-ENDPOINTS = tuple(f"https://{HOST}{p}" for p in ("/search-v2", "/search"))
+# Newest endpoint first; older ones are the fallback if RapidAPI retires or renames a version.
+ENDPOINTS = tuple(f"https://{HOST}{path}" for path in ("/search-v2", "/search"))
 
 
-def jobs_of(payload: dict) -> list:
-    """/search-v2 nests the list as data.jobs; the older /search returned data as a list."""
-    data = payload.get("data")
+def jobs_of(payload) -> list | None:
+    """Job list from either response shape: data=[...] (/search) or data={"jobs": [...]} (/search-v2)."""
+    data = payload.get("data") if isinstance(payload, dict) else None
     if isinstance(data, dict):
         data = data.get("jobs")
-    return data if isinstance(data, list) else []
+    return data if isinstance(data, list) else None
 
 
 def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
@@ -32,7 +33,7 @@ def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
     if payload is None:   # collect records the error and spends no budget
         raise ConnectionError("no usable response (key rejected, quota, or host blocked)")
     out = []
-    for job in jobs_of(payload):
+    for job in jobs_of(payload) or []:
         title, company = job.get("job_title", ""), job.get("employer_name", "")
         loc = ", ".join(x for x in (job.get("job_city"), job.get("job_country")) if x)
         out.append(Candidate(
