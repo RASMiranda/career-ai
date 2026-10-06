@@ -201,3 +201,17 @@ Consequences: a scan can wait up to about 2 minutes per JSearch query in the wor
 (2 attempts x 60 s), which is acceptable for the weekly queries. Still open: whether
 `page=1` is supported on `/search-v2` (the provider documents `cursor`); it is sent today
 and has been harmless.
+
+## ADR-016 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
+Context: a posting requiring German C2 (and written in German) was scored 66 and emailed.
+The model only sees a 500-char excerpt, the requirement sat further down, and nothing
+in code or criteria treated language as a deal-breaker.
+Decision: each profile declares `languages: {BCP 47 tag: CEFR level | basic/intermediate/professional/native}`
+in `profile.yaml`. The prefilter inverts the check: any language not spoken at
+`prefilter.working_level` (default professional = C1) is "lacking"; a described job is
+discarded in code if it is written in a lacking language (function-word detection) or
+demands one near a requirement cue ("fluent German", "Deutsch C1"). "A plus" does not
+count. No `languages` key means no language filtering. Supported languages: en de fr nl es it pt.
+Consequences: zero model tokens, per-profile, no regex lists to maintain. Alert emails and
+short texts still go to the model, so the deal-breaker is also stated in the criteria file.
+Heuristic detection can miss unusual phrasing; the auto-discard reason is auditable.

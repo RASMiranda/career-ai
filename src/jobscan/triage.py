@@ -6,8 +6,6 @@ Per profile (``prefilter:`` in profile.yaml):
       min_description_chars: 300   # shorter text (e.g. alert emails) always goes to the model
       require_any: [java, angular] # a described job must mention one of these (whole words)
       reject_title: ['\\bjunior\\b'] # regexes; a matching title is discarded
-      reject_text: ['german[^.\\n]{0,40}\\b(c1|c2|fluent)\\b']  # regexes on title + full description
-      reject_language: [de]        # discard postings written in these languages (de, fr, nl, es, it)
       max_to_score: 40             # more than this per run waits for the next run
 
 Rejected candidates get a ``discarded`` decision written by code ("prefilter: ...");
@@ -25,17 +23,29 @@ DEFAULT_MAX_TO_SCORE = 40
 DEFAULT_MIN_DESCRIPTION = 300
 EXCERPT_CHARS = 500
 
-# Common function words per language; a text is "in" a language when they make up
-# a clear share of its words. Cheap, offline, no dependency.
-STOPWORDS = {
-    "de": "der die das und ist nicht mit für auf werden wir sie ein eine den dem von zu im als auch bei oder sich wird sind nach über".split(),
-    "fr": "le la les des est une pour dans avec sur nous vous pas qui que du au aux et ou votre notre sont par".split(),
-    "nl": "de het een en van is voor met op te niet wij je zijn aan ook bij als naar door of onze".split(),
-    "es": "el la los las de un una es para con por que en y nuestro tu se del al como más o son".split(),
-    "it": "il lo la le di un una è per con che in e nostro sono del della al come più non o gli".split(),
+LEVELS = {"a1": 1, "basic": 2, "a2": 2, "b1": 3, "intermediate": 3, "b2": 4,
+          "professional": 5, "c1": 5, "fluent": 5, "c2": 6, "native": 7}
+DEFAULT_WORKING_LEVEL = "professional"
+
+# Language -> names a posting may use for it, and common function words (offline
+# detection: a text is "in" a language when these are a clear share of its words).
+LANGS = {
+    "en": ("english|englisch|anglais|inglés|inglês|inglese", "the and of to in is for with on you we are our will be as".split()),
+    "de": ("german|deutsch|allemand|alemán|alemão|tedesco", "der die das und ist nicht mit für auf werden wir sie ein eine den dem von zu im als auch bei oder sich wird sind nach über".split()),
+    "fr": ("french|französisch|français|francais|francés|francês|francese", "le la les des est une pour dans avec sur nous vous pas qui que du au aux et ou votre notre sont par".split()),
+    "nl": ("dutch|niederländisch|nederlands|néerlandais|holandés|holandês|olandese", "de het een en van is voor met op te niet wij je zijn aan ook bij als naar door of onze".split()),
+    "es": ("spanish|spanisch|español|espagnol|espanhol|spagnolo", "el la los las de un una es para con por que en y nuestro tu se del al como más o son".split()),
+    "it": ("italian|italienisch|italiano|italien|italiana", "il lo la le di un una è per con che in e nostro sono del della al come più non o gli".split()),
+    "pt": ("portuguese|portugiesisch|português|portugais|portugués|portoghese", "o a os as de um uma é para com por que em e nosso você se do da no na como mais ou são".split()),
 }
-LANG_SHARE = 0.12
+LANG_SHARE = 0.06   # min share of function words
+LANG_LEAD = 2       # and at least this many times the runner-up's count
 MIN_LANG_WORDS = 40
+_TAG = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+_DEMAND = (r"c1|c2|b2|fluent|fluency|native|mother tongue|business|proficien\w*|very good|excellent|strong|"
+           r"required|mandatory|must|knowledge of|skills? in|sehr gute?|verhandlungssicher\w*|fließend\w*|"
+           r"muttersprach\w*|erforderlich|vorausgesetzt|obligatoire|courant|indispensable")
+_SOFT = re.compile(r"\b(plus|asset|advantage|bonus|nice to have|desirable|preferred|von vorteil|wünschenswert|idéalement)\b", re.I)
 
 _TAGS = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
@@ -46,36 +56,59 @@ def clean(text: str) -> str:
     return _SPACE.sub(" ", html.unescape(_TAGS.sub(" ", text or ""))).strip()
 
 
+def _spoken(profile: dict, raw: dict) -> set[str] | None:
+    """Languages below working level (a posting needing one is out); None = nothing declared."""
+    declared = profile.get("languages") or {}
+    if not declared:
+        return None
+    pid = profile.get("id")
+    best = {}
+    for tag, level in declared.items():
+        if not _TAG.match(str(tag).lower()) or str(level).lower() not in LEVELS:
+            raise ConfigError(f"profile {pid!r}: languages: {tag!r}: {level!r} must be a BCP 47 tag "
+                              f"(pt-PT) and one of {sorted(LEVELS)}")
+        lang = str(tag).lower().split("-")[0]
+        best[lang] = max(best.get(lang, 0), LEVELS[str(level).lower()])
+    wl = str(raw.get("working_level", DEFAULT_WORKING_LEVEL)).lower()
+    if wl not in LEVELS:
+        raise ConfigError(f"profile {pid!r}: prefilter.working_level {wl!r} must be one of {sorted(LEVELS)}")
+    return {lang for lang in LANGS if best.get(lang, 0) < LEVELS[wl]}
+
+
+def detect_language(text: str) -> str | None:
+    """Best-matching language in LANGS, or None if the text is short or unclear."""
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    if len(words) < MIN_LANG_WORDS:
+        return None
+    hits = {lang: sum(w in set(stop) for w in words) for lang, (_, stop) in LANGS.items()}
+    best, runner_up = sorted(hits, key=hits.get, reverse=True)[:2]
+    clear = hits[best] >= LANG_LEAD * hits[runner_up]
+    return best if clear and hits[best] / len(words) >= LANG_SHARE else None
+
+
+def demanded_language(text: str, lacking: set[str]) -> str | None:
+    """A lacking language the text demands, e.g. 'fluent German' or 'Deutsch C1'; 'a plus' is not a demand."""
+    for lang in sorted(lacking):
+        names = LANGS[lang][0]
+        rx = re.compile(rf"\b(?:{_DEMAND})\b[^.\n;]{{0,40}}\b(?:{names})\b|\b(?:{names})\b[^.\n;]{{0,40}}\b(?:{_DEMAND})\b", re.I)
+        for m in rx.finditer(text):
+            if not _SOFT.search(text[max(0, m.start() - 40):m.end() + 40]):
+                return lang
+    return None
+
+
 def rules_for(profile: dict) -> dict:
     raw = profile.get("prefilter") or {}
     try:
         reject = [re.compile(p, re.I) for p in raw.get("reject_title") or []]
     except re.error as exc:
         raise ConfigError(f"profile {profile.get('id')!r}: bad prefilter.reject_title regex: {exc}")
-    try:
-        reject_text = [re.compile(p, re.I) for p in raw.get("reject_text") or []]
-    except re.error as exc:
-        raise ConfigError(f"profile {profile.get('id')!r}: bad prefilter.reject_text regex: {exc}")
-    langs = [str(x).lower() for x in raw.get("reject_language") or []]
-    unknown = [x for x in langs if x not in STOPWORDS]
-    if unknown:
-        raise ConfigError(f"profile {profile.get('id')!r}: prefilter.reject_language {unknown} not in {sorted(STOPWORDS)}")
+    spoken = _spoken(profile, raw)
     terms = [t for t in raw.get("require_any") or [] if str(t).strip()]
     require = re.compile("|".join(rf"(?<!\w){re.escape(str(t).strip())}(?!\w)" for t in terms), re.I) if terms else None
-    return {"reject_title": reject, "reject_text": reject_text, "reject_language": langs,
-            "require_any": require,
+    return {"reject_title": reject, "spoken": spoken, "require_any": require,
             "min_description_chars": int(raw.get("min_description_chars", DEFAULT_MIN_DESCRIPTION)),
             "max_to_score": int(raw.get("max_to_score", DEFAULT_MAX_TO_SCORE))}
-
-
-def detect_language(text: str) -> str | None:
-    """Best-matching language in STOPWORDS, or None if the text is short or unclear."""
-    words = re.findall(r"[^\W\d_]+", text.lower())
-    if len(words) < MIN_LANG_WORDS:
-        return None
-    best = max(STOPWORDS, key=lambda lang: sum(w in STOPWORDS[lang] for w in words))
-    share = sum(w in STOPWORDS[best] for w in words) / len(words)
-    return best if share >= LANG_SHARE else None
 
 
 def reject_reason(candidate: dict, rules: dict) -> str | None:
@@ -84,13 +117,14 @@ def reject_reason(candidate: dict, rules: dict) -> str | None:
         if rx.search(title):
             return f"title matches {rx.pattern}"
     description = clean(candidate.get("description"))
-    for rx in rules["reject_text"]:
-        if rx.search(f"{title} {description}"):
-            return f"text matches {rx.pattern}"
-    if rules["reject_language"] and len(description) >= rules["min_description_chars"]:
-        lang = detect_language(description)
-        if lang in rules["reject_language"]:
-            return f"posting is written in {lang}"
+    lacking = rules["spoken"]
+    if lacking and len(description) >= rules["min_description_chars"]:
+        written = detect_language(description)
+        if written in lacking:
+            return f"posting is written in {written}, not spoken at working level"
+        demanded = demanded_language(f"{title} {description}", lacking)
+        if demanded:
+            return f"posting demands {demanded}, not spoken at working level"
     if (rules["require_any"] and len(description) >= rules["min_description_chars"]
             and not rules["require_any"].search(f"{title} {description}")):
         return "none of the required terms appear"

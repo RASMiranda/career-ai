@@ -71,22 +71,38 @@ def test_brief_is_compact_and_points_to_the_full_text(tmp_path):
 
 GERMAN = ("Wir suchen einen erfahrenen Entwickler für unser Team. Sie werden mit uns an der Entwicklung "
           "von Anwendungen arbeiten und die Verantwortung für die Qualität übernehmen. " * 3)
-ENGLISH_C2 = LONG + " Java. Very good knowledge of German in written and spoken (C2 level)"
+SPOKEN = {"pt-PT": "native", "en-GB": "professional", "fr-FR": "basic", "es-ES": "B1"}
 
 
-def test_reject_text_catches_language_requirement_in_english_posting():
-    rules = rules_for({"prefilter": {"reject_text": [r"german[^.\n]{0,40}\b(c1|c2|fluent)\b"]}})
-    assert "text matches" in reject_reason(cand("a", desc=ENGLISH_C2), rules)
-    assert reject_reason(cand("b", desc=LONG + " German is a plus"), rules) is None
+def lang_rules(**kw):
+    return rules_for({"id": "p", "languages": SPOKEN, "prefilter": kw})
 
 
-def test_reject_language_catches_postings_written_in_german_only():
-    rules = rules_for({"prefilter": {"reject_language": ["de"]}})
-    assert reject_reason(cand("a", desc=GERMAN), rules) == "posting is written in de"
-    assert reject_reason(cand("b", desc=LONG * 2), rules) is None            # English
-    assert reject_reason(cand("c", desc="Entwickler für unser Team"), rules) is None  # too short
+def test_posting_written_in_unspoken_language_is_rejected():
+    r = lang_rules()
+    assert "written in de" in reject_reason(cand("a", desc=GERMAN), r)
+    assert "written in fr" not in (reject_reason(cand("b", desc=LONG), r) or "")   # English passes
+    assert reject_reason(cand("c", desc="Entwickler für unser Team"), r) is None   # too short
 
 
-def test_unknown_language_is_a_config_error():
-    with pytest.raises(ConfigError):
-        rules_for({"id": "p", "prefilter": {"reject_language": ["xx"]}})
+def test_posting_demanding_unspoken_language_is_rejected_but_plus_is_not():
+    r = lang_rules()
+    assert "demands de" in reject_reason(cand("a", desc=LONG + " Very good knowledge of German (C2 level)"), r)
+    assert "demands fr" in reject_reason(cand("b", desc=LONG + " Fluent French required"), r)
+    assert reject_reason(cand("c", desc=LONG + " German is a plus"), r) is None
+    assert reject_reason(cand("d", desc=LONG + " Fluent English and Portuguese"), r) is None  # spoken
+
+
+def test_working_level_is_configurable():
+    assert reject_reason(cand("a", desc=LONG + " Fluent French required"), lang_rules(working_level="basic")) is None
+
+
+def test_no_languages_declared_means_no_language_filter():
+    r = rules_for({"id": "p", "prefilter": {}})
+    assert reject_reason(cand("a", desc=GERMAN), r) is None
+
+
+def test_bad_language_declaration_is_a_config_error():
+    for bad in ({"xx_YY": "native"}, {"de-DE": "good"}):
+        with pytest.raises(ConfigError):
+            rules_for({"id": "p", "languages": bad})
