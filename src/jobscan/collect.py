@@ -20,11 +20,22 @@ from .state import Budget, Seen
 SECRET_NAMES = ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "RAPIDAPI_KEY")
 
 
+def proxied_sources(cfg: dict) -> set[str]:
+    """Sources whose credential the environment's proxy adds to the request
+    (`auth: proxy` in config.yaml → sources), so no key is in the shell."""
+    return {name for name, meta in (cfg.get("sources") or {}).items()
+            if isinstance(meta, dict) and meta.get("auth") == "proxy"}
+
+
 def preflight(root: Path, cfg: dict) -> list[str]:
     """Report readiness without ever printing a secret value."""
     report = []
+    proxied = proxied_sources(cfg)
     for name in SECRET_NAMES:
-        report.append(f"  {name}: {'ok' if secret(name) else 'missing'}")
+        if name == "RAPIDAPI_KEY" and "jsearch" in proxied and not secret(name):
+            report.append(f"  {name}: added by the credential proxy (not checked here)")
+        else:
+            report.append(f"  {name}: {'ok' if secret(name) else 'missing'}")
     for profile in cfg["profiles"]:
         criteria = root / profile["criteria"]
         report.append(f"  criteria[{profile['id']}]: {'ok' if criteria.is_file() else 'MISSING'}")
@@ -60,6 +71,7 @@ def main(argv=None) -> int:
         return 0
 
     secrets = {name: secret(name) for name in SECRET_NAMES}
+    secrets["_proxy"] = proxied_sources(cfg)
     seen = Seen(root)
     budget = Budget(root, cfg.get("budgets", {}))
     today = date.today()

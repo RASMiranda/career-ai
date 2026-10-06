@@ -42,6 +42,11 @@ Candidates over `prefilter.max_to_score` are deferred to the next run, not lost.
 and rewrite `/tmp/decisions.json` (one decision per candidate in the brief, with a
 `cv` for every `email`), then run `pipeline finish`. Collection costs API quota; scoring does not.
 
+**A source shows an error** such as `jsearch: ConnectionError`: the call got no usable
+response (key rejected or missing in the credential proxy, quota used, or the host is
+blocked by the environment's network policy). It spends no budget. Fix the credential
+or the allowed domains; `adzuna` needs `api.adzuna.com` allowed.
+
 **A run sent nothing.** In order: was `authorization.active` true? Did `collect`
 report source errors or missing keys? Were all candidates already in
 `state/job-scan-seen.json`? Did `validate` exit non-zero? Does the profile's
