@@ -78,3 +78,20 @@ def test_proxied_sources_and_preflight(tmp_path, monkeypatch):
     assert "  ADZUNA_APP_KEY: missing" in lines
     lines = collect.preflight(tmp_path, {"profiles": []})
     assert "  RAPIDAPI_KEY: missing" in lines
+
+
+def test_jsearch_falls_back_to_the_older_endpoint(monkeypatch):
+    tried = []
+    def fake(url, params=None, headers=None, timeout=20):
+        tried.append(url.rsplit("/", 1)[1])
+        return None if url.endswith("/search-v2") else {"data": []}
+    monkeypatch.setattr(jsearch, "get_json", fake)
+    jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
+    assert tried == ["search-v2", "search"]
+
+
+def test_jsearch_v2_nested_jobs_are_parsed(monkeypatch):
+    job = {"job_id": "1", "job_title": "Dev", "employer_name": "Acme"}
+    monkeypatch.setattr(jsearch, "get_json", lambda *a, **k: {"data": {"jobs": [job], "cursor": "x"}})
+    out = jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
+    assert [c.title for c in out] == ["Dev"]

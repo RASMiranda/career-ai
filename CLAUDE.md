@@ -90,9 +90,20 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
   or log.
 - Never edit `authorization.yaml`, `config.yaml` or any `profile.yaml`. Never flip
   `allow_auto_submit`. Never print or echo a credential.
-- Never push to `career-ai`; never copy a file from `career-data` into it.
+- The scan routine never pushes to `career-ai` and never copies a file from
+  `career-data` into it. (Development sessions: see "Development sessions".)
 
 ## When there is nothing to send
 
 Write the report, note the empty result, do **not** email. An empty scan is a
 normal outcome.
+
+## Development sessions
+
+Applies when the owner asks for a code change, a fix or a connectivity test,
+not to the scheduled scan above. Standing authorization from the owner: commit,
+push and merge in `career-ai` whenever that is needed to complete the task,
+without asking again. Use a feature branch and a pull request (squash-merge once
+`python -m pytest -q` passes); never force-push `main`. Never put personal data
+or credentials in a commit. The scan routine's rules above still hold during a
+scan run.
