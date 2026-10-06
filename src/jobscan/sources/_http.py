@@ -32,6 +32,11 @@ def probe_json(url: str, params: dict | None = None, headers: dict | None = None
             except json.JSONDecodeError:
                 return resp.status, None, "JSONDecodeError"
     except urllib.error.HTTPError as exc:
-        return exc.code, None, "HTTPError"
+        try:
+            body = " ".join(exc.read(300).decode("utf-8", "replace").split())
+        except Exception:
+            body = ""
+        return exc.code, None, f"HTTPError: {body}" if body else "HTTPError"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return None, None, type(exc).__name__
+        reason = getattr(exc, "reason", None) or exc
+        return None, None, f"{type(exc).__name__}: {reason}"

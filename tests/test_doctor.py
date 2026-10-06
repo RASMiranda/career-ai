@@ -66,3 +66,25 @@ def test_any_failure_exits_one(env, monkeypatch, capsys):
     monkeypatch.setenv("ADZUNA_APP_ID", "i"); monkeypatch.setenv("ADZUNA_APP_KEY", "k")
     fake(monkeypatch, 429)
     assert doctor.main(["--data", str(env)]) == 1
+
+
+def test_provider_message_is_shown_but_keys_are_redacted(env, monkeypatch):
+    monkeypatch.setenv("ADZUNA_APP_ID", SECRET_ID); monkeypatch.setenv("ADZUNA_APP_KEY", SECRET_KEY)
+    fake(monkeypatch, 403, None, f"HTTPError: You are not subscribed to this API. ({SECRET_KEY})")
+    ok, msg = doctor.check_adzuna()
+    assert not ok and "You are not subscribed to this API." in msg
+    assert SECRET_KEY not in msg and "***" in msg
+
+
+def test_probe_reports_http_error_body_and_url_error_reason(monkeypatch):
+    import io
+    import urllib.error
+    from jobscan.sources import _http
+    def http_error(req, timeout=20):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"message": "You are not\n subscribed"}'))
+    monkeypatch.setattr(_http.urllib.request, "urlopen", http_error)
+    assert _http.probe_json("https://x.test/a") == (403, None, 'HTTPError: {"message": "You are not subscribed"}')
+    def url_error(req, timeout=20):
+        raise urllib.error.URLError("Tunnel connection failed: 403 Forbidden")
+    monkeypatch.setattr(_http.urllib.request, "urlopen", url_error)
+    assert _http.probe_json("https://x.test/a") == (None, None, "URLError: Tunnel connection failed: 403 Forbidden")
