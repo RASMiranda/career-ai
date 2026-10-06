@@ -9,7 +9,7 @@ Q = {"query": "java"}
 @pytest.fixture
 def calls(monkeypatch):
     seen = []
-    def fake(url, params=None, headers=None, timeout=20):
+    def fake(url, params=None, headers=None, timeout=20, retries=0):
         seen.append({"url": url, "headers": headers or {}})
         return {"data": [], "results": []}
     monkeypatch.setattr(jsearch, "get_json", fake)
@@ -35,7 +35,7 @@ def test_jsearch_with_proxy_auth_sends_no_key_itself(calls):
 
 def test_jsearch_falls_back_to_the_older_endpoint(monkeypatch):
     tried = []
-    def fake(url, params=None, headers=None, timeout=20):
+    def fake(url, params=None, headers=None, timeout=20, retries=0):
         tried.append(url)
         return None if url.endswith("/search-v2") else {"data": []}
     monkeypatch.setattr(jsearch, "get_json", fake)
@@ -82,7 +82,7 @@ def test_proxied_sources_and_preflight(tmp_path, monkeypatch):
 
 def test_jsearch_falls_back_to_the_older_endpoint(monkeypatch):
     tried = []
-    def fake(url, params=None, headers=None, timeout=20):
+    def fake(url, params=None, headers=None, timeout=20, retries=0):
         tried.append(url.rsplit("/", 1)[1])
         return None if url.endswith("/search-v2") else {"data": []}
     monkeypatch.setattr(jsearch, "get_json", fake)
@@ -95,3 +95,13 @@ def test_jsearch_v2_nested_jobs_are_parsed(monkeypatch):
     monkeypatch.setattr(jsearch, "get_json", lambda *a, **k: {"data": {"jobs": [job], "cursor": "x"}})
     out = jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
     assert [c.title for c in out] == ["Dev"]
+
+
+def test_jsearch_waits_longer_and_retries(calls, monkeypatch):
+    got = {}
+    def fake(url, params=None, headers=None, timeout=20, retries=0):
+        got.update(timeout=timeout, retries=retries)
+        return {"data": []}
+    monkeypatch.setattr(jsearch, "get_json", fake)
+    jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
+    assert got == {"timeout": jsearch.TIMEOUT, "retries": jsearch.RETRIES} and jsearch.TIMEOUT > 20

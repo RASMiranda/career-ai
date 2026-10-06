@@ -88,3 +88,34 @@ def test_probe_reports_http_error_body_and_url_error_reason(monkeypatch):
         raise urllib.error.URLError("Tunnel connection failed: 403 Forbidden")
     monkeypatch.setattr(_http.urllib.request, "urlopen", url_error)
     assert _http.probe_json("https://x.test/a") == (None, None, "URLError: Tunnel connection failed: 403 Forbidden")
+
+
+def test_a_timeout_is_slow_not_blocked(env, monkeypatch):
+    fake(monkeypatch, None, None, "TimeoutError: The read operation timed out")
+    ok, msg = doctor.check_jsearch(via_proxy=True)
+    assert not ok and "timed out" in msg and "Allowed domains" not in msg
+
+
+def test_get_json_retries_only_transient_failures(monkeypatch):
+    import io
+    import urllib.error
+    from jobscan.sources import _http
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def run(failures, retries):
+        seq = iter(failures)
+        n = []
+        def urlopen(req, timeout=20):
+            n.append(1)
+            exc = next(seq, None)
+            if exc:
+                raise exc
+            return Resp(b'{"ok": 1}')
+        monkeypatch.setattr(_http.urllib.request, "urlopen", urlopen)
+        return _http.get_json("https://x.test/a", retries=retries), len(n)
+    assert run([TimeoutError("t")], 1) == ({"ok": 1}, 2)
+    assert run([TimeoutError("t")], 0) == (None, 1)
+    assert run([urllib.error.HTTPError("u", 503, "x", {}, None)], 1) == ({"ok": 1}, 2)
+    assert run([urllib.error.HTTPError("u", 403, "x", {}, None)], 1) == (None, 1)
+    assert run([TimeoutError("t"), TimeoutError("t")], 1) == (None, 2)

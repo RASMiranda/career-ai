@@ -36,6 +36,9 @@ def _verdict(name: str, status, payload, error: str, field: str,
     detail = _redact(error, list(secrets))
     if status == 200 and isinstance(payload, dict) and isinstance(payload.get(field), list):
         return True, f"OK, HTTP 200, {len(payload[field])} result(s) returned"
+    if status is None and "Timeout" in error:
+        return False, (f"timed out ({detail}): the host answered too slowly, not blocked; "
+                       "run the check again")
     if status is None:
         return False, (f"cannot reach the host ({detail}): add it under Network access → "
                        "Allowed domains in the environment settings")
@@ -62,7 +65,7 @@ def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
     headers = {"X-RapidAPI-Host": jsearch.HOST, **({"X-RapidAPI-Key": key} if key else {})}
     params = {"query": "java", "page": "1", "num_pages": "1", "date_posted": "week"}
     for api in jsearch.ENDPOINTS:
-        status, payload, error = probe_json(api, params, headers=headers)
+        status, payload, error = probe_json(api, params, headers=headers, timeout=jsearch.TIMEOUT)
         if status != 404:
             break
     jobs = jsearch.jobs_of(payload)
