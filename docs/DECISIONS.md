@@ -186,3 +186,18 @@ credential shows up as a source error, not as a preflight line. Adzuna's key rem
 environment variable and so visible to the routine's shell; it is a free read-only job
 search key, and the contract forbids printing credentials.
 
+
+## ADR-016 · 2026-10-06 · JSearch gets a longer timeout and one retry
+Context: JSearch `/search-v2` takes about 10 s per call and sometimes more than the
+20 s default client timeout. Two consecutive `jobscan.doctor` runs timed out, then a third
+passed, and RapidAPI's own test of the endpoint succeeded. A timeout looked like "host
+not allowed", which sent the owner to the wrong setting.
+Decision: `jsearch.TIMEOUT = 60` and `jsearch.RETRIES = 1`, used by `fetch` and by
+`doctor.check_jsearch`. `_http.get_json(retries=n)` retries only timeouts and 5xx; a
+401/403/404/429 fails at once, and the `/search` fallback still happens only on a 404.
+Other sources keep 20 s and no retry. `doctor` reports a timeout as "timed out, not
+blocked, run again" instead of pointing at Allowed domains.
+Consequences: a scan can wait up to about 2 minutes per JSearch query in the worst case
+(2 attempts x 60 s), which is acceptable for the weekly queries. Still open: whether
+`page=1` is supported on `/search-v2` (the provider documents `cursor`); it is sent today
+and has been harmless.
