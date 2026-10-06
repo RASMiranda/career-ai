@@ -13,6 +13,7 @@ import sys
 
 from .collect import proxied_sources
 from .config import ConfigError, data_root, load_config, secret
+from .sources import jsearch
 from .sources._http import probe_json
 
 HOW = {
@@ -58,13 +59,17 @@ def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
     key = secret("RAPIDAPI_KEY")
     if not key and not via_proxy:
         return False, "NOT SET: RAPIDAPI_KEY, and config.yaml does not set auth: proxy for jsearch"
-    headers = {"X-RapidAPI-Host": "jsearch.p.rapidapi.com", **({"X-RapidAPI-Key": key} if key else {})}
-    status, payload, error = probe_json(
-        "https://jsearch.p.rapidapi.com/search",
-        {"query": "java", "page": "1", "num_pages": "1", "date_posted": "week"}, headers=headers)
+    headers = {"X-RapidAPI-Host": jsearch.HOST, **({"X-RapidAPI-Key": key} if key else {})}
+    params = {"query": "java", "page": "1", "num_pages": "1", "date_posted": "week"}
+    for api in jsearch.ENDPOINTS:
+        status, payload, error = probe_json(api, params, headers=headers)
+        if status != 404:
+            break
+    if isinstance(payload, dict):   # normalise v2's data.jobs to the list _verdict expects
+        payload = {**payload, "data": jsearch.jobs_of(payload) if "data" in payload else None}
     ok, msg = _verdict("jsearch", status, payload, error, "data", [key])
     mode = "key from the environment" if key else "key added by the credential proxy"
-    return ok, f"{msg} [{mode}]"
+    return ok, f"{msg} [{mode}, {api.rsplit('/', 1)[1]}]"
 
 
 def main(argv=None) -> int:
