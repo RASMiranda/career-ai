@@ -43,7 +43,8 @@ has four sections. Only sessions started **after** you save see the change.
 
 ### Network access
 Choose **Custom** and add under *Allowed domains*:
-- `api.adzuna.com`
+- `api.adzuna.com` (required: without it the request fails with a proxy **403 tunnel error**
+  and the check reports `cannot reach the host`; Adzuna has no credential that adds its own rule)
 - `jsearch.p.rapidapi.com` (the JSearch credential in the next step normally adds its own
   allow rule; add it here if JSearch reports `ConnectionError`)
 
@@ -94,15 +95,19 @@ statuses, never a key, and exits 1 if anything fails:
 
 ```
 adzuna   OK, HTTP 200, 1 result(s) returned
-jsearch  OK, HTTP 200, 1 result(s) returned [key added by the credential proxy]
+jsearch  OK, HTTP 200, 10 result(s) returned [key added by the credential proxy, search-v2]
 ```
+
+Last verified working (2026-10-06, fresh `career-scan` session): `api.adzuna.com` under
+*Allowed domains*, `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` as environment variables,
+`RAPIDAPI_KEY` deliberately not set (JSearch uses the credential).
 
 | Output | Meaning and fix |
 |---|---|
 | `NOT SET: ADZUNA_...` | The variables are missing, or the session started before you saved them. Add them and start a new session. |
 | `HTTP 401/403` | Key rejected, the plan is not subscribed, or (JSearch) the credential's host, path or header name does not match section 2. |
 | `HTTP 429` | Monthly quota or rate limit reached. |
-| `cannot reach the host` | The host is not under Network access → Allowed domains. |
+| `cannot reach the host` | The host is not under Network access → Allowed domains (for Adzuna, a 403 tunnel error means `api.adzuna.com` is still missing). A *timeout* instead (seen on JSearch `/search-v2`, which can take 10 s or more) is slowness, not a missing domain: run the check again. |
 
 During a scan the same problems show up as `jsearch: ConnectionError` or
 `adzuna: ConnectionError` in the run's errors, and spend no budget. The weekly queries (the
