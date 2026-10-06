@@ -179,6 +179,8 @@ Decision: `auth: proxy` on a source in `config.yaml → sources` means the code 
 key and relies on the proxy (JSearch only today); `preflight` says so instead of
 "missing". `jsearch` and `adzuna` raise on a failed call, so `collect` records
 "<source>: ConnectionError" in the run's errors and spends no budget.
+Operations: `docs/API-KEYS.md` documents where each key comes from and how it is set in
+the environment; `python -m jobscan.doctor` makes one real request per source to verify it.
 Consequences: a key entered in the proxy is invisible to the code, so a wrong or missing
 credential shows up as a source error, not as a preflight line. Adzuna's key remains an
 environment variable and so visible to the routine's shell; it is a free read-only job

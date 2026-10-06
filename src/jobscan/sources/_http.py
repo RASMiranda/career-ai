@@ -17,3 +17,21 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None,
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
             json.JSONDecodeError, OSError):
         return None
+
+
+def probe_json(url: str, params: dict | None = None, headers: dict | None = None,
+               timeout: int = 20) -> tuple[int | None, object, str]:
+    """Like get_json but says what went wrong: (HTTP status or None, payload, error class)."""
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            try:
+                return resp.status, json.loads(resp.read().decode("utf-8", "replace")), ""
+            except json.JSONDecodeError:
+                return resp.status, None, "JSONDecodeError"
+    except urllib.error.HTTPError as exc:
+        return exc.code, None, "HTTPError"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return None, None, type(exc).__name__
