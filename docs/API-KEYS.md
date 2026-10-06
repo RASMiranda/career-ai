@@ -56,7 +56,7 @@ Keep the default package-manager list: the setup script needs it.
 | Name | `JSearch RapidAPI` |
 | Credential type | a custom-header / API-key type if the dropdown offers one; otherwise `Bearer` and rename the header row as below |
 | Allowed websites | `jsearch.p.rapidapi.com` |
-| Path prefixes | `/search` |
+| Path prefixes | *(empty; the code tries `/search-v2`, then `/search`)* |
 | Custom headers (one row) | Name `X-RapidAPI-Key`, Prefix *(empty)*, Value *the RapidAPI key* |
 
 No `Authorization` header and no `X-RapidAPI-Host`: the code sends the host header itself.

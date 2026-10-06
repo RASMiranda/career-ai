@@ -4,7 +4,9 @@ from ..models import Candidate
 from ..normalize import candidate_key, truncate
 from ._http import get_json
 
-API = "https://jsearch.p.rapidapi.com/search"
+HOST = "jsearch.p.rapidapi.com"
+# Newest endpoint first; older ones are the fallback if RapidAPI retires or renames a version.
+ENDPOINTS = tuple(f"https://{HOST}{path}" for path in ("/search-v2", "/search"))
 
 
 def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
@@ -12,13 +14,14 @@ def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
     if not key and "jsearch" not in secrets.get("_proxy", ()):
         return []
     # With `auth: proxy` the environment adds X-RapidAPI-Key itself; never send our own.
-    headers = {"X-RapidAPI-Host": "jsearch.p.rapidapi.com", **({"X-RapidAPI-Key": key} if key else {})}
-    payload = get_json(
-        API,
-        {"query": query["query"], "page": "1",
-         "num_pages": "1", "date_posted": query.get("date_posted", "week")},
-        headers=headers,
-    )
+    headers = {"X-RapidAPI-Host": HOST, **({"X-RapidAPI-Key": key} if key else {})}
+    params = {"query": query["query"], "page": "1",
+              "num_pages": "1", "date_posted": query.get("date_posted", "week")}
+    payload = None
+    for api in ENDPOINTS:
+        payload = get_json(api, params, headers=headers)
+        if payload is not None:
+            break
     if payload is None:   # collect records the error and spends no budget
         raise ConnectionError("no usable response (key rejected, quota, or host blocked)")
     out = []
