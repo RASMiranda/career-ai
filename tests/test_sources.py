@@ -43,6 +43,16 @@ def test_jsearch_falls_back_to_the_older_endpoint(monkeypatch):
     assert [u.rsplit("/", 1)[1] for u in tried] == ["search-v2", "search"]
 
 
+@pytest.mark.parametrize("data", [
+    [{"job_id": "1", "job_title": "Java Dev", "employer_name": "Acme"}],
+    {"jobs": [{"job_id": "1", "job_title": "Java Dev", "employer_name": "Acme"}], "cursor": "c"},
+])
+def test_jsearch_reads_both_response_shapes(monkeypatch, data):
+    monkeypatch.setattr(jsearch, "get_json", lambda *a, **k: {"status": "OK", "data": data})
+    out = jsearch.fetch(Q, "p", {"RAPIDAPI_KEY": "k"})
+    assert [c.title for c in out] == ["Java Dev"]
+
+
 @pytest.mark.parametrize("fn, secrets", [
     (jsearch.fetch, {"RAPIDAPI_KEY": "k"}),
     (adzuna.fetch, {"ADZUNA_APP_ID": "i", "ADZUNA_APP_KEY": "k"}),

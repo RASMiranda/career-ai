@@ -9,6 +9,14 @@ HOST = "jsearch.p.rapidapi.com"
 ENDPOINTS = tuple(f"https://{HOST}{path}" for path in ("/search-v2", "/search"))
 
 
+def jobs_of(payload) -> list | None:
+    """Job list from either response shape: data=[...] (/search) or data={"jobs": [...]} (/search-v2)."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, dict):
+        data = data.get("jobs")
+    return data if isinstance(data, list) else None
+
+
 def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
     key = secrets.get("RAPIDAPI_KEY")
     if not key and "jsearch" not in secrets.get("_proxy", ()):
@@ -25,7 +33,7 @@ def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
     if payload is None:   # collect records the error and spends no budget
         raise ConnectionError("no usable response (key rejected, quota, or host blocked)")
     out = []
-    for job in payload.get("data", []):
+    for job in jobs_of(payload) or []:
         title, company = job.get("job_title", ""), job.get("employer_name", "")
         loc = ", ".join(x for x in (job.get("job_city"), job.get("job_country")) if x)
         out.append(Candidate(
