@@ -6,17 +6,27 @@ import urllib.request
 UA = "career-ai-jobscan/0.1 (+https://github.com/RASMiranda)"
 
 
+def _transient(exc: Exception) -> bool:
+    """Worth one more try: a timeout or a 5xx. A 401/403/404/429 will not change on retry."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500
+    return isinstance(getattr(exc, "reason", exc), TimeoutError)
+
+
 def get_json(url: str, params: dict | None = None, headers: dict | None = None,
-             timeout: int = 20) -> dict | list | None:
+             timeout: int = 20, retries: int = 0) -> dict | list | None:
+    """JSON from url, or None on any failure. `retries` extra tries, only after a transient failure."""
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
-            json.JSONDecodeError, OSError):
-        return None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8", "replace"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
+                json.JSONDecodeError, OSError) as exc:
+            if attempt == retries or not _transient(exc):
+                return None
 
 
 def probe_json(url: str, params: dict | None = None, headers: dict | None = None,

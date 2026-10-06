@@ -7,6 +7,9 @@ from ._http import get_json
 HOST = "jsearch.p.rapidapi.com"
 # Newest endpoint first; older ones are the fallback if RapidAPI retires or renames a version.
 ENDPOINTS = tuple(f"https://{HOST}{path}" for path in ("/search-v2", "/search"))
+# /search-v2 is slow (about 10 s, sometimes over 20 s): wait longer and retry once.
+TIMEOUT = 60
+RETRIES = 1
 
 
 def jobs_of(payload) -> list | None:
@@ -27,7 +30,7 @@ def fetch(query: dict, profile: str, secrets: dict) -> list[Candidate]:
               "num_pages": "1", "date_posted": query.get("date_posted", "week")}
     payload = None
     for api in ENDPOINTS:
-        payload = get_json(api, params, headers=headers)
+        payload = get_json(api, params, headers=headers, timeout=TIMEOUT, retries=RETRIES)
         if payload is not None:
             break
     if payload is None:   # collect records the error and spends no budget
