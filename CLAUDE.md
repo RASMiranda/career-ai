@@ -27,7 +27,7 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
    where they are; do not guess paths.
 2. `python -m jobscan.pipeline prepare --data ../career-data`. It stops if
    `authorization.yaml` is not active, collects (blacklisted companies already
-   removed), auto-discards obvious rejects (`prefilter` in `profile.yaml`), and
+   removed), auto-discards obvious rejects (`prefilter` and `languages` in `profile.yaml`), and
    prints a BRIEF of the candidates that need judgement.
    **If it prints `NOTHING TO SCORE`, the run is already finished** (report
    written, state committed and pushed): give the final report and stop.
@@ -75,6 +75,8 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
   using each card's "Use for". When unsure, use the profile's default
   (`cv.default` in `profiles/<id>/profile.yaml`). Never a card that says "never" for
   that kind of job.
+- A posting that needs a language outside the profile's `languages` (at working
+  level) is `discarded`; code catches described jobs, you judge alert emails.
 - Staffing/talent-marketplace postings that hide the end client are
   `low-confidence` at best.
 

@@ -34,6 +34,8 @@ turns. `prepare` auto-discards candidates by the profile's `prefilter` and print
 brief of the rest; `finish` merges `/tmp/auto-decisions.json` with the model's
 `/tmp/decisions.json`. To see what the prefilter dropped, read
 `/tmp/auto-decisions.json` (reason in `why`); tune `prefilter` in `profile.yaml`.
+A job dropped for language ("written in de" / "demands de") follows the profile's
+`languages` and `prefilter.working_level`; fix a wrong drop there, not in code.
 Candidates over `prefilter.max_to_score` are deferred to the next run, not lost.
 
 ## Common tasks
