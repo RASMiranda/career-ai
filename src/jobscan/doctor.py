@@ -23,14 +23,23 @@ HOW = {
 }
 
 
-def _verdict(name: str, status, payload, error: str, field: str) -> tuple[bool, str]:
+def _redact(text: str, secrets: list[str]) -> str:
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***")
+    return text[:200]
+
+
+def _verdict(name: str, status, payload, error: str, field: str,
+             secrets: list[str] = ()) -> tuple[bool, str]:
+    detail = _redact(error, list(secrets))
     if status == 200 and isinstance(payload, dict) and isinstance(payload.get(field), list):
         return True, f"OK, HTTP 200, {len(payload[field])} result(s) returned"
     if status is None:
-        return False, (f"cannot reach the host ({error}): add it under Network access → "
+        return False, (f"cannot reach the host ({detail}): add it under Network access → "
                        "Allowed domains in the environment settings")
     reason = HOW.get(status, "unexpected response")
-    return False, f"FAILED, HTTP {status}: {reason}" + (f" ({error})" if error and status == 200 else "")
+    return False, f"FAILED, HTTP {status}: {reason}" + (f" [provider said: {detail}]" if detail else "")
 
 
 def check_adzuna() -> tuple[bool, str]:
@@ -42,7 +51,7 @@ def check_adzuna() -> tuple[bool, str]:
         "https://api.adzuna.com/v1/api/jobs/gb/search/1",
         {"app_id": app_id, "app_key": app_key, "what": "java", "results_per_page": 1,
          "content-type": "application/json"})
-    return _verdict("adzuna", status, payload, error, "results")
+    return _verdict("adzuna", status, payload, error, "results", [app_id, app_key])
 
 
 def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
@@ -53,7 +62,7 @@ def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
     status, payload, error = probe_json(
         "https://jsearch.p.rapidapi.com/search",
         {"query": "java", "page": "1", "num_pages": "1", "date_posted": "week"}, headers=headers)
-    ok, msg = _verdict("jsearch", status, payload, error, "data")
+    ok, msg = _verdict("jsearch", status, payload, error, "data", [key])
     mode = "key from the environment" if key else "key added by the credential proxy"
     return ok, f"{msg} [{mode}]"
 
