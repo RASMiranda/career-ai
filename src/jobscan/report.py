@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from .apply.queue import Queue
+from .apply.policy import apply_cfg
 from .apply.summary import render_html as render_applications
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
 from .normalize import is_http_url
@@ -126,7 +127,8 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         pid = profile["id"]
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
         matches, pending = _bucket(own, decisions, [profile])
-        apps = render_applications(queue, profile=pid) if queue else ""
+        wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
+        apps = render_applications(queue, profile=pid, follow_up_days=wait) if queue else ""
         body = out_dir / f"email-{pid}.html"
         body.write_text(render_email(day, matches, pending, apps), encoding="utf-8")
         deliveries.append({

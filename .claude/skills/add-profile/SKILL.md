@@ -27,6 +27,10 @@ address, contact detail, salary, rate or work-authorisation answer.
    - `criteria` may be left out: it defaults to
      `profiles/<id>/01-knowledge/05-job-match.md`.
    - `weekly_day`, `pending_fit_floor`, `pending_limit`.
+   - Optional `follow_up_days` (default 7, from `config.yaml → apply`): days without an
+     answer before the summary lists an application as due a follow-up.
+   - `languages` also decides which languages the Application Kit may write in
+     (`jobscan.kit`), so declare only what the person writes at working level.
    - `daily_queries` / `weekly_queries`: only sources with `status: active` in
      `config.yaml → sources` (remotive, arbeitnow, adzuna, jsearch today). Start
      broad: the policy is broad collection, fine-grained elimination.

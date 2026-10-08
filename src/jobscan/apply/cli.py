@@ -3,6 +3,8 @@
   enqueue     put today's emailable matches into the queue (applies policy)
   approve K…  you approve queued items (K = first 6+ chars of the key)
   skip K…     not interested            done K…   you applied by hand
+  track K     record what came back: replied | interview | offer | rejected | withdrawn
+  followed-up K…  you sent the follow-up (it stops being listed as due)
   run         process approved items (see modes below)
   summary     markdown/html status for the daily email
   bundle      redacted failure bundle to paste into Claude Code
@@ -25,11 +27,15 @@ from pathlib import Path
 import yaml
 
 from .. import cv
+from ..triage import clean
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
-from . import faillog, policy, summary
+from . import faillog, policy, summary, tracker
 from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
-from .queue import Queue
+from .queue import TRACKING, Queue
+
+
+DESCRIPTION_CHARS = 2500
 
 
 def _applicant(root: Path, profile: dict) -> tuple[dict, dict]:
@@ -94,9 +100,12 @@ def cmd_enqueue(args, root, cfg, auth):
                 "source": c["source"], "fit": d["fit"], "tier": d["tier"],
                 "confidence": d["confidence"], "profile": c.get("profile"),
                 "cv": d.get("cv") or ""}
+        # Kept so `jobscan.kit` can draft from the posting later, without a new collect.
+        extra = {"description": clean(c.get("description"))[:DESCRIPTION_CHARS],
+                 "why": d.get("why", ""), "caution": d.get("caution", "")}
         bl = Blacklist.from_config(cfg, c.get("profile"))
         status, notes = policy.initial_status(item, acfg, auth, q, bl)
-        q.add(key, {**item, "status": status, "policy_notes": notes,
+        q.add(key, {**item, **extra, "status": status, "policy_notes": notes,
                     "approval": "policy" if status == "approved" else None})
         added[status] += 1
     q.save()
@@ -113,6 +122,33 @@ def _mark(args, root, status):
         print(f"{status}: {q.items[key]['title']} — {q.items[key]['company']}")
     q.save()
     return 0
+
+
+def cmd_track(args, root, cfg, auth):
+    q = Queue(root)
+    key = q.resolve(args.key)
+    try:
+        item = tracker.track(q, key, args.status, args.note or "", args.follow_up or "")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    q.save()
+    print(f"{item['status']}: {item['title']} — {item['company']}")
+    return 0
+
+
+def cmd_followed_up(args, root, cfg, auth):
+    q, status = Queue(root), 0
+    for prefix in args.keys:
+        try:
+            item = tracker.mark_followed_up(q, q.resolve(prefix))
+        except (ValueError, KeyError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            status = 2
+            continue
+        print(f"followed up: {item['title']} — {item['company']}")
+    q.save()
+    return status
 
 
 def cmd_run(args, root, cfg, auth):
@@ -202,9 +238,10 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
 
 def cmd_summary(args, root, cfg, auth):
     q = Queue(root)
-    md = summary.render_markdown(q, args.days)
+    wait = policy.apply_cfg(cfg)["follow_up_days"]
+    md = summary.render_markdown(q, args.days, wait)
     if args.html:
-        Path(args.html).write_text(summary.render_html(q, args.days), encoding="utf-8")
+        Path(args.html).write_text(summary.render_html(q, args.days, follow_up_days=wait), encoding="utf-8")
     (root / "reports").mkdir(exist_ok=True)
     (root / "reports" / "applications.md").write_text(md, encoding="utf-8")
     print(md)
@@ -244,6 +281,12 @@ def main(argv=None) -> int:
     p.add_argument("--decisions", default="decisions.json")
     for name in ("approve", "skip", "done"):
         sub.add_parser(name).add_argument("keys", nargs="+")
+    p = sub.add_parser("track")
+    p.add_argument("key")
+    p.add_argument("--status", required=True, choices=list(TRACKING))
+    p.add_argument("--note", help="one line for yourself, e.g. 'recruiter call Thursday'")
+    p.add_argument("--follow-up", metavar="YYYY-MM-DD", help="remind me on this date instead of the default wait")
+    sub.add_parser("followed-up").add_argument("keys", nargs="+")
     p = sub.add_parser("run")
     p.add_argument("--mode", choices=["assisted", "auto"])
     p.add_argument("--dry-run", action="store_true", help="fill forms, never submit")
@@ -267,7 +310,8 @@ def main(argv=None) -> int:
         if args.cmd in ("approve", "skip", "done"):
             return _mark(args, root, {"approve": "approved", "skip": "skipped", "done": "done"}[args.cmd])
         return {"enqueue": cmd_enqueue, "run": cmd_run, "summary": cmd_summary,
-                "bundle": cmd_bundle, "blacklist": cmd_blacklist}[args.cmd](args, root, cfg, auth)
+                "bundle": cmd_bundle, "blacklist": cmd_blacklist, "track": cmd_track,
+                "followed-up": cmd_followed_up}[args.cmd](args, root, cfg, auth)
     except (ConfigError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

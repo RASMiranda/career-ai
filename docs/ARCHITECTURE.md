@@ -1,5 +1,7 @@
 # Career AI — architecture
 
+Reference product: [aiapply.co](https://aiapply.co) (ADR-017, `REFERENCE-AIAPPLY.md`).
+
 Goal: run free for one person today; become a multi-tenant, OAuth-protected,
 configurable, subscription product without a rewrite. Everything user-specific
 is **data**, everything behaviour-specific sits behind an **interface**.
@@ -38,7 +40,8 @@ knows about Stripe, only about entitlements.
 Every job source is a registry entry. Enabling, disabling or adding one is a
 config change; a new *kind* of source is a plugin.
 
-**Access methods** (the only allowed values; there is deliberately no `scrape`):
+**Access methods** (the only allowed values; there is deliberately no `scrape`; `owner_browser` is
+the only way to reach a closed platform directly, see below and ADR-017):
 
 | `access_method` | Meaning | Examples |
 |---|---|---|
@@ -48,6 +51,7 @@ config change; a new *kind* of source is a plugin.
 | `ats_board` | Per-company public job board of an applicant-tracking system; you configure *which companies*, it does not search the market | Greenhouse, Lever, Ashby (Workable, SmartRecruiters, Recruitee: same shape, to verify) |
 | `email_alert` | Alert emails the user receives or forwards | LinkedIn, Indeed, Glassdoor, Braintrust (if it sends alerts) |
 | `manual_channel` | No machine access; listed as a checklist in the report | Malt, Toptal, Shakers, Turing |
+| `owner_browser` | *Not implemented.* The owner's own logged-in browser on the owner's machine, visible, slow, opt-in per source, stops at the first block signal. Never in the cloud routine | LinkedIn, Indeed, Glassdoor (when built) |
 
 **Manifest** every plugin declares: `id`, `access_method`, `terms_reviewed`
 (date + link), `rate_limit`, `redistribution_allowed` (matters for the paid
@@ -57,8 +61,12 @@ the one normalised `Candidate`; blacklist and dedupe run after normalisation.
 
 **Closed platforms** (LinkedIn, Indeed, Glassdoor, Braintrust) are registered
 now so the source list is complete, with `email_alert` or `manual_channel` as the
-provisional method. Direct scanning or submission against them is **not**
-approved by the current decisions: it needs a superseding ADR first (ADR-008).
+provisional method. ADR-017 supersedes the "not approved" of ADR-008: direct access
+is allowed as `owner_browser` under these conditions, all of them: opt-in per source
+with `terms_reviewed`; owner's machine only; visible by default; capped by
+`rate_limit`; first block signal (CAPTCHA, login wall, "unusual activity", 403/429)
+ends the source for that day as `SourceHealth: failed`; no spoofing, proxy rotation or
+CAPTCHA solving; adapters tested against recorded pages. None is written yet.
 
 **SourceHealth** (per source, per run): `ok | degraded | empty-unexpectedly |
 failed`. The Notifier alerts on any change. A source that silently returns zero
@@ -76,6 +84,28 @@ is P2 work.
 | linkedin, indeed, glassdoor | email_alert | registered, not implemented; alert ingestion waits on the routine-exposure review (ADR-007) |
 | braintrust | email_alert / manual_channel | registered; verify whether any API or alert email exists |
 | malt, toptal, shakers, turing | manual_channel | listed in `config.yaml → manual_channels` |
+
+## 2c. After a match: kit and tracker
+
+```
+queue (applications/queue.json)           profiles/<id>/03-outputs/<date>-<company>-<title>-<key>/
+  queued → approved → submitted | done       cover-letter.md  cv-tailoring.md
+                          └→ replied → interview → offer       follow-up-email.md  interview-prep.md
+                          └→ rejected | withdrawn
+```
+
+- `jobscan.kit prepare` → model drafts → `jobscan.kit finish` (ADR-003 again: the model
+  writes, code validates and files). `finish` fails closed and writes nothing if any
+  draft has a link, address, phone number, HTML, an unfilled placeholder, a language
+  the profile does not speak, a size out of range, or a letter that never names the
+  company. It never reads `applicant` or `answers`. The posting text stored in the queue
+  (`description`, 2500 characters) is the only input besides the CV cards and knowledge
+  files, and it is passed as untrusted data.
+- `apply track` / `followed-up` move an applied item along; `summary` shows the funnel,
+  what is in progress, and what is due a follow-up (`apply.follow_up_days`, default 7;
+  a profile may override with `follow_up_days`). Nothing here contacts anyone.
+- The scan routine does not run the kit (usage is limited); the owner does, on request,
+  and commits `profiles/` and `applications/` in `career-data` afterwards.
 
 ## 3. Data model (multi-tenant)
 
@@ -127,6 +157,8 @@ user B.
   instructions aimed at an agent.
 - Unknown required question, consent box, work-authorisation question, CAPTCHA,
   login wall, changed layout → stop, log, hand to the human with the link.
+- **Unchanged by ADR-017:** the model never drives the browser, and the
+  product implication below stands until legal advice says otherwise.
 - **Product implication:** do not run server-side auto-submission for paying
   users. It combines ATS terms-of-service exposure, bot detection that harms the
   user's reputation, and liability for wrong answers. Ship `assisted` through a
