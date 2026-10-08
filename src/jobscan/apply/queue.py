@@ -2,6 +2,8 @@
 
 status: queued -> approved -> submitted | filled | failed
         queued -> done (you applied by hand) | skipped
+        submitted | done -> replied -> interview -> offer      (tracker, see tracker.py)
+        submitted | done | replied | interview -> rejected | withdrawn
 """
 
 from datetime import datetime, timedelta, timezone
@@ -9,7 +11,11 @@ from pathlib import Path
 
 from ..state import _read, _write
 
-STATUSES = ("queued", "approved", "filled", "submitted", "failed", "done", "skipped")
+# After an application went out the tracker records what came back.
+TRACKING = ("replied", "interview", "offer", "rejected", "withdrawn")
+STATUSES = ("queued", "approved", "filled", "submitted", "failed", "done", "skipped", *TRACKING)
+# Statuses in which an application exists, however it ended.
+APPLIED = ("submitted", "done", *TRACKING)
 
 
 def now() -> datetime:
@@ -44,6 +50,8 @@ class Queue:
         item["updated"] = now().isoformat(timespec="seconds")
         if status == "submitted":
             item["submitted_at"] = item["updated"]
+        if status in ("submitted", "done"):
+            item.setdefault("applied_at", item["updated"])
         item.update(extra)
 
     def by_status(self, *statuses) -> list[dict]:

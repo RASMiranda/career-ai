@@ -2,13 +2,14 @@
 
 from ..blacklist import Blacklist, canon
 from .adapters import detect_ats
-from .queue import Queue
+from .queue import TRACKING, Queue
 
 RANK = {"low": 0, "medium": 1, "high": 2}
 
 DEFAULTS = {
     "mode": "manual",           # off | manual | assisted | auto
     "delay_seconds": 30,
+    "follow_up_days": 7,        # days after applying without a reply before a follow-up is due
     "auto": {
         "min_fit": 85,
         "min_confidence": "high",
@@ -42,7 +43,7 @@ def recently_applied(queue: Queue, company: str, days: int) -> bool:
     target = canon(company)
     return any(canon(i.get("company", "")) == target
                for i in queue.submitted_within(days) + [
-                   x for x in queue.by_status("done", "filled")])
+                   x for x in queue.by_status("done", "filled", *TRACKING)])
 
 
 def initial_status(item: dict, acfg: dict, auth: dict, queue: Queue,

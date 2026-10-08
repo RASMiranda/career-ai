@@ -25,6 +25,8 @@ Decision: default `manual`; `assisted` and `auto` behind a master switch with a
 dated acknowledgement, caps, allow-listed adapters, and a redacted failure log.
 Never: CAPTCHA solving, LinkedIn automation, auto-answering legal questions.
 Consequences: expect many "hand to human" outcomes; that is correct behaviour.
+*Amended by ADR-017 (2026-10-08): "LinkedIn automation" is no longer a blanket ban; the
+CAPTCHA and legal-question rules stand.*
 
 ## ADR-005 · 2026-10-02 · Blacklist enforced three times
 Decision: filter in `collect`, fail in `validate`, refuse in `apply`.
@@ -68,6 +70,8 @@ first block signal, no evasion) before any code is written. Non-negotiable 4 and
 ADR-004 stay in force until then.
 Consequences: the source list is complete from day one. Nothing in P0 or P2 waits
 on closed-platform access. Freshness for those platforms depends on alert emails.
+*Superseded in part by ADR-017 (2026-10-08), which is the superseding ADR this one asked
+for: it sets the conditions under which direct access to closed platforms is allowed.*
 
 ## Provenance
 The project originated in the chat at
@@ -76,6 +80,7 @@ https://claude.ai/share/e644dc10-0921-4166-8dd1-ac20e5956316
 decisions in this log supersede anything in that chat).
 
 ## Template
+
 ## ADR-n · YYYY-MM-DD · Title
 Context: … · Decision: … · Consequences: …
 
@@ -202,7 +207,61 @@ Consequences: a scan can wait up to about 2 minutes per JSearch query in the wor
 `page=1` is supported on `/search-v2` (the provider documents `cursor`); it is sent today
 and has been harmless.
 
-## ADR-016 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
+## ADR-017 · 2026-10-08 · Stay as close as possible to aiapply.co; supersedes parts of ADR-004 and ADR-008
+Context: the owner decided the platform should be as close as possible to
+[aiapply.co](https://aiapply.co) everywhere. AIApply bundles, as reported by third
+parties (the site itself was unreachable from the development sandbox): tailored resume
+and cover letter per job, auto-apply on LinkedIn, Indeed, Glassdoor and company pages
+with credits and an "Auto" or "Human-in-the-Loop" mode, a job board, an application
+tracker, follow-up emails, interview practice and resume translation. Its most cited
+failure is irrelevant matches and filters that do not hold. The comparison is kept in
+`docs/REFERENCE-AIAPPLY.md`.
+Decision:
+1. **Reference product.** `docs/REFERENCE-AIAPPLY.md` is the parity matrix. A feature
+   AIApply has and this product lacks is a gap to schedule, not a non-goal. Where the
+   two differ on purpose, the reason is written there.
+2. **Supersedes ADR-008's "not approved" and ADR-004's "never LinkedIn automation".**
+   Direct access to LinkedIn, Indeed, Glassdoor and Braintrust, and Easy Apply, may be
+   built, under all of: a new `access_method: owner_browser` (still no `scrape` value);
+   opt-in per source in `config.yaml` with `terms_reviewed`; runs only on the owner's own
+   machine, never in the cloud routine; the owner's own logged-in browser profile, visible
+   by default; slow, capped by `rate_limit`; **stops at the first block signal** (CAPTCHA,
+   login wall, "unusual activity", HTTP 403/429), records `SourceHealth: failed` and does
+   not retry that day; **no evasion** (no spoofed fingerprints, no proxy rotation, no
+   CAPTCHA solving); each adapter tested against recorded pages. For Easy Apply the owner
+   must also remove `apply_via_linkedin_easy_apply` from `authorization.yaml →
+   forbidden_actions` themselves; code never edits that file. No such adapter is written
+   by this ADR: the sandbox cannot reach those sites, and selectors written blind are
+   guesses. JSearch already returns listings from the same boards through a licensed API.
+3. **Volume is a setting, not a principle.** "Not a mass-apply bot" is dropped from the
+   product definition. Defaults stay conservative (fit 85, 3 a day, 10 a week) and the
+   owner may raise `apply.auto` caps. These floors do not move: blacklist, deal-breakers
+   and language prefilter before any apply step, one application per company per window,
+   `authorization.yaml` switch plus dated acknowledgement, and a hand-off to the human on
+   any unknown required question.
+4. **Not superseded.** ADR-003 and ADR-007: the model scores and drafts, code acts; the
+   model never drives a browser or submits, because a posting is untrusted text and
+   parity needs the features, not an LLM-driven browser. ADR-004's rules on CAPTCHA and
+   on legal or work-authorisation questions. ARCHITECTURE §6: no server-side submission
+   for paying users until a lawyer has read the ATS terms. A live interview copilot is not
+   planned.
+5. **Quality is the difference.** Parity in workflow and features, not in targeting: the
+   scan's scoring stays ahead of every apply step.
+Consequences: PRODUCT.md "What it is not" and "Out of scope" are rewritten; the roadmap
+gains a parity track; built with this ADR are an application tracker (`apply track`,
+funnel, follow-ups due) and the Application Kit (`jobscan.kit`: cover letter, CV
+tailoring, follow-up email, interview prep, written to `profiles/<id>/03-outputs/`).
+The owner still has to correct third-party claims against the real site.
+Follow-up 2026-10-08: the `config.yaml` comments now describe `owner_browser`; on
+`career-data` main the owner removed `apply_via_linkedin_easy_apply`, `solve_or_bypass_captcha`
+and `answer_legal_or_work_authorisation_questions_unless_preapproved` from
+`authorization.yaml → forbidden_actions`. Nothing in code reads `forbidden_actions`; the
+adapters still hand CAPTCHAs and unknown or legal questions to the human, whatever that list says.
+Also built the same day: `jobscan.clip`, which reads schema.org `JobPosting` data from a page
+the owner saved and queues it for the next scan, so single postings from the closed platforms
+need no adapter, selector or login.
+
+## ADR-018 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
 Context: a posting requiring German C2 (and written in German) was scored 66 and emailed.
 The model only sees a 500-char excerpt, the requirement sat further down, and nothing
 in code or criteria treated language as a deal-breaker.
@@ -215,3 +274,4 @@ count. No `languages` key means no language filtering. Supported languages: en d
 Consequences: zero model tokens, per-profile, no regex lists to maintain. Alert emails and
 short texts still go to the model, so the deal-breaker is also stated in the criteria file.
 Heuristic detection can miss unusual phrasing; the auto-discard reason is auditable.
+*Numbered ADR-016 when written, which collided with the JSearch entry above; renumbered 2026-10-08. Older commit messages and chat may still say ADR-016.*

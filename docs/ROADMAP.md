@@ -3,6 +3,24 @@
 Work in order. Do not start a phase until the previous exit criterion is met.
 Each prompt is run in Claude Code, inside `career-ai`.
 
+## Parity track · stay close to aiapply.co (ADR-017)
+Runs alongside the phases below and does not wait for their exit criteria, because it
+changes what the engine does for one person, not who can use it. The matrix is
+`REFERENCE-AIAPPLY.md`; update it when a row moves.
+
+Done: application tracker (`apply track`, funnel, follow-ups due); Application Kit
+(`jobscan.kit`: cover letter, CV tailoring, follow-up email, interview prep); `jobscan.clip`
+(a posting you saved from any site goes into the next scan).
+Next, in this order, each one source or feature at a time:
+1. Read aiapply.co directly and correct the matrix (owner, five minutes).
+2. Greenhouse / Lever / Ashby `ats_board` sources (these are P2 step 3b below; they also
+   widen what auto-apply can reach).
+3. `owner_browser` adapters for LinkedIn, Indeed, Glassdoor on the owner's machine,
+   headed, from recorded pages, with the stop-on-block rule. Easy Apply last.
+4. Mock-interview mode (a Claude chat seeded from `interview-prep.md`), a resume scanner,
+   CV file translation.
+5. Resume hosting with view tracking, with the portal (P5).
+
 ## P0 · Prove it for one person (now)
 Do: setup per GETTING-STARTED.md; manual apply mode; fill the five knowledge docs.
 Sources for P0: only the four already implemented (Remotive, Arbeitnow, Adzuna,

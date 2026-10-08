@@ -10,6 +10,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from . import clip
 from .config import ConfigError, data_root, load_config, secret
 from .blacklist import Blacklist
 from .cv import catalog
@@ -78,6 +79,18 @@ def main(argv=None) -> int:
 
     collected, skipped_seen, errors = {}, 0, []
     blocked: dict[str, int] = {}
+
+    def consider(cand, blacklist) -> None:
+        nonlocal skipped_seen
+        if cand.candidate_key in seen:
+            skipped_seen += 1
+        elif not is_http_url(cand.url):
+            return
+        elif hit := blacklist.match(cand.to_dict()):  # not added to seen: removing the entry later brings the job back
+            blocked[hit] = blocked.get(hit, 0) + 1
+        else:
+            collected.setdefault(cand.candidate_key, cand)  # cross-source dedupe
+
     for profile in cfg["profiles"]:
         blacklist = Blacklist.from_config(cfg, profile["id"])
         for query in queries_for(profile, today):
@@ -96,21 +109,21 @@ def main(argv=None) -> int:
                 continue
             budget.spend(source)
             for cand in results:
-                if cand.candidate_key in seen:
-                    skipped_seen += 1
-                    continue
-                if not is_http_url(cand.url):
-                    continue
-                hit = blacklist.match(cand.to_dict())
-                if hit:  # not added to seen: removing the entry later brings the job back
-                    blocked[hit] = blocked.get(hit, 0) + 1
-                    continue
-                collected.setdefault(cand.candidate_key, cand)  # cross-source dedupe
+                consider(cand, blacklist)
+
+    # Jobs the owner clipped from pages they saved (jobscan.clip): same filters as any source.
+    profiles = {p["id"] for p in cfg["profiles"]}
+    clipped = clip.pending(root, seen)
+    for pid, cand in clipped:
+        if pid in profiles:
+            consider(cand, Blacklist.from_config(cfg, pid))
+        else:
+            errors.append(f"clip: unknown profile {pid!r}")
 
     payload = {
         "generated_on": today.isoformat(),
         "counts": {"new": len(collected), "already_seen": skipped_seen,
-                   "blacklisted": sum(blocked.values())},
+                   "blacklisted": sum(blocked.values()), "clipped": len(clipped)},
         "blocked_by": blocked,
         "errors": errors,
         "candidates": [c.to_dict() for c in collected.values()],

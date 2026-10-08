@@ -7,6 +7,11 @@ search queries, run state and generated reports live in a separate **private**
 repository (`career-data`). This split is deliberate: code is shareable,
 criteria and history are not.
 
+**Reference product:** the platform aims to stay as close as possible to
+[aiapply.co](https://aiapply.co) (ADR-017). `docs/REFERENCE-AIAPPLY.md` compares the two
+feature by feature, says what is built, and lists where it differs on purpose
+(match quality, and the model never driving a browser).
+
 ## Design
 
 Four steps. Only step 2 uses AI, and only for candidates the code cannot settle.
@@ -68,6 +73,8 @@ python -m jobscan.apply blacklist test "MICRO 1 Inc."     # BLOCKED by Micro1
 | `assisted` | A visible browser fills the form; **you** click submit |
 | `auto` | Submits unattended, inside caps, only if `authorization.yaml` allows |
 
+(`assisted` plus `approve` is AIApply's "Human-in-the-Loop"; `auto` is its "Auto".)
+
 ```bash
 pip install -r requirements-apply.txt && python -m playwright install chromium
 python -m jobscan.apply approve  a1b2c3     # you approve a queued match
@@ -75,7 +82,49 @@ python -m jobscan.apply run --dry-run       # fill forms, submit nothing
 python -m jobscan.apply run                 # per apply.mode
 python -m jobscan.apply summary             # what is waiting / failed / submitted
 python -m jobscan.apply bundle              # redacted failures → paste into Claude Code
+python -m jobscan.apply track a1b2c3 --status interview --note "call Thursday"
+python -m jobscan.apply followed-up a1b2c3  # you sent the nudge; stop listing it as due
 ```
+
+`track` takes `replied | interview | offer | rejected | withdrawn` and only works on
+something that was applied to (`submitted`, or `done` for one you sent by hand). The
+daily summary then shows the funnel, what is in progress, and what has had no answer
+for `apply.follow_up_days` (default 7; a profile may set its own `follow_up_days`).
+Nothing in the tracker contacts anyone.
+
+### Clip a job you found yourself
+
+Found a posting on LinkedIn, Indeed, Glassdoor or a company page? Save the page from your
+browser (Save Page As, HTML) and clip it. Most job pages embed the posting as schema.org
+`JobPosting` data (Google for Jobs requires it), so this reads a file on your disk: no
+selectors, no login, no network, nothing that can restrict an account.
+
+```bash
+python -m jobscan.clip ~/Downloads/job.html --data ../career-data [--profile rui] [--url <link you apply from>]
+```
+
+It goes into `inbox/clips.json`; commit `inbox/` in `career-data` and the next scan scores it
+like any other source (seen-set, blacklist and prefilter still apply, and `clip` warns now if the
+prefilter would discard it). A page without the data is reported, not guessed at.
+
+### Application Kit (per job, on request)
+
+Cover letter, a tailored summary and what to emphasise in the chosen CV (plus the gaps
+it must not claim), a follow-up email and interview prep, written to
+`profiles/<id>/03-outputs/<date>-<company>-<title>-<key>/`. The model drafts, code
+validates and files (ADR-003); the scan routine does not run it.
+
+```bash
+python -m jobscan.kit list    --data ../career-data          # waiting matches, kit or not
+python -m jobscan.kit prepare a1b2c3 --data ../career-data   # or --waiting [--limit 5]; prints the brief
+# ... Claude writes /tmp/kit.json ...
+python -m jobscan.kit finish  --data ../career-data          # fails closed; --force replaces a kit
+```
+
+Drafts with a link, address, phone number, HTML, an unfilled placeholder, a language the
+profile does not speak, or a letter that never names the company are rejected and nothing
+is written. Read every letter before it goes anywhere, then commit `profiles/` and
+`applications/` in `career-data`.
 
 The LLM never drives the browser; adapters are deterministic code that answers
 only from the profile's `applicant` and `answers` in `profiles/<id>/profile.yaml`. Unknown required question, CAPTCHA, login wall
@@ -112,11 +161,12 @@ each with an `access_method` (`public_api`, `keyed_api`, `feed`, `ats_board`,
 | JSearch (RapidAPI) | keyed_api | yes | implemented (monthly quota, budget-tracked) |
 | Greenhouse, Lever, Ashby | ats_board | no | planned (P2) |
 | Hacker News "Who is hiring" | public_api | no | planned (P2) |
-| LinkedIn, Indeed, Glassdoor | email_alert | no | registered, not implemented |
+| LinkedIn, Indeed, Glassdoor | email_alert; `owner_browser` allowed by ADR-017 | no | registered, not implemented (JSearch already carries listings from these boards) |
 | Braintrust | email_alert / manual | no | registered; verify access |
 
-Closed platforms are listed so the registry is complete. Direct scanning or
-submission against them needs a superseding ADR first.
+Closed platforms are listed so the registry is complete. ADR-017 allows direct access to
+them only as `owner_browser`: on the owner's machine, opt-in per source, stopping at the
+first block signal, no evasion (`docs/ARCHITECTURE.md` §2b). No adapter is written yet.
 
 ## Licence
 
