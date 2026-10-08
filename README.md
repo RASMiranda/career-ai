@@ -92,6 +92,21 @@ daily summary then shows the funnel, what is in progress, and what has had no an
 for `apply.follow_up_days` (default 7; a profile may set its own `follow_up_days`).
 Nothing in the tracker contacts anyone.
 
+### Clip a job you found yourself
+
+Found a posting on LinkedIn, Indeed, Glassdoor or a company page? Save the page from your
+browser (Save Page As, HTML) and clip it. Most job pages embed the posting as schema.org
+`JobPosting` data (Google for Jobs requires it), so this reads a file on your disk: no
+selectors, no login, no network, nothing that can restrict an account.
+
+```bash
+python -m jobscan.clip ~/Downloads/job.html --data ../career-data [--profile rui] [--url <link you apply from>]
+```
+
+It goes into `inbox/clips.json`; commit `inbox/` in `career-data` and the next scan scores it
+like any other source (seen-set, blacklist and prefilter still apply, and `clip` warns now if the
+prefilter would discard it). A page without the data is reported, not guessed at.
+
 ### Application Kit (per job, on request)
 
 Cover letter, a tailored summary and what to emphasise in the chosen CV (plus the gaps

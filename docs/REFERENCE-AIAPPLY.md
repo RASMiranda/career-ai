@@ -28,7 +28,8 @@ Status: **have** = works today · **added** = built with ADR-017 · **partial** 
 |---|---|---|
 | Onboarding: upload a CV or import LinkedIn, set job preferences (level, minimum salary, industry, role, location, work format) | `profiles/<id>/profile.yaml`, `01-knowledge/05-job-match.md`, CV cards; `add-profile` skill; LinkedIn export kept in `02-sources/`. File-based; a form is P5 | have |
 | Job board (about 600k jobs, 20+ countries) and listings from LinkedIn, Indeed, Glassdoor and company pages | Remotive, Arbeitnow, Adzuna, JSearch (an API that itself aggregates the large boards), ATS boards planned. No in-app board: the digest email is the feed | partial |
-| Direct reading of LinkedIn / Indeed / Glassdoor | Permitted on the owner's machine by ADR-017, **no code yet** (see "Not built blind") | gap |
+| Add a job you found on LinkedIn / Indeed / Glassdoor / a career page | `python -m jobscan.clip`: reads the `JobPosting` data from a page you saved, into the next scan. Needs one test on a real saved page per site | **added** |
+| Browsing and searching LinkedIn / Indeed / Glassdoor directly | Permitted on the owner's machine by ADR-017, **no code yet** (see "Not built blind") | gap |
 | Match selection from the preferences | Scored against written criteria with deal-breakers; deterministic prefilter first (titles, stack terms, **languages**) | have, stricter |
 | Auto-apply, submitting without a pause ("Auto") | `apply.mode: auto` behind `authorization.yaml` (switch + dated acknowledgement), caps, adapters for Greenhouse, Lever, Ashby | have |
 | "Human-in-the-Loop": each application held until approved | `apply approve`, and `assisted` mode (form filled, you click submit) | have |
@@ -74,7 +75,18 @@ the development sandbox, so any selector would be a guess, and a wrong guess on 
 logged-in account is how accounts get restricted. Build them on the owner's machine,
 headed, against recorded pages as test fixtures, one source at a time, following the
 conditions in ADR-017. Until then JSearch already returns listings from the same boards
-through a licensed API, which covers discovery.
+through a licensed API, and `jobscan.clip` takes any single posting you find yourself, which
+together cover discovery. What clip cannot do is apply: Easy Apply needs the recorded pages
+described in "How to unblock it" below.
+
+## How to unblock the rest
+
+| Gap | What it needs from the owner | Then |
+|---|---|---|
+| Reading LinkedIn / Indeed / Glassdoor search pages | Nothing, if JSearch plus `clip` is enough. Otherwise one saved results page per site (Save Page As, **logged out**, no personal data in it) committed under `tests/fixtures/` | Parser tested against those files; the adapter runs on your machine under ADR-017's conditions |
+| Easy Apply and other site-specific forms | Run a local Claude Code session on your own machine, headed, **or** save each step of one application as HTML with your own details blanked, and share those files | Adapter written against the files, dry-run first (`apply run --dry-run`), submit only inside `authorization.yaml` |
+| Mock interviews | Nothing: seed a Claude chat with `interview-prep.md` | None |
+| Anything needing a live audio client or server-side submission | A decision and, for submission, a lawyer's read of the ATS terms | Not started |
 
 ## Keeping this page honest
 

@@ -51,6 +51,7 @@ the only way to reach a closed platform directly, see below and ADR-017):
 | `ats_board` | Per-company public job board of an applicant-tracking system; you configure *which companies*, it does not search the market | Greenhouse, Lever, Ashby (Workable, SmartRecruiters, Recruitee: same shape, to verify) |
 | `email_alert` | Alert emails the user receives or forwards | LinkedIn, Indeed, Glassdoor, Braintrust (if it sends alerts) |
 | `manual_channel` | No machine access; listed as a checklist in the report | Malt, Toptal, Shakers, Turing |
+| `clip` | A page the owner saved from any site; the `JobPosting` JSON-LD in it is read from disk (`jobscan.clip`). No network, login or selectors; `collect` ingests `inbox/clips.json` like a source | LinkedIn, Indeed, Glassdoor, company career pages |
 | `owner_browser` | *Not implemented.* The owner's own logged-in browser on the owner's machine, visible, slow, opt-in per source, stops at the first block signal. Never in the cloud routine | LinkedIn, Indeed, Glassdoor (when built) |
 
 **Manifest** every plugin declares: `id`, `access_method`, `terms_reviewed`

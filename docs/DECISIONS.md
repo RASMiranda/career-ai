@@ -257,6 +257,9 @@ Follow-up 2026-10-08: the `config.yaml` comments now describe `owner_browser`; o
 and `answer_legal_or_work_authorisation_questions_unless_preapproved` from
 `authorization.yaml → forbidden_actions`. Nothing in code reads `forbidden_actions`; the
 adapters still hand CAPTCHAs and unknown or legal questions to the human, whatever that list says.
+Also built the same day: `jobscan.clip`, which reads schema.org `JobPosting` data from a page
+the owner saved and queues it for the next scan, so single postings from the closed platforms
+need no adapter, selector or login.
 
 ## ADR-018 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
 Context: a posting requiring German C2 (and written in German) was scored 66 and emailed.

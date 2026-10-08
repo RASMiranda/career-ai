@@ -9,7 +9,8 @@ changes what the engine does for one person, not who can use it. The matrix is
 `REFERENCE-AIAPPLY.md`; update it when a row moves.
 
 Done: application tracker (`apply track`, funnel, follow-ups due); Application Kit
-(`jobscan.kit`: cover letter, CV tailoring, follow-up email, interview prep).
+(`jobscan.kit`: cover letter, CV tailoring, follow-up email, interview prep); `jobscan.clip`
+(a posting you saved from any site goes into the next scan).
 Next, in this order, each one source or feature at a time:
 1. Read aiapply.co directly and correct the matrix (owner, five minutes).
 2. Greenhouse / Lever / Ashby `ats_board` sources (these are P2 step 3b below; they also
