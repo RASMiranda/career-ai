@@ -22,7 +22,7 @@ address, contact detail, salary, rate or work-authorisation answer.
    - `display_name`, `notify.email` (real address; placeholders and
      `example.com` are rejected by `validate`).
    - `languages`: BCP 47 tag -> CEFR level or basic/intermediate/professional/native
-     (`pt-PT: native`). Ask the person; it drives the language prefilter (ADR-016).
+     (`pt-PT: native`). Ask the person; it drives the language prefilter (ADR-018).
    - `cv.dir` (their CV folder) and `cv.default` (a variant id that has a card).
    - `criteria` may be left out: it defaults to
      `profiles/<id>/01-knowledge/05-job-match.md`.

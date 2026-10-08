@@ -80,6 +80,7 @@ https://claude.ai/share/e644dc10-0921-4166-8dd1-ac20e5956316
 decisions in this log supersede anything in that chat).
 
 ## Template
+
 ## ADR-n · YYYY-MM-DD · Title
 Context: … · Decision: … · Consequences: …
 
@@ -206,20 +207,6 @@ Consequences: a scan can wait up to about 2 minutes per JSearch query in the wor
 `page=1` is supported on `/search-v2` (the provider documents `cursor`); it is sent today
 and has been harmless.
 
-## ADR-016 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
-Context: a posting requiring German C2 (and written in German) was scored 66 and emailed.
-The model only sees a 500-char excerpt, the requirement sat further down, and nothing
-in code or criteria treated language as a deal-breaker.
-Decision: each profile declares `languages: {BCP 47 tag: CEFR level | basic/intermediate/professional/native}`
-in `profile.yaml`. The prefilter inverts the check: any language not spoken at
-`prefilter.working_level` (default professional = C1) is "lacking"; a described job is
-discarded in code if it is written in a lacking language (function-word detection) or
-demands one near a requirement cue ("fluent German", "Deutsch C1"). "A plus" does not
-count. No `languages` key means no language filtering. Supported languages: en de fr nl es it pt.
-Consequences: zero model tokens, per-profile, no regex lists to maintain. Alert emails and
-short texts still go to the model, so the deal-breaker is also stated in the criteria file.
-Heuristic detection can miss unusual phrasing; the auto-discard reason is auditable.
-
 ## ADR-017 · 2026-10-08 · Stay as close as possible to aiapply.co; supersedes parts of ADR-004 and ADR-008
 Context: the owner decided the platform should be as close as possible to
 [aiapply.co](https://aiapply.co) everywhere. AIApply bundles, as reported by third
@@ -264,5 +251,24 @@ Consequences: PRODUCT.md "What it is not" and "Out of scope" are rewritten; the 
 gains a parity track; built with this ADR are an application tracker (`apply track`,
 funnel, follow-ups due) and the Application Kit (`jobscan.kit`: cover letter, CV
 tailoring, follow-up email, interview prep, written to `profiles/<id>/03-outputs/`).
-The owner still has to correct third-party claims against the real site, and to change
-`config.yaml` comments and `authorization.yaml` by hand if closed-platform access is wanted.
+The owner still has to correct third-party claims against the real site.
+Follow-up 2026-10-08: the `config.yaml` comments now describe `owner_browser`; on
+`career-data` main the owner removed `apply_via_linkedin_easy_apply`, `solve_or_bypass_captcha`
+and `answer_legal_or_work_authorisation_questions_unless_preapproved` from
+`authorization.yaml → forbidden_actions`. Nothing in code reads `forbidden_actions`; the
+adapters still hand CAPTCHAs and unknown or legal questions to the human, whatever that list says.
+
+## ADR-018 · 2026-10-06 · Language deal-breakers from a declared `languages` map, enforced in the prefilter
+Context: a posting requiring German C2 (and written in German) was scored 66 and emailed.
+The model only sees a 500-char excerpt, the requirement sat further down, and nothing
+in code or criteria treated language as a deal-breaker.
+Decision: each profile declares `languages: {BCP 47 tag: CEFR level | basic/intermediate/professional/native}`
+in `profile.yaml`. The prefilter inverts the check: any language not spoken at
+`prefilter.working_level` (default professional = C1) is "lacking"; a described job is
+discarded in code if it is written in a lacking language (function-word detection) or
+demands one near a requirement cue ("fluent German", "Deutsch C1"). "A plus" does not
+count. No `languages` key means no language filtering. Supported languages: en de fr nl es it pt.
+Consequences: zero model tokens, per-profile, no regex lists to maintain. Alert emails and
+short texts still go to the model, so the deal-breaker is also stated in the criteria file.
+Heuristic detection can miss unusual phrasing; the auto-discard reason is auditable.
+*Numbered ADR-016 when written, which collided with the JSearch entry above; renumbered 2026-10-08. Older commit messages and chat may still say ADR-016.*
