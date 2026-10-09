@@ -16,6 +16,9 @@ $args = @("-m", "jobscan.apply", "run")
 if ($Mode)  { $args += @("--mode", $Mode) }
 if ($DryRun) { $args += "--dry-run" }
 python @args
+# A failed run must not stop the push: what it recorded (failures included) is what the next
+# scan emails to you as "apply by hand".
+if ($LASTEXITCODE -ne 0) { Write-Warning "apply run exited with status $LASTEXITCODE; pushing what it recorded" }
 
 python -m jobscan.apply summary | Out-Null
 git -C $Data add applications logs reports

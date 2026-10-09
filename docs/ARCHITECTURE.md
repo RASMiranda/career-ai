@@ -166,7 +166,9 @@ user B.
 - Deterministic adapters, not an LLM-driven browser: a posting can contain
   instructions aimed at an agent.
 - Unknown required question, consent box, work-authorisation question, CAPTCHA,
-  login wall, changed layout → stop, log, hand to the human with the link.
+  login wall, changed layout → stop, log, hand to the human with the link. The item becomes
+  `failed`, and the next scan email lists it first under "Apply by hand" (ADR-020), as it does any
+  `approved` job the runner never submitted.
 - **Unchanged by ADR-017:** the model never drives the browser, and the
   product implication below stands until legal advice says otherwise.
 - **Product implication:** do not run server-side auto-submission for paying

@@ -23,6 +23,7 @@ from pathlib import Path
 from . import collect, report, triage, validate
 from .apply import cli as apply_cli
 from .apply.queue import Queue
+from .apply.summary import count_failures
 from .config import ConfigError, data_root, load_authorization, load_config
 
 PUBLISH_PATHS = ("reports", "state", "applications", "logs")
@@ -173,7 +174,8 @@ def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
     print(f"  email: {dispo.count('email')} · low-confidence: {dispo.count('low-confidence')}"
           f" · discarded: {dispo.count('discarded')}")
     print(f"  applications waiting: {len(queue.by_status('queued'))} · auto-approved: "
-          f"{len(queue.by_status('approved'))}")
+          f"{len(queue.by_status('approved'))} · to apply by hand: {count_failures(queue)} "
+          f"(failed or approved but never submitted)")
 
     if sendable:
         print("\nSEND these emails with the Gmail connector, to the listed addresses and no others, "
