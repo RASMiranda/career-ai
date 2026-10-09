@@ -34,6 +34,17 @@ PAGES = {
     "/consent": BASE.format(extra='<label><input type="checkbox" name="c" required> '
                                   'I agree to the privacy policy *</label>'),
     "/captcha": BASE.format(extra='<div class="g-recaptcha" style="width:300px;height:80px"></div>'),
+    "/questions": BASE.format(extra=(
+        '<div class="field"><label for="yj">Years of Java experience *</label><select id="yj" name="yj" required>'
+        '<option value="">Select...</option><option>0-2</option><option>3-5</option><option>6+</option></select></div>'
+        '<div class="field"><label for="why">Why do you want to work here? *</label>'
+        '<textarea id="why" name="why" maxlength="600" required></textarea></div>'
+        '<div class="field"><label for="sb">How many years of Spring Boot? *</label>'
+        '<input id="sb" name="sb" type="number" required></div>'
+        '<fieldset class="field"><legend>Are you comfortable with on-call rotation? *</legend>'
+        '<label><input type="radio" name="oc" value="y" required> Yes</label>'
+        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>'
+        '<label><input type="checkbox" name="c" required> I agree to the privacy policy *</label>')),
     "/closed": "<html><body><h1>Sorry, this position is no longer accepting applications.</h1></body></html>",
 }
 APPLICANT = {"first_name": "Ana", "last_name": "Silva", "email": "ana@example.test", "phone": ""}
@@ -147,3 +158,26 @@ def test_missing_required_cv_stops(site):
     _, fail, posted = run(site, "/ok", cv=None, submit=True)
     assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and "resume" in fail.details["unknown_fields"][0]
     assert posted == 0
+
+
+def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, cv):
+    _, fail, posted = run(site, "/questions", cv=cv, submit=True)
+    assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and posted == 0
+    got = {q["label"]: q for q in fail.details["unknown_questions"]}
+    assert set(got) == set(fail.details["unknown_fields"])                    # same questions, richer
+    assert got["Years of Java experience"]["kind"] == "select"
+    assert got["Years of Java experience"]["options"] == ["0-2", "3-5", "6+"]  # placeholder dropped
+    assert got["Why do you want to work here?"] == {
+        "label": "Why do you want to work here?", "kind": "textarea", "max_length": 600, "options": []}
+    assert got["How many years of Spring Boot?"]["kind"] == "number"
+    assert got["Are you comfortable with on-call rotation?"]["kind"] == "radio"
+    assert got["Are you comfortable with on-call rotation?"]["options"] == ["Yes", "No"]
+    assert got["I agree to the privacy policy"]["kind"] == "checkbox"
+
+
+def test_answers_in_the_drafted_shape_fill_the_form(site, cv):
+    answers = {"years of java experience": "6+", "why do you want": "I like platform work.",
+               "years of spring boot": "7", "on-call rotation": "Yes", "privacy policy": "yes"}
+    res, fail, posted = run(site, "/questions", answers, cv=cv, submit=True)
+    assert fail is None and posted == 1
+    assert {"Years of Java experience", "Why do you want to work here?"} <= set(res.filled)

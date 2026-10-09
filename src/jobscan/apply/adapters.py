@@ -126,6 +126,15 @@ _JS_GROUP = """e => {
 
 _JS_REQUIRED = """e => e.required || e.getAttribute('aria-required') === 'true'"""
 
+# What kind of answer a control wants, so a missing answer can be drafted later (apply questions).
+_JS_KIND = """e => {
+  const tag = e.tagName.toLowerCase(), max = e.maxLength > 0 ? e.maxLength : 0;
+  if (tag === 'select') return {kind: 'select', max: 0, options: [...e.options]
+    .map(o => (o.label || o.text || '').trim())
+    .filter(t => t && !/^(select|choose|please|--)/i.test(t)).slice(0, 40)};
+  return {kind: tag === 'textarea' ? 'textarea' : (e.type || 'text'), max: max, options: []};
+}"""
+
 _JS_CAPTCHA = """() => {
   const sel = 'iframe[src*="hcaptcha"], iframe[src*="recaptcha"], .g-recaptcha, .h-captcha, '
             + '[data-sitekey], iframe[src*="turnstile"], .cf-turnstile';
@@ -232,7 +241,14 @@ class FormAdapter(Adapter):
             raise ApplyFailure(Code.CAPTCHA, "captcha widget present", step)
 
     def _fill(self, page, applicant, answers, cv_path) -> list[str]:
-        filled, unknown = [], []
+        filled, unknown, questions = [], [], []
+
+        def ask(label: str, kind: str, options=(), max_length: int = 0) -> None:
+            """A required question with no pre-approved answer, with enough shape to draft one."""
+            label = label.strip(" *✱") or "(unlabelled choice)"
+            unknown.append(label)
+            questions.append({"label": label[:200], "kind": kind, "max_length": max_length,
+                              "options": [str(o)[:80] for o in options][:40]})
 
         for el in page.query_selector_all(_TEXT_CONTROLS):
             if not el.is_visible() or el.is_disabled():
@@ -241,7 +257,8 @@ class FormAdapter(Adapter):
             value = resolve_value(label, applicant, answers)
             if value is None:
                 if required:
-                    unknown.append(label.strip(" *✱"))
+                    shape = el.evaluate(_JS_KIND)
+                    ask(label, shape["kind"], shape["options"], shape["max"])
                 continue
             try:
                 if el.evaluate("e => e.tagName.toLowerCase()") == "select":
@@ -265,7 +282,7 @@ class FormAdapter(Adapter):
                 el.check()
                 filled.append(label.strip(" *✱"))
             else:
-                unknown.append(label.strip(" *✱"))
+                ask(label, "checkbox")
 
         # radios: required groups need a pre-approved answer that matches an option
         groups: dict[str, list] = {}
@@ -279,7 +296,7 @@ class FormAdapter(Adapter):
             chosen = next((e for e in els
                            if value and _lab(e.evaluate(_JS_LABEL)) == _lab(value)), None)
             if chosen is None:
-                unknown.append(question.strip(" *✱") or "(unlabelled choice)")
+                ask(question or "(unlabelled choice)", "radio", [e.evaluate(_JS_LABEL) for e in els])
             else:
                 chosen.check()
                 filled.append(question.strip(" *✱"))
@@ -299,7 +316,7 @@ class FormAdapter(Adapter):
             raise ApplyFailure(
                 Code.UNKNOWN_REQUIRED_FIELD,
                 f"{len(unknown)} required field(s) have no pre-approved answer", "fill",
-                {"unknown_fields": unknown, "filled_fields": filled})
+                {"unknown_fields": unknown, "unknown_questions": questions, "filled_fields": filled})
         return filled
 
     def _submit(self, page) -> str:

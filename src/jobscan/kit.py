@@ -40,6 +40,7 @@ from . import cv
 from .apply.queue import Queue
 from .blacklist import canon
 from .config import ConfigError, data_root, load_config
+from .draftcheck import problems_in
 from .triage import DEFAULT_WORKING_LEVEL, LEVELS
 
 ELIGIBLE = ("queued", "approved", "filled", "failed")     # matches still to be applied to
@@ -51,15 +52,6 @@ LISTS = {"cv_tailoring": (3, 8, 300), "gaps": (0, 6, 200), "questions_to_ask": (
 PREP = (3, 8, 200, 500)             # items, question chars, outline chars
 
 _TAG = re.compile(r"^[a-z]{2,3}$")
-_BAD = [
-    ("a link", re.compile(r"https?://|www\.", re.I)),
-    ("an email address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
-    ("a phone number", re.compile(r"(?<![\w])\+?\d[\d\s().-]{7,}\d(?![\w])")),
-    ("HTML", re.compile(r"</?[a-zA-Z][^>]*>")),
-    ("an unfilled placeholder", re.compile(
-        r"\{\{|\}\}|\[[^\]\n]{0,40}(name|company|position|role|title|date|your|insert|hiring|manager)[^\]\n]{0,40}\]"
-        r"|\bTODO\b|\bTBD\b|lorem ipsum|\bXXX+\b", re.I)),
-]
 
 
 class KitError(RuntimeError):
@@ -86,8 +78,7 @@ def _count(text: str) -> int:
     return len(text.split())
 
 
-def _problems_in(text: str) -> list[str]:
-    return [what for what, rx in _BAD if rx.search(text)]
+_problems_in = problems_in
 
 
 def check(kit: dict, item: dict, profile: dict) -> list[str]:

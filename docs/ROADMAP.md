@@ -10,15 +10,19 @@ changes what the engine does for one person, not who can use it. The matrix is
 
 Done: application tracker (`apply track`, funnel, follow-ups due); Application Kit
 (`jobscan.kit`: cover letter, CV tailoring, follow-up email, interview prep); `jobscan.clip`
-(a posting you saved from any site goes into the next scan).
+(a posting you saved from any site goes into the next scan); `apply questions` (a model drafts
+answers to form questions, the owner approves each, ADR-019); `jobscan.redact` and
+`CAPTURING-PAGES.md` (how pages reach the cloud safely); the matrix corrected against the real site.
 Next, in this order, each one source or feature at a time:
-1. Read aiapply.co directly and correct the matrix (owner, five minutes).
+1. Test `clip` on a saved page from LinkedIn, Indeed and Glassdoor, then send the pages in
+   `CAPTURING-PAGES.md` (owner).
 2. Greenhouse / Lever / Ashby `ats_board` sources (these are P2 step 3b below; they also
    widen what auto-apply can reach).
 3. `owner_browser` adapters for LinkedIn, Indeed, Glassdoor on the owner's machine,
-   headed, from recorded pages, with the stop-on-block rule. Easy Apply last.
-4. Mock-interview mode (a Claude chat seeded from `interview-prep.md`), a resume scanner,
-   CV file translation.
+   headed, written in the cloud from the owner's redacted pages, with the stop-on-block rule.
+   Easy Apply last.
+4. A resume scanner (ATS check) and a LinkedIn-to-CV importer, which the real site offers;
+   CV file translation; a cover-letter tone option in the kit.
 5. Resume hosting with view tracking, with the portal (P5).
 
 ## P0 · Prove it for one person (now)

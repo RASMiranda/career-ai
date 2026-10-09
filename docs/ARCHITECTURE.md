@@ -108,6 +108,15 @@ queue (applications/queue.json)           profiles/<id>/03-outputs/<date>-<compa
 - The scan routine does not run the kit (usage is limited); the owner does, on request,
   and commits `profiles/` and `applications/` in `career-data` afterwards.
 
+**Form answers (ADR-019).** The adapter's `UNKNOWN_REQUIRED_FIELD` failure now carries each
+unanswered question's `kind`, `options` and `max_length`. `apply questions prepare` turns recent
+failures into a brief, a model drafts, `finish` validates and stores `proposed` answers in
+`applications/answers.json`, and **the owner approves each one** (`approve`, `reject`, `set`). Only
+`approved` ones reach a form, through `answers_for`, after the owner's explicit `profile.yaml →
+answers`. Questions in `OWNER_ONLY` (legal, consent, demographic, pay, notice, start date, any
+checkbox, date, email or phone field) never reach the model: they are stored as `needs_owner`.
+The model sees the question, the job and the CV cards, never `applicant` or `answers`.
+
 ## 3. Data model (multi-tenant)
 
 `users` · `profiles` (criteria markdown, per user) · `source_configs`
