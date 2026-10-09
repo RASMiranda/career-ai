@@ -100,12 +100,47 @@ browser (Save Page As, HTML) and clip it. Most job pages embed the posting as sc
 selectors, no login, no network, nothing that can restrict an account.
 
 ```bash
-python -m jobscan.clip ~/Downloads/job.html --data ../career-data [--profile rui] [--url <link you apply from>]
+python -m jobscan.clip ~/Downloads/job.html --data ../career-data [--profile rui] [--url <link you apply from>] [--dry-run]
 ```
+
+`--dry-run` shows what it found (and whether the prefilter would drop it) and writes nothing: the
+way to test a page. Exact steps per site are in `docs/CAPTURING-PAGES.md`.
 
 It goes into `inbox/clips.json`; commit `inbox/` in `career-data` and the next scan scores it
 like any other source (seen-set, blacklist and prefilter still apply, and `clip` warns now if the
 prefilter would discard it). A page without the data is reported, not guessed at.
+
+### Answers to application questions
+
+When a form asks a required question nothing can answer, `apply run` stops and logs it with its type
+and options. `apply questions` closes the loop without a model near the browser (ADR-019):
+
+```bash
+python -m jobscan.apply run --mode assisted --dry-run --headed   # your machine: collects the questions
+python -m jobscan.apply questions prepare   # brief of what to draft; no personal data in it
+# ... Claude writes /tmp/answers-draft.json ...
+python -m jobscan.apply questions finish    # fails closed; stores the drafts as "proposed"
+python -m jobscan.apply questions list      # what is waiting, and for which job
+python -m jobscan.apply questions approve a1b2c3 | --all     # YOU decide; nothing is used before this
+python -m jobscan.apply questions set a1b2c3 "my own words"  # for anything, including the ones below
+```
+
+Code never lets a model answer legal and work-authorisation questions, consent boxes, demographic
+questions, pay, notice period, start date, dates, emails or phone numbers. Those are registered as
+`needs_owner` for you to `set` (or write in `profile.yaml → answers`). A draft with a link, address,
+number, markup or placeholder, an answer that is not one of a dropdown's options, or one that overruns
+its field is rejected. Approved answers are passed to the form after your own `answers`, which always
+win. Answers live in `applications/answers.json` (private).
+
+### Share a saved page safely
+
+```bash
+python -m jobscan.redact page.html --term "Ana" --term "Silva" --term "Lisbon"
+```
+
+Strips scripts, session tokens, form values, query strings, emails, phone numbers and every
+`--term`, keeps the structure and the `JobPosting` data, and writes `page.redacted.html`. Read it
+before you share it. Used to build site adapters from your own pages (`docs/CAPTURING-PAGES.md`).
 
 ### Application Kit (per job, on request)
 

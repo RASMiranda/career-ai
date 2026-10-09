@@ -257,6 +257,10 @@ Follow-up 2026-10-08: the `config.yaml` comments now describe `owner_browser`; o
 and `answer_legal_or_work_authorisation_questions_unless_preapproved` from
 `authorization.yaml → forbidden_actions`. Nothing in code reads `forbidden_actions`; the
 adapters still hand CAPTCHAs and unknown or legal questions to the human, whatever that list says.
+2026-10-09: the owner supplied a saved copy of the aiapply.co landing page and
+`docs/REFERENCE-AIAPPLY.md` was corrected against it (job-board size, an API exists, the site does
+not name LinkedIn, Indeed or Glassdoor, the resume scanner exists). The owner confirmed the
+`forbidden_actions` removal was intended and that CAPTCHAs and legal questions stay with them.
 Also built the same day: `jobscan.clip`, which reads schema.org `JobPosting` data from a page
 the owner saved and queues it for the next scan, so single postings from the closed platforms
 need no adapter, selector or login.
@@ -275,3 +279,25 @@ Consequences: zero model tokens, per-profile, no regex lists to maintain. Alert 
 short texts still go to the model, so the deal-breaker is also stated in the criteria file.
 Heuristic detection can miss unusual phrasing; the auto-discard reason is auditable.
 *Numbered ADR-016 when written, which collided with the JSearch entry above; renumbered 2026-10-08. Older commit messages and chat may still say ADR-016.*
+
+## ADR-019 · 2026-10-09 · The model drafts form answers; the owner approves each; legal, consent and pay are never drafted
+Context: AIApply fills application forms with answers it writes. This product stops at the first
+required question it cannot answer (ADR-004) and keeps models away from the browser (ADR-003,
+ADR-007), so every such stop was a manual job. The owner asked for AI-drafted answers.
+Decision: the adapter logs each unanswered required question with its type, options and length limit.
+`apply questions prepare` turns recent failures into a brief; the model drafts offline, from the CV
+cards, the knowledge files and (for job-specific answers) the posting, never from `applicant` or
+`answers`; `finish` validates and stores the drafts as `proposed`; the owner approves, rejects or
+overrides each (`approve`, `reject`, `set`); only `approved` answers reach a form, after the owner's own
+`profile.yaml → answers`, which always win. Code, not the prompt, keeps these away from the model and
+stores them as `needs_owner`: legal and work-authorisation, consent and confirmation boxes,
+demographic questions, pay, notice period, start date, and any date, email, phone or checkbox field.
+A draft is rejected for a link, address, phone number, markup or placeholder, an answer that is not
+one of a dropdown's or radio's options, one longer than the field, or a reusable answer that names the
+company. `finish` is all-or-nothing, and a decision the owner already made is never overwritten.
+Consequences: the loop has a human step on purpose, and the model never touches a browser or a
+submission. It needs a dry run on the owner's machine to collect questions, the log pushed to
+`career-data`, a cloud session to draft, and the owner's approval before the next run. The scan
+routine never runs `questions approve|reject|set` (`CLAUDE.md`). Answers are private data in
+`applications/answers.json`. An approved answer is the owner's statement from then on, so approve
+only what is true; the model cannot check facts, only keep to the CV.

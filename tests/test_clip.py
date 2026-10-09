@@ -217,3 +217,25 @@ def test_cli_profile_and_url_rules(tmp_path, capsys):
     assert clip.main([good, "--data", str(root), "--profile", "a", "--url", "https://mine.test/apply"]) == 0
     stored = json.loads(clip.inbox_path(root).read_text())["clips"][0]
     assert stored["profile"] == "a" and stored["candidate"]["url"] == "https://mine.test/apply"
+
+
+def test_cli_dry_run_writes_nothing_and_shows_the_posting(tmp_path, capsys):
+    root = make_root(tmp_path)
+    good = save(tmp_path, "good.html", posting())
+    junior = save(tmp_path, "junior.html", posting(title="Junior Java Dev", identifier="7"))
+    assert clip.main([good, junior, "--data", str(root), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "would clip  Senior Java Lead — Acme Corp" in out and "Lisbon, PT (remote)" in out
+    assert "the prefilter would discard it" in out.split("Junior Java Dev")[1]
+    assert "dry run: nothing was written." in out
+    assert not clip.inbox_path(root).exists()
+
+
+def test_cli_dry_run_on_a_page_without_a_posting_says_so(tmp_path, capsys):
+    root = make_root(tmp_path)
+    other = tmp_path / "landing.html"
+    other.write_text(page({"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "x"}))
+    assert clip.main([str(other), "--data", str(root), "--dry-run"]) == 1
+    captured = capsys.readouterr()
+    assert "landing.html: no schema.org JobPosting found" in captured.err
+    assert "dry run: nothing found." in captured.out

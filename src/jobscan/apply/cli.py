@@ -5,6 +5,8 @@
   skip K…     not interested            done K…   you applied by hand
   track K     record what came back: replied | interview | offer | rejected | withdrawn
   followed-up K…  you sent the follow-up (it stops being listed as due)
+  questions   answers to form questions the runner could not fill: prepare | finish | list |
+              approve | reject | set. The model drafts, YOU approve; see jobscan/apply/answers.py
   run         process approved items (see modes below)
   summary     markdown/html status for the daily email
   bundle      redacted failure bundle to paste into Claude Code
@@ -30,6 +32,7 @@ from .. import cv
 from ..triage import clean
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
+from . import answers as drafted
 from . import faillog, policy, summary, tracker
 from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
 from .queue import TRACKING, Queue
@@ -151,6 +154,14 @@ def cmd_followed_up(args, root, cfg, auth):
     return status
 
 
+def cmd_questions(args, root, cfg, auth):
+    try:
+        return drafted.run(args, root, cfg, _known_applicants(root, cfg))
+    except drafted.AnswerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
 def cmd_run(args, root, cfg, auth):
     acfg = policy.apply_cfg(cfg)
     mode = args.mode or acfg["mode"]
@@ -165,7 +176,7 @@ def cmd_run(args, root, cfg, auth):
     applicants = _known_applicants(root, cfg)
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
-    flog, q = faillog.FailureLog(root, secrets), Queue(root)
+    flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -200,6 +211,7 @@ def cmd_run(args, root, cfg, auth):
             if adapter is None:
                 raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
             applicant, answers = applicants[item["profile"]]
+            answers = drafted.answers_for(store, item["profile"], key, answers)   # approved ones; yours win
             result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
                                    submit=submit, headless=headless, hold=mode == "assisted")
             if result.status == "submitted":
@@ -287,6 +299,24 @@ def main(argv=None) -> int:
     p.add_argument("--note", help="one line for yourself, e.g. 'recruiter call Thursday'")
     p.add_argument("--follow-up", metavar="YYYY-MM-DD", help="remind me on this date instead of the default wait")
     sub.add_parser("followed-up").add_argument("keys", nargs="+")
+    p = sub.add_parser("questions")
+    qs = p.add_subparsers(dest="action", required=True)
+    work = argparse.ArgumentParser(add_help=False)
+    work.add_argument("--work", default="/tmp", help="where questions-request.json and answers-draft.json live")
+    q = qs.add_parser("prepare", parents=[work])
+    q.add_argument("--days", type=int, default=30, help="failures from the last N days (default %(default)s)")
+    q.add_argument("--limit", type=int, default=drafted.DEFAULT_LIMIT)
+    qs.add_parser("finish", parents=[work])
+    q = qs.add_parser("list")
+    q.add_argument("--status", choices=[*drafted.STATUSES, "waiting", "all"], default="waiting",
+                   help="waiting = proposed + needs_owner (default)")
+    q = qs.add_parser("approve")
+    q.add_argument("keys", nargs="*")
+    q.add_argument("--all", action="store_true", help="approve every proposed answer")
+    qs.add_parser("reject").add_argument("keys", nargs="+")
+    q = qs.add_parser("set")
+    q.add_argument("key")
+    q.add_argument("text", help="your own answer")
     p = sub.add_parser("run")
     p.add_argument("--mode", choices=["assisted", "auto"])
     p.add_argument("--dry-run", action="store_true", help="fill forms, never submit")
@@ -311,7 +341,7 @@ def main(argv=None) -> int:
             return _mark(args, root, {"approve": "approved", "skip": "skipped", "done": "done"}[args.cmd])
         return {"enqueue": cmd_enqueue, "run": cmd_run, "summary": cmd_summary,
                 "bundle": cmd_bundle, "blacklist": cmd_blacklist, "track": cmd_track,
-                "followed-up": cmd_followed_up}[args.cmd](args, root, cfg, auth)
+                "followed-up": cmd_followed_up, "questions": cmd_questions}[args.cmd](args, root, cfg, auth)
     except (ConfigError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -5,7 +5,10 @@ schema.org ``JobPosting`` JSON-LD (Google for Jobs requires it). This reads that
 an HTML file on your disk (browser: Save Page As), so it needs no selectors, no login
 and no network, and cannot get an account restricted:
 
-    python -m jobscan.clip page.html [page2.html …] --data D [--profile ID] [--url LINK]
+    python -m jobscan.clip page.html [page2.html …] --data D [--profile ID] [--url LINK] [--dry-run]
+
+``--dry-run`` shows what would be clipped, and whether the prefilter would discard it,
+without writing anything: use it to test a page.
 
 Each posting goes into ``<data>/inbox/clips.json``. The next scan collects it like any
 other source: seen-set, blacklist and prefilter apply, then the model scores it. Commit
@@ -208,6 +211,7 @@ def main(argv=None) -> int:
     ap.add_argument("--data")
     ap.add_argument("--profile")
     ap.add_argument("--url", help="the link you would apply from (default: the page's own)")
+    ap.add_argument("--dry-run", action="store_true", help="show the result, write nothing")
     args = ap.parse_args(argv)
     try:
         root = data_root(args.data)
@@ -232,6 +236,16 @@ def main(argv=None) -> int:
         except (ClipError, OSError) as exc:
             print(f"  {path.name}: {exc}", file=sys.stderr)
             status = 1
+    if args.dry_run:
+        for cand in found:
+            why = triage.reject_reason(cand.to_dict(), rules)
+            print(f"  would clip  {cand.title} — {cand.company}\n"
+                  f"    where: {cand.location or '—'}{' (remote)' if cand.remote else ''} · "
+                  f"type: {cand.contract_type or '—'} · pay: {cand.salary or '—'} · posted: {cand.posted_at or '—'}\n"
+                  f"    link: {cand.url}\n    text ({len(cand.description)} chars): {cand.description[:160]}…"
+                  + (f"\n    ! the prefilter would discard it: {why}" if why else ""))
+        print("dry run: nothing was written." if found else "dry run: nothing found.")
+        return status
     added, known = add(root, Seen(root), found)
     for cand in added:
         why = triage.reject_reason(cand.to_dict(), rules)
