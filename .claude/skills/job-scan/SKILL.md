@@ -91,7 +91,8 @@ the CV cards as a diff; do not apply them silently.
 
 ## Applications
 
-**An auto-apply failed.** Run `python -m jobscan.apply bundle`, read the grouped
+**An auto-apply failed.** The owner is emailed it first, daily, under "Apply by hand" (ADR-020), so
+check that it is listed there. Then run `python -m jobscan.apply bundle`, read the grouped
 failures, and propose the smallest adapter change plus a pytest case built from
 the `form_outline`. Hard constraints: never solve or bypass a CAPTCHA, never
 auto-answer legal/consent/work-authorisation questions, never invent applicant

@@ -8,6 +8,28 @@ parsers and adapters and tests them against synthetic copies; **you** run the re
 own machine. Nothing in this flow logs in to a site from the cloud, and no credential leaves
 your machine.
 
+## The cloud can fetch public pages itself (ADR-021)
+
+If the environment allows the sites, ask the cloud session to test `clip` and it will run
+`python -m jobscan.fetchpage` on a few public, logged-out job and search pages, then `clip` on each.
+One plain request per page with an honest User-Agent, no login, no cookies; the first block signal
+(HTTP 403/429/999, a login or challenge page, a CAPTCHA) ends the run and it does not try again that day.
+
+To allow it: in the cloud environment settings (the environment menu in the session's title bar,
+then **Edit**), under **Network access** add these to **Allowed domains**, keeping **Allow package
+managers** ticked, then start a new session (or tell the current one):
+
+```
+www.linkedin.com   www.indeed.com   www.glassdoor.com
+```
+
+Add the regional host you actually use too (for example `pt.indeed.com`, `pt.linkedin.com`,
+`www.glassdoor.pt`). A site may still block a cloud address; then use Parts 1 and 2 below, in your own
+browser. **Logged-in steps (Easy Apply) are never fetched from the cloud.**
+
+Pages worth keeping, after `jobscan.redact`, are stored in `career-data/captures/<site>/` (private), so
+later sessions reuse them without another upload. Passwords, cookies and tokens are never stored there.
+
 ## Setup, once, on your PC
 
 ```powershell

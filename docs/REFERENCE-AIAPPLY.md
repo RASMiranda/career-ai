@@ -109,7 +109,7 @@ steps, per site and per page, are in [`CAPTURING-PAGES.md`](CAPTURING-PAGES.md).
 
 | Gap | What it needs from the owner | Then |
 |---|---|---|
-| Test `clip` on a real page | Save one job page per site, run `jobscan.clip --dry-run` | It prints the posting, or says the page carries no `JobPosting` data |
+| Test `clip` on a real page | Allow `www.linkedin.com`, `www.indeed.com`, `www.glassdoor.com` in the environment's network settings and ask the cloud session to test it (`jobscan.fetchpage`, ADR-021); or save one job page per site yourself and run `jobscan.clip --dry-run` | It prints the posting, or says the page carries no `JobPosting` data |
 | Reading search pages | One saved results page per site, logged out, through `jobscan.redact` | Parser written and tested against a synthetic fixture built from it |
 | Easy Apply and other site forms | The dialog's HTML for each step, through `jobscan.redact`, stopping before Submit | Adapter written against synthetic fixtures; you run `apply run --dry-run --headed` once and paste back `apply bundle`; I fix; repeat |
 | Scored mock interviews | Nothing: seed a Claude chat with `interview-prep.md` | None |

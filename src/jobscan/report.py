@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .apply.queue import Queue
 from .apply.policy import apply_cfg
+from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
 from .normalize import is_http_url
@@ -100,11 +101,14 @@ def _card(row: dict) -> str:
     )
 
 
-def render_email(day: str, matches: list, pending: list, extra_html: str = "") -> str:
+def render_email(day: str, matches: list, pending: list, extra_html: str = "", urgent_html: str = "") -> str:
+    """``urgent_html`` (applications to do by hand) goes first: it is the part that needs you today."""
     body = [f'<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px">',
             f'<h2 style="margin:0 0 4px">Job scan · {html.escape(day)}</h2>',
             f'<p style="color:#666;margin:0 0 16px">{len(matches)} match(es), '
             f'{len(pending)} to verify.</p>']
+    if urgent_html:
+        body.append(urgent_html)
     body += [_card(m) for m in matches] or ['<p>No confirmed matches today.</p>']
     if pending:
         body.append('<h3>To verify</h3>')
@@ -128,17 +132,22 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
         matches, pending = _bucket(own, decisions, [profile])
         wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
-        apps = render_applications(queue, profile=pid, follow_up_days=wait) if queue else ""
+        apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False) if queue else ""
+        urgent = render_failures(queue, pid) if queue else ""
+        by_hand = count_failures(queue, pid) if queue else 0
         body = out_dir / f"email-{pid}.html"
-        body.write_text(render_email(day, matches, pending, apps), encoding="utf-8")
+        body.write_text(render_email(day, matches, pending, apps, urgent), encoding="utf-8")
         deliveries.append({
             "profile": pid,
             "to": recipients(profile),
-            "subject": f"[Job Scan] {day} — {len(matches)} matches",
+            "subject": f"[Job Scan] {day} — {len(matches)} matches"
+                       + (f" — ⚠ {by_hand} to apply by hand" if by_hand else ""),
             "body": str(body),
             "matches": len(matches),
             "pending": len(pending),
-            "send": bool(matches or pending or apps),
+            "apply_by_hand": by_hand,
+            # A failed application always produces an email, even on a day with no new matches.
+            "send": bool(matches or pending or apps or urgent),
         })
     return deliveries
 

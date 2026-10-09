@@ -110,6 +110,23 @@ It goes into `inbox/clips.json`; commit `inbox/` in `career-data` and the next s
 like any other source (seen-set, blacklist and prefilter still apply, and `clip` warns now if the
 prefilter would discard it). A page without the data is reported, not guessed at.
 
+### When an application fails
+
+A failed auto-apply, and any `approved` job the runner never submitted (older than 36 hours), is the
+first thing in the next scan email, under **Apply by hand**, with the reason, the link, the CV to use and
+the subject flagged "⚠ N to apply by hand". It repeats daily until you mark it `done` or `skip`
+(ADR-020). `scripts/local-apply.*` push what a run recorded even when the run fails, which is how the
+failure reaches the scan.
+
+### Fetch a few public pages for a test (development sessions only)
+
+```bash
+python -m jobscan.fetchpage https://example.com/jobs/1 --out-dir /tmp/pages
+```
+
+One plain, logged-out request per page, at most 5, stopping at the first block signal and never retrying
+that host that day (ADR-021). It tells you at once whether `clip` can read each page.
+
 ### Answers to application questions
 
 When a form asks a required question nothing can answer, `apply run` stops and logs it with its type

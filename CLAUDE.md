@@ -118,4 +118,6 @@ push and merge in `career-ai` whenever that is needed to complete the task,
 without asking again. Use a feature branch and a pull request (squash-merge once
 `python -m pytest -q` passes); never force-push `main`. Never put personal data
 or credentials in a commit. The scan routine's rules above still hold during a
-scan run.
+scan run. When the owner asks, a development session may fetch a few public pages for a test or a
+fixture, only through `python -m jobscan.fetchpage` (ADR-021): it never logs in to a site, never
+retries a block, and never stores a password, cookie or token.

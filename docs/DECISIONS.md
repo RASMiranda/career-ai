@@ -301,3 +301,42 @@ submission. It needs a dry run on the owner's machine to collect questions, the 
 routine never runs `questions approve|reject|set` (`CLAUDE.md`). Answers are private data in
 `applications/answers.json`. An approved answer is the owner's statement from then on, so approve
 only what is true; the model cannot check facts, only keep to the CV.
+
+## ADR-020 · 2026-10-09 · Every application that fails or is never submitted is emailed first, every day
+Context: `apply run` stops on anything it is not sure of and records `failed`; the owner asked that
+any failed auto-apply be reported by email so they can apply by hand. Before this, a failure sat at the
+bottom of the scan email without a mention in the subject, an `approved` job that the runner never
+picked up (machine off, run crashed) was not reported at all, and `local-apply.sh` aborted on a failed
+run before pushing, so the failures never left the owner's machine.
+Decision: the scan email puts one block first, "Apply by hand", listing every `failed` application and
+every `approved` one older than 36 hours that was never submitted, each with the reason in plain words,
+the link, the CV to use and the kit path. The subject carries "⚠ N to apply by hand". A profile with
+such items gets an email even on a day with no new matches. Each profile sees only its own. The block
+repeats daily until the owner marks the job `done` or `skip`. The local scripts push what a run
+recorded even when the run exits non-zero. Every adapter, including any future site adapter, reports
+through the same path: raise `ApplyFailure`, and the item becomes `failed`.
+Consequences: the email is sent by the scan routine, so a failure reaches the owner at the next scan
+after the local script pushed it, not the minute it happens. A faster path needs a sender on the
+owner's machine (SMTP credentials), which this repo will not hold (ADR-007). If the owner never runs the
+local script, approved jobs go stale and are reported after 36 hours.
+
+## ADR-021 · 2026-10-09 · A development session may fetch a few public pages when the owner asks; captures live in career-data; credentials never do
+Context: the owner asked for `jobscan.clip` to be tested on real LinkedIn, Indeed and Glassdoor pages
+by the cloud session itself, offered to change the environment's network settings, and said storing
+captured material in `career-data` is fine. ADR-017 allows direct access to those sites only on the
+owner's machine.
+Decision: a development session the owner has asked may fetch public, logged-out pages through
+`python -m jobscan.fetchpage` only: at most 5 URLs per run, one plain GET each with an honest
+User-Agent, no cookies, no login, no retry, public https hosts only, a pause between requests. The first
+block signal (HTTP 401/403/429/451/999, a redirect to a login or challenge page, a CAPTCHA or "unusual
+activity" page) ends the run and that host for the day, and nothing is tried to get past it. The scan
+routine never fetches these sites (ADR-017, CLAUDE.md). Pages worth keeping, passed through
+`jobscan.redact`, go in `career-data/captures/<site>/` (private) so later sessions reuse them; the
+public repo gets only synthetic fixtures. Credentials, passwords, session cookies and tokens are not
+stored in either repo (career-data README), and no session logs in to a site from the cloud.
+Consequences: the cloud network policy must allow the hosts (Allowed domains in the environment's
+settings), and a site may still block a cloud address, in which case the owner saves the page in their
+own browser. Easy Apply and any other logged-in step stay on the owner's machine. Moving them to the
+cloud would put a login in a session whose model reads untrusted postings (ADR-003, ADR-007), from a
+datacenter address, with no way to meet a CAPTCHA the owner handles by hand; that is a separate decision
+for the owner, not covered here.

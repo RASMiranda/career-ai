@@ -25,7 +25,8 @@ matches, and hands you ready-to-act applications. You stay in control."
 3. Scores fit against **your** written criteria, with a reason and a caution.
 4. Delivers a short digest.
 5. Queues applications; you apply manually, or (opt-in) it fills the form and
-   you click submit, or (opt-in, strictly bounded) it submits within caps.
+   you click submit, or (opt-in, strictly bounded) it submits within caps. An application that
+   fails, or that the runner never submits, is the first thing in the next email, so you can apply by hand.
 6. Drafts the **Application Kit** for a match on request: cover letter, a tailored
    summary and what to emphasise in the chosen CV (with the gaps it must not claim),
    a follow-up email and interview prep, in a language the person speaks.
