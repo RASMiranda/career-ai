@@ -106,3 +106,65 @@ def test_bad_language_declaration_is_a_config_error():
     for bad in ({"xx_YY": "native"}, {"de-DE": "good"}):
         with pytest.raises(ConfigError):
             rules_for({"id": "p", "languages": bad})
+
+
+# --- 2026-10-12: two Adzuna jobs that required French were emailed to a profile with fr: basic ---
+
+FR_PROFILE = {"id": "p", "languages": {"pt-PT": "native", "en-GB": "professional", "fr-FR": "basic"}}
+
+
+@pytest.mark.parametrize("text", [
+    "Language Proficiency * Fluency in French is mandatory, with the ability to communicate clearly with non-IT business users.",
+    "Ability to communicate clearly in French with non-technical business users.",
+    "Gute Deutschkenntnisse erforderlich.",
+])
+def test_short_texts_that_demand_a_lacking_language_are_discarded(text):
+    rules = rules_for({**FR_PROFILE, "languages": {**FR_PROFILE["languages"]}})
+    assert reject_reason(cand("a", desc=text), rules)       # no length gate: a short text can still say it
+
+
+def test_a_plus_and_negations_are_not_demands():
+    rules = rules_for(FR_PROFILE)
+    assert reject_reason(cand("a", desc="French is a plus. Java Spring Boot."), rules) is None
+
+
+@pytest.mark.parametrize("location,out", [
+    ("Namen, Namen (Provincie)", True), ("Tubeke, Nijvel", True), ("België", True),
+    ("Brussels", False), ("Brussel, Brabant", False), ("Amsterdam", False), ("", False),
+])
+def test_snippet_for_an_onsite_job_where_only_lacking_languages_are_worked_is_discarded(location, out):
+    rules = rules_for(FR_PROFILE)
+    c = cand("a", title="Senior Java Developer", desc="Senior Java Spring Boot consultant for a client site.",
+             location=location, source="adzuna")
+    assert bool(reject_reason(c, rules)) is out
+
+
+def test_remote_or_fully_described_jobs_keep_going_to_the_model():
+    rules = rules_for(FR_PROFILE)
+    assert reject_reason(cand("a", desc="Java role.", location="Namur", remote=True, source="adzuna"), rules) is None
+    assert reject_reason(cand("b", desc=LONG + " Java", location="Namur", source="remotive"), rules) is None
+
+
+def test_no_languages_declared_means_no_region_filtering():
+    assert reject_reason(cand("a", desc="Java", location="Namur", source="adzuna"), rules_for({"id": "p"})) is None
+
+
+def test_brief_marks_snippets():
+    c = cand("a", desc="Java dev for a client.", source="adzuna")
+    from jobscan.triage import is_snippet
+    assert is_snippet(c) and not is_snippet(cand("b", desc=LONG, source="remotive"))
+
+
+def test_validator_rejects_a_surfaced_job_whose_own_caution_raises_a_lacking_language():
+    c = cand("k", title="Java Dev", desc="x", location="Namur")
+    d = {"candidate_key": "k", "fit": 60, "tier": "core", "confidence": "low", "disposition": "low-confidence",
+         "why": "Java consultancy", "caution": "French likely; onsite", "next_action": "verify"}
+    config = {"profiles": [FR_PROFILE]}
+    ok, problems = validate({"candidates": [c]}, [d], {"active": True}, cfg=config)
+    assert any("'fr'" in p for p in problems) and not ok
+    d["caution"] = "No French required; onsite"
+    ok, problems = validate({"candidates": [c]}, [d], {"active": True}, cfg=config)
+    assert not any("'fr'" in p for p in problems)
+    d["caution"] = "French likely"; d["disposition"] = "discarded"
+    ok, problems = validate({"candidates": [c]}, [d], {"active": True}, cfg=config)
+    assert not any("'fr'" in p for p in problems)

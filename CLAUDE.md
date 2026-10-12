@@ -77,6 +77,10 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
   that kind of job.
 - A posting that needs a language outside the profile's `languages` (at working
   level) is `discarded`; code catches described jobs, you judge alert emails.
+- A candidate marked `[SNIPPET]` in the brief (Adzuna and alert lines) is an excerpt: the language, on-site
+  and rate lines are further down the page and you cannot see them. If its place or wording makes a language
+  outside the profile's `languages` likely ("French likely", a Wallonia site), it is `discarded`, not
+  `low-confidence`. `finish` rejects a surfaced decision whose own why/caution raises such a language.
 - Staffing/talent-marketplace postings that hide the end client are
   `low-confidence` at best.
 

@@ -340,3 +340,20 @@ own browser. Easy Apply and any other logged-in step stay on the owner's machine
 cloud would put a login in a session whose model reads untrusted postings (ADR-003, ADR-007), from a
 datacenter address, with no way to meet a CAPTCHA the owner handles by hand; that is a separate decision
 for the owner, not covered here.
+
+## ADR-022 · 2026-10-12 · A snippet cannot clear a language deal-breaker; the model's own language worries are enforced
+Context: two Adzuna jobs ("Fluency in French is mandatory"; "communicate clearly in French with
+non-technical business users") were emailed to a profile with `fr-FR: basic`. Adzuna returns a ~500-char
+excerpt, so the requirement was never in the text the prefilter or the model saw. The model wrote
+"language unclear" / "French likely" yet still surfaced them at fit 60-65. Two further gaps: the demand
+check was skipped for texts under `min_description_chars`, and the cue list missed "communicate … in French".
+Decision: (1) `demanded_language` runs on any text length (only whole-language detection keeps its
+length gate), with cues for communicate/speak/written/ability to/bilingual/Kenntnisse and wider language
+names; (2) for a snippet (short, cut off, or from a `SNIPPET_SOURCES` API: adzuna) of an on-site job whose
+place is only worked in lacking languages (Wallonia, Flanders, France, a bare "Belgium"), the prefilter
+discards it; Brussels, remote jobs and unknown places still reach the model; (3) the brief tags snippets
+and the scoring rules say an unclearable lacking language is `discarded`; (4) `validate` fails a
+non-discarded decision whose why/caution raises a lacking language (not "a plus", not negated).
+Consequences: some Belgian snippets that would have been fine in English are discarded; the reason is
+in the report. Not done on purpose: fetching the full page in the scan (the scan never drives a browser,
+ADR-021). If that is wanted, it is the owner's call.
