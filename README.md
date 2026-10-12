@@ -19,7 +19,7 @@ Four steps. Only step 2 uses AI, and only for candidates the code cannot settle.
 | Step | Runs | Responsibility |
 |---|---|---|
 | 1. `collect` | Python | Query sources, normalise, dedupe against seen-state, write `candidates.json` |
-| 1b. `triage` | Python | Discard obvious rejects by the profile's `prefilter` (junior titles, no stack terms, postings written in or demanding a language the profile doesn't speak, from `languages` in `profile.yaml`), cap how many go to the model, print a short brief |
+| 1b. `triage` | Python | Discard obvious rejects by the profile's `prefilter` (junior titles, no stack terms, postings written in or demanding a language the profile doesn't speak, from `languages` in `profile.yaml`; an on-site snippet whose place is only worked in such a language), and `validate` rejects a surfaced decision whose own caution raises one, cap how many go to the model, print a short brief |
 | 2. *evaluate* | Claude | Read `05-job-match.md` + the brief, write one decision per briefed candidate |
 | 3. `validate` | Python | Schema, score range, link validity, one-decision-per-candidate. Fails closed |
 | 4. `report` | Python | Render `report.md` + one `email-<profile>.html` each, plus `deliveries.json` (recipients from `profiles[].notify.email`); update seen/budget/journal |

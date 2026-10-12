@@ -13,6 +13,7 @@ from .cv import catalog
 from .config import ConfigError, data_root, load_authorization, load_config, recipient_problems
 from .models import CONFIDENCE, DISPOSITION, Decision
 from .normalize import is_http_url
+from .triage import language_worry, rules_for
 
 
 def validate(candidates: dict, decisions: list, auth: dict,
@@ -61,6 +62,14 @@ def validate(candidates: dict, decisions: list, auth: dict,
                 continue
             if raw["disposition"] == "email" and options and not chosen:
                 problems.append(f"{key}: emailable match has no cv chosen")
+                continue
+        if raw["disposition"] != "discarded" and cfg is not None:
+            profile = next((p for p in cfg["profiles"] if p["id"] == cand_by_key[key].get("profile")), None)
+            lacking = rules_for(profile)["spoken"] if profile else None
+            worry = language_worry(f"{raw.get('why', '')} {raw.get('caution', '')}", lacking) if lacking else None
+            if worry:
+                problems.append(f"{key}: its own why/caution raises {worry!r}, which the profile does not speak at "
+                                f"working level: discard it (a deal-breaker), or reword if the posting needs none")
                 continue
         if blacklist and raw["disposition"] != "discarded":
             hit = blacklist.match(cand_by_key[key])

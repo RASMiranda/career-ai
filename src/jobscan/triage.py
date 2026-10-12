@@ -31,9 +31,9 @@ DEFAULT_WORKING_LEVEL = "professional"
 # detection: a text is "in" a language when these are a clear share of its words).
 LANGS = {
     "en": ("english|englisch|anglais|inglés|inglês|inglese", "the and of to in is for with on you we are our will be as".split()),
-    "de": ("german|deutsch|allemand|alemán|alemão|tedesco", "der die das und ist nicht mit für auf werden wir sie ein eine den dem von zu im als auch bei oder sich wird sind nach über".split()),
-    "fr": ("french|französisch|français|francais|francés|francês|francese", "le la les des est une pour dans avec sur nous vous pas qui que du au aux et ou votre notre sont par".split()),
-    "nl": ("dutch|niederländisch|nederlands|néerlandais|holandés|holandês|olandese", "de het een en van is voor met op te niet wij je zijn aan ook bij als naar door of onze".split()),
+    "de": ("german|deutsch\\w*|allemand|alemán|alemão|tedesco|duits", "der die das und ist nicht mit für auf werden wir sie ein eine den dem von zu im als auch bei oder sich wird sind nach über".split()),
+    "fr": ("french|französisch\\w*|français|francais|francés|francês|francese|frans|francophone", "le la les des est une pour dans avec sur nous vous pas qui que du au aux et ou votre notre sont par".split()),
+    "nl": ("dutch|niederländisch\\w*|nederlands\\w*|néerlandais|holandés|holandês|olandese", "de het een en van is voor met op te niet wij je zijn aan ook bij als naar door of onze".split()),
     "es": ("spanish|spanisch|español|espagnol|espanhol|spagnolo", "el la los las de un una es para con por que en y nuestro tu se del al como más o son".split()),
     "it": ("italian|italienisch|italiano|italien|italiana", "il lo la le di un una è per con che in e nostro sono del della al come più non o gli".split()),
     "pt": ("portuguese|portugiesisch|português|portugais|portugués|portoghese", "o a os as de um uma é para com por que em e nosso você se do da no na como mais ou são".split()),
@@ -44,8 +44,26 @@ MIN_LANG_WORDS = 40
 _TAG = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 _DEMAND = (r"c1|c2|b2|fluent|fluency|native|mother tongue|business|proficien\w*|very good|excellent|strong|"
            r"required|mandatory|must|knowledge of|skills? in|sehr gute?|verhandlungssicher\w*|fließend\w*|"
-           r"muttersprach\w*|erforderlich|vorausgesetzt|obligatoire|courant|indispensable")
+           r"muttersprach\w*|erforderlich|vorausgesetzt|obligatoire|courant|indispensable|"
+           r"communicat\w*|speak\w*|spoken|written|ability to|able to|working knowledge|language proficiency|"
+           r"bilingual|bilingue|maîtrise|vloeiend|tweetalig|gute\w*|kenntnisse")
 _SOFT = re.compile(r"\b(plus|asset|advantage|bonus|nice to have|desirable|preferred|von vorteil|wünschenswert|idéalement)\b", re.I)
+
+# A thin text (Adzuna cuts it at ~500 chars, the language line sits further down the page; alert emails
+# carry none) cannot show the language, but an on-site place still says what the job is worked in.
+# Place -> languages spoken there at work. Brussels is deliberately absent (English is common there, so
+# only the text can say), as is Germany (English-first tech scene). A bare "Belgium" means nl, fr or de.
+REGION_LANGUAGES = {
+    "fr": re.compile(r"(?<!\w)(?:wallonie|wallonia|wallonië|namur|namen|nivelles|nijvel|tubize|tubeke|li[eè]ge|luik|charleroi|"
+                     r"hainaut|henegouwen|brabant wallon|waals-brabant|louvain-la-neuve|wavre|waver|arlon|aarlen|verviers|"
+                     r"tournai|doornik|paris|lyon|marseille|toulouse|lille|nantes|bordeaux|strasbourg|france|frankrijk)(?!\w)", re.I),
+    "nl": re.compile(r"(?<!\w)(?:vlaanderen|flanders|antwerpen|antwerp|gent|ghent|brugge|bruges|leuven|mechelen|hasselt|"
+                     r"kortrijk|oost-vlaanderen|west-vlaanderen|vlaams-brabant)(?!\w)", re.I),
+}
+_BELGIUM = re.compile(r"(?<!\w)(?:belgi[eëum]\w*|belgique|belgien)(?!\w)", re.I)
+_BRUSSELS = re.compile(r"(?<!\w)(?:brussels?|bruxelles|brussel)(?!\w)", re.I)
+BELGIUM_LANGUAGES = {"fr", "nl", "de"}
+SNIPPET_SOURCES = {"adzuna"}   # APIs that return an excerpt, not the posting
 
 _TAGS = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
@@ -97,6 +115,35 @@ def demanded_language(text: str, lacking: set[str]) -> str | None:
     return None
 
 
+_NEGATED = re.compile(r"\b(no|not|without|nor|neither|zonder|sans|ohne)\b[^.;]{0,25}$", re.I)
+
+
+def language_worry(text: str, lacking: set[str]) -> str | None:
+    """A lacking language the model's own words raise as a risk ('French likely'); 'a plus' and 'no French' don't count."""
+    for lang in sorted(lacking):
+        for m in re.finditer(rf"\b(?:{LANGS[lang][0]})\b", text, re.I):
+            if not _SOFT.search(text[max(0, m.start() - 40):m.end() + 40]) and not _NEGATED.search(text[:m.start()]):
+                return lang
+    return None
+
+
+def is_snippet(candidate: dict, min_chars: int = DEFAULT_MIN_DESCRIPTION) -> bool:
+    """The text is a cut-off excerpt or an alert line, not the whole posting."""
+    text = clean(candidate.get("description"))
+    return len(text) < min_chars or candidate.get("source") in SNIPPET_SOURCES or text.endswith(("...", "…"))
+
+
+def local_languages(candidate: dict) -> set[str]:
+    """Languages an on-site job is worked in, from its place alone; empty when remote or unclear."""
+    place = candidate.get("location") or ""
+    if candidate.get("remote") is True or not place or _BRUSSELS.search(place):
+        return set()
+    found = {lang for lang, rx in REGION_LANGUAGES.items() if rx.search(place)}
+    if not found and _BELGIUM.search(place):
+        return set(BELGIUM_LANGUAGES)
+    return found
+
+
 def rules_for(profile: dict) -> dict:
     raw = profile.get("prefilter") or {}
     try:
@@ -118,13 +165,18 @@ def reject_reason(candidate: dict, rules: dict) -> str | None:
             return f"title matches {rx.pattern}"
     description = clean(candidate.get("description"))
     lacking = rules["spoken"]
-    if lacking and len(description) >= rules["min_description_chars"]:
-        written = detect_language(description)
-        if written in lacking:
-            return f"posting is written in {written}, not spoken at working level"
-        demanded = demanded_language(f"{title} {description}", lacking)
+    if lacking:
+        if len(description) >= rules["min_description_chars"]:
+            written = detect_language(description)
+            if written in lacking:
+                return f"posting is written in {written}, not spoken at working level"
+        demanded = demanded_language(f"{title} {description}", lacking)   # a short text can still say it
         if demanded:
             return f"posting demands {demanded}, not spoken at working level"
+        local = local_languages(candidate)
+        if local and local <= lacking and is_snippet(candidate, rules["min_description_chars"]):
+            return (f"text is only a snippet, so the language is unverified, and the job is on site in {candidate.get('location')!r} "
+                    f"where it is worked in {'/'.join(sorted(local))}, not spoken at working level")
     if (rules["require_any"] and len(description) >= rules["min_description_chars"]
             and not rules["require_any"].search(f"{title} {description}")):
         return "none of the required terms appear"
@@ -169,7 +221,9 @@ def render_brief(to_score: list[dict], cfg: dict, root, excerpt: int = EXCERPT_C
             remote = {True: "remote", False: "not remote"}.get(c.get("remote"), "remote?")
             facts = " | ".join(filter(None, [c.get("location"), remote, c.get("contract_type"),
                                              c.get("salary"), c.get("source")]))
+            snippet = (" [SNIPPET: the posting is longer; language, on-site and rate are unverified. If the place "
+                       "or wording makes a language the profile lacks likely, discard it]") if is_snippet(c) else ""
             more = f" […+{len(text) - excerpt} chars: pipeline show {c['candidate_key']}]" if len(text) > excerpt else ""
             out += [f"## {c['candidate_key']} | {c['title']} | {c['company']}",
-                    facts, (text[:excerpt] + more) if text else "(no description)", ""]
+                    facts, ((text[:excerpt] + more + snippet) if text else "(no description)"), ""]
     return "\n".join(out).rstrip() + "\n"
