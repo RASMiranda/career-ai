@@ -357,3 +357,9 @@ non-discarded decision whose why/caution raises a lacking language (not "a plus"
 Consequences: some Belgian snippets that would have been fine in English are discarded; the reason is
 in the report. Not done on purpose: fetching the full page in the scan (the scan never drives a browser,
 ADR-021). If that is wanted, it is the owner's call.
+
+## ADR-023 · 2026-10-13 · Development follows the AI-native SDLC playbook with role agents
+Context: the owner asked for the Anthropic AI-native SDLC playbook to govern changes, after a scan stopped on a misleading "already finished" message.
+Decision: seven role agents in `.claude/agents/` and `docs/SDLC.md`. Each stage commits an artifact (`intent.md`, `spec.md`, `plan.md`, tests, PR); the writer of code does not approve it; merges go through a PR with `pytest` green. The scan routine's contract in `CLAUDE.md` is unchanged.
+Consequences: more written trail per change; small fixes may collapse intent, spec and plan into the PR description.
+
