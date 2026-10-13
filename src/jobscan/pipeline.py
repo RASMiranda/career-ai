@@ -119,7 +119,8 @@ def cmd_prepare(args) -> int:
     print(f"\ntriage: {len(auto)} auto-discarded by prefilter, {len(to_score)} need scoring"
           + (f", {len(deferred)} deferred to the next run (cap)" if deferred else ""))
     if not to_score:
-        print("NOTHING TO SCORE: finishing the run automatically.\n")
+        print("NOTHING TO SCORE: finishing the run automatically. If a SEND list follows (e.g. waiting "
+              "applications), the email is still due: send it, then run commit.\n")
         return _finish(root, cfg, work, commit_if_no_email=True)
 
     brief = triage.render_brief(to_score, cfg, root)
