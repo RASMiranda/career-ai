@@ -29,8 +29,9 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
    `authorization.yaml` is not active, collects (blacklisted companies already
    removed), auto-discards obvious rejects (`prefilter` and `languages` in `profile.yaml`), and
    prints a BRIEF of the candidates that need judgement.
-   **If it prints `NOTHING TO SCORE`, the run is already finished** (report
-   written, state committed and pushed): give the final report and stop.
+   **If it prints `NOTHING TO SCORE`**, skip step 3. If no email is then listed, the run is
+   finished (state committed and pushed): give the final report and stop. If emails are listed
+   (waiting applications make one due even with 0 matches), continue at step 5.
 3. **Your only judgement task**, only when a brief was printed: read the criteria
    file and CV cards named in each profile's brief header, nothing else. Write
    `/tmp/decisions.json`: a JSON array with **exactly one** object per candidate

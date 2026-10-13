@@ -6,7 +6,8 @@ limited: run exactly these steps, read nothing else, and do not re-run steps.
 
 1. `cd career-ai && export PYTHONPATH=src`
 2. `python -m jobscan.pipeline prepare --data ../career-data`
-   - Prints `NOTHING TO SCORE`: the run is already finished. Go to the final report.
+   - Prints `NOTHING TO SCORE`: skip scoring. If it then lists emails to send (e.g. waiting
+     applications), send them and run `commit` (step 4); otherwise go to the final report.
    - Otherwise it prints a BRIEF. Read the criteria file and CV cards it names, then
      write `/tmp/decisions.json`: one decision per candidate in the brief (fields and
      rules in CLAUDE.md step 3; `why`/`caution` under 25 words).

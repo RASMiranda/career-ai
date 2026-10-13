@@ -108,6 +108,18 @@ def test_nothing_to_score_runs_to_the_end_with_one_command(tmp_path, monkeypatch
     assert "k1" in json.loads((data / "state/job-scan-seen.json").read_text())
 
 
+def test_nothing_to_score_still_lists_the_email_when_applications_wait(tmp_path, monkeypatch, capsys):
+    data, work = make_repo(tmp_path), tmp_path / "work"
+    monkeypatch.setattr(pipeline.collect, "main", lambda argv: write_candidates(
+        work, [cand("k1", "Junior Developer")]) or 0)
+    monkeypatch.setattr(pipeline.report, "render_applications", lambda *a, **k: "<p>waiting</p>")
+    assert pipeline.main(["prepare", "--data", str(data), "--work", str(work)]) == 0
+    out = capsys.readouterr().out
+    assert "NOTHING TO SCORE" in out and "the email is still due" in out
+    assert "SEND these emails" in out and "a@mail.test" in out
+    assert "state saved" not in out                                # committed only after the send
+
+
 def test_prepare_prints_a_brief_for_the_model_and_defers_over_the_cap(tmp_path, monkeypatch, capsys):
     data, work = make_repo(tmp_path), tmp_path / "work"
     cfg = yaml.safe_load((data / "config.yaml").read_text())
