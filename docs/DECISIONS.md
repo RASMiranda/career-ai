@@ -363,3 +363,8 @@ Context: the owner asked for the Anthropic AI-native SDLC playbook to govern cha
 Decision: seven role agents in `.claude/agents/` and `docs/SDLC.md`. Each stage commits an artifact (`intent.md`, `spec.md`, `plan.md`, tests, PR); the writer of code does not approve it; merges go through a PR with `pytest` green. The scan routine's contract in `CLAUDE.md` is unchanged.
 Consequences: more written trail per change; small fixes may collapse intent, spec and plan into the PR description.
 
+## ADR-024 · 2026-10-13 · Approval gates are hooks; review rules live in REVIEW.md
+Context: the SDLC playbook (ADR-023) says skills only make policy likely, hooks make it certain, and managed settings stop individuals widening either.
+Decision: `.claude/settings.json` denies the owner-only files and the `apply run` / `questions approve|reject|set` / force-push commands, and runs `scripts/hooks/guard.py` as a PreToolUse gate on Bash and file edits (also blocks pushes to `main`, `--no-verify`, `allow_auto_submit`). `REVIEW.md` defines review passes and Important vs nit. `docs/managed-settings.example.json` is a template the owner installs as managed settings; nothing in the repo can enforce it by itself.
+Consequences: the scan routine is unaffected (the pipeline pushes from Python, not through the Bash tool). Changes to hooks, settings, `CLAUDE.md` or `routine-prompt.md` need the owner's explicit say-so.
+

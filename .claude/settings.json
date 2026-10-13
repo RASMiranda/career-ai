@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/profile.yaml)",
+      "Edit(**/authorization.yaml)",
+      "Edit(**/config.yaml)",
+      "Edit(**/profile.yaml)",
+      "Write(**/authorization.yaml)",
+      "Write(**/config.yaml)",
+      "Write(**/profile.yaml)",
+      "Bash(python -m jobscan.apply run:*)",
+      "Bash(python -m jobscan.apply questions approve:*)",
+      "Bash(python -m jobscan.apply questions reject:*)",
+      "Bash(python -m jobscan.apply questions set:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.py\"" }
+        ]
+      }
+    ]
+  }
+}

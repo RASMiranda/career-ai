@@ -17,3 +17,10 @@ never applies, contacts recruiters or touches LinkedIn; no personal data or cred
 The playbook has no scrum-master role; here it is the triage owner: sorts findings (failed scans,
 failed applications, CI breaks) into fix now, schedule or dismiss, and runs the retro.
 Every production incident gets a permanent regression test.
+
+## Controls (ADR-024)
+- **Hooks**: `.claude/settings.json` runs `scripts/hooks/guard.py` before every Bash, Edit, Write. Tested in `tests/test_guard.py`.
+- **Review**: `REVIEW.md` (passes, Important vs nit, owner approval for governance files).
+- **Managed settings**: `docs/managed-settings.example.json`; the owner installs it (e.g. `/etc/claude-code/managed-settings.json`).
+- **Branch protection** on `main` (require the `pytest` check and a PR) is a GitHub setting the owner turns on; it cannot be set from the repo.
+

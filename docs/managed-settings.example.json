@@ -1,0 +1,20 @@
+{
+  "_note": "TEMPLATE, not loaded by anything here. The owner installs it as the managed settings file (Linux: /etc/claude-code/managed-settings.json) so individuals cannot widen it. See docs/SDLC.md.",
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/profile.yaml)",
+      "Edit(**/authorization.yaml)",
+      "Bash(python -m jobscan.apply run:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": ["github.com", "api.github.com", "pypi.org", "files.pythonhosted.org",
+                         "api.adzuna.com", "jsearch.p.rapidapi.com"]
+    }
+  }
+}
