@@ -1,0 +1,41 @@
+name: Report a problem
+description: Something did not work, or a scan, email or application went wrong.
+title: "[bug] "
+labels: ["type:bug", "stage:intake"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This repository is public.** Do not paste names, email addresses, phone numbers, employers, job
+        titles, CV text, passwords or tokens. `python -m jobscan.apply bundle` output is safe to paste.
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: In your own words. What did you do, and what did you see?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Where and when
+      description: Which step (scan, email, apply run, kit, clip) and which day. Filled in for you by the link in the email.
+  - type: textarea
+    id: redacted_output
+    attributes:
+      label: Output, with personal details removed
+      description: Error text, an `apply bundle`, or a `jobscan.redact`-ed page.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed names, emails, phone numbers, employers, CV text and tokens from everything above.
+          required: true
