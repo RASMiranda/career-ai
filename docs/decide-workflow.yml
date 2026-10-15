@@ -1,0 +1,43 @@
+# Copy to career-data/.github/workflows/decide.yml (ADR-025). Contains no personal data.
+# Runs when the owner submits the pre-filled issue from the email's "I applied" / "Not interested" link.
+name: decide
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: write
+  issues: write
+concurrency: decide
+jobs:
+  decide:
+    # Only the repo owner; only issues the email link creates.
+    if: github.actor == github.repository_owner && contains(github.event.issue.labels.*.name, 'job-decision')
+    runs-on: ubuntu-latest
+    env:
+      TITLE: ${{ github.event.issue.title }}   # via env, never interpolated into a script
+      NUMBER: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: RASMiranda/career-ai, path: career-ai }   # public; add a token if it goes private
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r career-ai/requirements.txt
+      - id: apply
+        run: |
+          set +e
+          out=$(PYTHONPATH=career-ai/src python -m jobscan.decide --data . --title "$TITLE" 2>&1)
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          echo "msg=$out" >> "$GITHUB_OUTPUT"
+      - if: steps.apply.outputs.code == '0'
+        run: |
+          git config user.name "job-scan"; git config user.email "job-scan@users.noreply.github.com"
+          git add applications/queue.json
+          git commit -m "Decision from email link: $TITLE"
+          git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"
+      - run: |
+          gh issue comment "$NUMBER" --body "${{ steps.apply.outputs.code == '0' && 'Recorded' || 'Not recorded' }}: $MSG"
+          gh issue close "$NUMBER" --reason "${{ steps.apply.outputs.code == '0' && 'completed' || 'not planned' }}"
+        env:
+          MSG: ${{ steps.apply.outputs.msg }}

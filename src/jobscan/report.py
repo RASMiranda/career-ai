@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .apply.queue import Queue
 from .apply.policy import apply_cfg
+from .decide import repo_slug
 from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
@@ -120,7 +121,8 @@ def render_email(day: str, matches: list, pending: list, extra_html: str = "", u
 
 
 def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
-                     queue: Queue | None = None, out_dir: Path = Path(".")) -> list[dict]:
+                     queue: Queue | None = None, out_dir: Path = Path("."),
+                     decision_repo: str | None = None) -> list[dict]:
     """One email per profile, addressed only to that profile's notify.email.
 
     Writes ``email-<profile>.html`` and returns the delivery manifest. ``send`` is
@@ -132,8 +134,9 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
         matches, pending = _bucket(own, decisions, [profile])
         wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
-        apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False) if queue else ""
-        urgent = render_failures(queue, pid) if queue else ""
+        apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False,
+                               decision_repo=decision_repo) if queue else ""
+        urgent = render_failures(queue, pid, decision_repo=decision_repo) if queue else ""
         by_hand = count_failures(queue, pid) if queue else 0
         body = out_dir / f"email-{pid}.html"
         body.write_text(render_email(day, matches, pending, apps, urgent), encoding="utf-8")
@@ -190,7 +193,7 @@ def main(argv=None) -> int:
     (root / "reports" / f"{day}.md").write_text(md, encoding="utf-8")
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir)
+    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir, repo_slug(root))
     (out_dir / "deliveries.json").write_text(json.dumps(deliveries, indent=2), encoding="utf-8")
 
     print(f"report: reports/{day}.md")

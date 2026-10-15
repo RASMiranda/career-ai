@@ -1,0 +1,15 @@
+name: Report an issue or propose a feature
+description: Starts the agentic SDLC (docs/SDLC.md): the product-owner agent writes intent and spec first.
+labels: [needs-triage]
+body:
+  - type: dropdown
+    id: kind
+    attributes: { label: What is this?, options: [Bug, Feature, Question] }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, or what do you want?, description: In your own words. No personal data or credentials. }
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes: { label: Why does it matter? }

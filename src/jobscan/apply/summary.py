@@ -3,6 +3,7 @@
 import html
 from datetime import datetime, timedelta, timezone
 
+from ..decide import link as decision_link
 from ..normalize import is_http_url
 from . import tracker
 from .faillog import EXPLAIN
@@ -114,7 +115,17 @@ def _stalled_reason(i: dict) -> str:
             f"machine has not run, or stopped before this job.")
 
 
-def render_failures(queue: Queue, profile: str | None = None, stalled_hours: int = STALLED_HOURS) -> str:
+def _decide(slug: str | None, key: str) -> str:
+    """"Applied" / "Not interested" links for the email; empty without a GitHub data repo."""
+    if not slug:
+        return ""
+    css = 'style="color:#0b5cad"'
+    return (f'<br><a href="{html.escape(decision_link(slug, "done", key))}" {css}>I applied</a> · '
+            f'<a href="{html.escape(decision_link(slug, "skip", key))}" {css}>Not interested</a>')
+
+
+def render_failures(queue: Queue, profile: str | None = None, stalled_hours: int = STALLED_HOURS,
+                    decision_repo: str | None = None) -> str:
     """The block for the top of the email: every application the owner must now do by hand."""
     e = html.escape
     s = sections(queue, profile=profile, stalled_hours=stalled_hours)
@@ -131,7 +142,7 @@ def render_failures(queue: Queue, profile: str | None = None, stalled_hours: int
         items.append(f'<li style="margin:0 0 12px"><b>{e(i["title"])}</b> — {e(i["company"])} '
                      f'· fit {e(str(i.get("fit", "?")))} · <code>{e(i["candidate_key"][:8])}</code><br>'
                      f'{link}<br><span style="color:#8a6d3b">{e(why)}</span><br>'
-                     f'<span style="color:#666">{use}</span></li>')
+                     f'<span style="color:#666">{use}</span>{_decide(decision_repo, i["candidate_key"])}</li>')
     return ('<div style="font-family:system-ui,Arial,sans-serif;max-width:640px;margin:0 0 20px;padding:12px 16px;'
             'border:2px solid #c0392b;border-radius:6px"><h3 style="margin:0 0 8px;color:#c0392b">'
             f'Apply by hand: {len(rows)} application(s) did not go through</h3><ul style="padding-left:18px">'
@@ -146,7 +157,8 @@ def count_failures(queue: Queue, profile: str | None = None, stalled_hours: int 
 
 
 def render_html(queue: Queue, days: int = 7, profile: str | None = None,
-                follow_up_days: int = tracker.DEFAULT_FOLLOW_UP_DAYS, failures: bool = True) -> str:
+                follow_up_days: int = tracker.DEFAULT_FOLLOW_UP_DAYS, failures: bool = True,
+                decision_repo: str | None = None) -> str:
     """``failures=False`` leaves out failed and stalled items: the email shows them first, via render_failures."""
     e = html.escape
     s = sections(queue, days, profile, follow_up_days)
@@ -178,16 +190,16 @@ def render_html(queue: Queue, days: int = 7, profile: str | None = None,
         parts += [row(i, f' · applied {e(str(tracker._applied_on(i) or "?"))}') for i in s["follow_up"]] + ["</ul>"]
     if s["failed"]:
         parts.append('<p><b>Apply manually</b> — automatic submission did not work</p><ul>')
-        parts += [row(i, f'<br><span style="color:#8a6d3b">{e(EXPLAIN.get(i.get("error_code", ""), "Unexpected error."))}</span>')
-                  for i in s["failed"]] + ["</ul>"]
+        parts += [row(i, f'<br><span style="color:#8a6d3b">{e(EXPLAIN.get(i.get("error_code", ""), "Unexpected error."))}</span>'
+                      + _decide(decision_repo, i["candidate_key"])) for i in s["failed"]] + ["</ul>"]
     if s["stalled"]:
         parts.append('<p><b>Apply manually</b> — approved but never submitted</p><ul>')
-        parts += [row(i, f'<br><span style="color:#8a6d3b">{e(_stalled_reason(i))}</span>')
-                  for i in s["stalled"]] + ["</ul>"]
+        parts += [row(i, f'<br><span style="color:#8a6d3b">{e(_stalled_reason(i))}</span>'
+                      + _decide(decision_repo, i["candidate_key"])) for i in s["stalled"]] + ["</ul>"]
     if s["queued"]:
         parts.append('<p><b>Waiting for your decision</b></p><ul>')
-        parts += [row(i, f'<br><span style="color:#666">{e("; ".join(i.get("policy_notes", [])))}</span>')
-                  for i in s["queued"]] + ["</ul>"]
+        parts += [row(i, f'<br><span style="color:#666">{e("; ".join(i.get("policy_notes", [])))}</span>'
+                      + _decide(decision_repo, i["candidate_key"])) for i in s["queued"]] + ["</ul>"]
     if s["filled"]:
         parts.append('<p><b>Form filled — click submit yourself</b></p><ul>')
         parts += [row(i) for i in s["filled"]] + ["</ul>"]

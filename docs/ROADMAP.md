@@ -25,6 +25,17 @@ Next, in this order, each one source or feature at a time:
    CV file translation; a cover-letter tone option in the kit.
 5. Resume hosting with view tracking, with the portal (P5).
 
+## Owner portal · managing jobs outside the CLI (requested 2026-10-15)
+Hosting rule: use what exists (GitHub, the owner's machine); if something extra is unavoidable, a free tier.
+Each step is its own intent/spec/PR (docs/SDLC.md).
+- **vX · done (ADR-025)** email links "I applied" / "Not interested" via a pre-filled GitHub issue + workflow in `career-data`.
+- **vX+1** the email links to a profile dashboard to remove an item or change its status. Candidate: a static page on GitHub Pages generated from `queue.json` (private repo Pages needs a paid plan, so the page would be built from a redacted export, or hosted on a free tier such as Cloudflare Pages behind its access control).
+- **vX+2** dashboard history: applied, auto-applied, not-applied/ignored. Auto-applied jobs never appear under "Waiting"; they show once, in the first email after submission (already so: "Submitted automatically", last 7 days).
+- **vX+3** dashboard edits the profile configuration now kept in `career-data` files, with basic username/password. Decide first how edits reach `profile.yaml` (owner-only file, ADR-024) and keep `applicant`/`answers` unreadable from the page.
+- **vX+4** admin area: general variables and user permissions.
+- **vX+5** sign-in with Google, Apple, Facebook and similar (OAuth/OIDC) replacing basic auth.
+Support loop: the in-app "Report issue / propose a feature" button opens `.github/ISSUE_TEMPLATE/feature-or-bug.yml` in `career-ai`; the label `needs-triage` is where the scrum-master agent starts. Triggering agents automatically from an issue needs the Claude GitHub Action and an API key secret, which the owner must add (not done here). L1/L2/L3 support agents are not defined yet: add them under `.claude/agents/` as their own change.
+
 ## P0 · Prove it for one person (now)
 Do: setup per GETTING-STARTED.md; manual apply mode; fill the five knowledge docs.
 Sources for P0: only the four already implemented (Remotive, Arbeitnow, Adzuna,
