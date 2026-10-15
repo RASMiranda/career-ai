@@ -1,0 +1,35 @@
+name: Ask for help
+description: A question, or something you cannot work out. First-line support answers from the docs.
+title: "[help] "
+labels: ["type:support", "stage:intake"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This repository is public.** Do not paste personal data or credentials.
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+  - type: textarea
+    id: redacted_output
+    attributes:
+      label: Output, with personal details removed
+      render: text
+  - type: input
+    id: context
+    attributes:
+      label: Context
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed names, emails, phone numbers, employers, CV text and tokens from everything above.
+          required: true

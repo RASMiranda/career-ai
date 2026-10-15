@@ -110,6 +110,13 @@ It goes into `inbox/clips.json`; commit `inbox/` in `career-data` and the next s
 like any other source (seen-set, blacklist and prefilter still apply, and `clip` warns now if the
 prefilter would discard it). A page without the data is reported, not guessed at.
 
+### Report a problem, suggest a feature, get help
+
+The scan email ends with three buttons (and `python -m jobscan.feedback bug|feature|support --open` does the same from
+the terminal); each failed application has a **Report this failure** link. They open a pre-filled GitHub issue form with
+nothing personal in it. An issue you open yourself starts the agentic SDLC (`docs/SDLC.md`, ADR-025): intent, spec,
+plan, build and review by role agents, each stage waiting for your `agent:*` label, and a human merging the PR.
+
 ### When an application fails
 
 A failed auto-apply, and any `approved` job the runner never submitted (older than 36 hours), is the

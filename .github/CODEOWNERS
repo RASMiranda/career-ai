@@ -1,0 +1,10 @@
+# The owner reviews everything. Turn on "Require review from Code Owners" in branch protection.
+*                                   @RASMiranda
+/.github/                           @RASMiranda
+/.claude/                           @RASMiranda
+/CLAUDE.md                          @RASMiranda
+/REVIEW.md                          @RASMiranda
+/routine-prompt.md                  @RASMiranda
+/docs/DECISIONS.md                  @RASMiranda
+/docs/SDLC.md                       @RASMiranda
+/scripts/                           @RASMiranda

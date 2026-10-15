@@ -10,3 +10,5 @@ email.html
 .env
 email-*.html
 deliveries.json
+
+.sdlc/

@@ -8,7 +8,7 @@ Runs alongside the phases below and does not wait for their exit criteria, becau
 changes what the engine does for one person, not who can use it. The matrix is
 `REFERENCE-AIAPPLY.md`; update it when a row moves.
 
-Done: application tracker (`apply track`, funnel, follow-ups due); Application Kit
+Done: GitHub issue forms, in-app report links, support tiers and the gated `sdlc` workflow (ADR-025); application tracker (`apply track`, funnel, follow-ups due); Application Kit
 (`jobscan.kit`: cover letter, CV tailoring, follow-up email, interview prep); `jobscan.clip`
 (a posting you saved from any site goes into the next scan); `apply questions` (a model drafts
 answers to form questions, the owner approves each, ADR-019); `jobscan.redact` and

@@ -1,0 +1,117 @@
+[
+  {
+    "name": "type:bug",
+    "color": "1d76db",
+    "description": "Type: a defect"
+  },
+  {
+    "name": "type:feature",
+    "color": "1d76db",
+    "description": "Type: a new capability"
+  },
+  {
+    "name": "type:support",
+    "color": "1d76db",
+    "description": "Type: a question or help request"
+  },
+  {
+    "name": "stage:intake",
+    "color": "5319e7",
+    "description": "SDLC stage: intake"
+  },
+  {
+    "name": "stage:intent",
+    "color": "5319e7",
+    "description": "SDLC stage: intent"
+  },
+  {
+    "name": "stage:spec",
+    "color": "5319e7",
+    "description": "SDLC stage: spec"
+  },
+  {
+    "name": "stage:plan",
+    "color": "5319e7",
+    "description": "SDLC stage: plan"
+  },
+  {
+    "name": "stage:build",
+    "color": "5319e7",
+    "description": "SDLC stage: build"
+  },
+  {
+    "name": "stage:review",
+    "color": "5319e7",
+    "description": "SDLC stage: review"
+  },
+  {
+    "name": "stage:release",
+    "color": "5319e7",
+    "description": "SDLC stage: release"
+  },
+  {
+    "name": "agent:intent",
+    "color": "d93f0b",
+    "description": "Owner gate: start intent (stakeholder + product owner). Applying this label starts the stage."
+  },
+  {
+    "name": "agent:spec",
+    "color": "d93f0b",
+    "description": "Owner gate: intent accepted: write the spec. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:plan",
+    "color": "d93f0b",
+    "description": "Owner gate: spec approved: write the plan. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:build",
+    "color": "d93f0b",
+    "description": "Owner gate: plan approved: tester then developer. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:review",
+    "color": "d93f0b",
+    "description": "Owner gate: review the PR branch. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:release",
+    "color": "d93f0b",
+    "description": "Owner gate: prepare the release note. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:support",
+    "color": "d93f0b",
+    "description": "Owner gate: first-line support. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:l2",
+    "color": "d93f0b",
+    "description": "Owner gate: second-line support. Applying this label starts the stage."
+  },
+  {
+    "name": "agent:l3",
+    "color": "d93f0b",
+    "description": "Owner gate: third-line support. Applying this label starts the stage."
+  },
+  {
+    "name": "needs-info",
+    "color": "fbca04",
+    "description": "Waiting for redacted details from the reporter"
+  },
+  {
+    "name": "support:L2",
+    "color": "0e8a16",
+    "description": "Escalated to second-line support"
+  },
+  {
+    "name": "support:L3",
+    "color": "0e8a16",
+    "description": "Escalated to third-line support"
+  },
+  {
+    "name": "blocked",
+    "color": "b60205",
+    "description": "A gate or decision is missing"
+  }
+]

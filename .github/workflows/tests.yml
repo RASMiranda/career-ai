@@ -1,5 +1,8 @@
 name: tests
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:     # the SDLC workflow starts it on agent branches (pushes by the workflow token start nothing)
 jobs:
   pytest:
     runs-on: ubuntu-latest
