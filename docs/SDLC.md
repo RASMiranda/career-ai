@@ -69,7 +69,7 @@ originator, product owner, code owner and release manager; the agents prepare, y
 2. Add the repository secret `ANTHROPIC_API_KEY` (Settings, Secrets and variables, Actions).
 3. Settings, Actions, General: allow GitHub Actions to create pull requests.
 4. Branch protection on `main`: require a pull request, the `pytest` check, and review from Code Owners
-   (`.github/CODEOWNERS`); do not allow bypass. This, not the agents, is what stops a bad merge.
+   (`.github/CODEOWNERS`); allow bypass only for the Repository admin role, for pull requests only (ADR-027). This, not the agents, is what stops a bad merge.
 5. Run the `labels` workflow once (Actions, labels, Run workflow) to create the issue labels.
 Until 1 to 3 are done the `sdlc` workflow cannot run; nothing else changes.
 

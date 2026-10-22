@@ -392,3 +392,13 @@ yet run on GitHub. Workflow-token pushes start no other workflow, so the stage s
 Context: an item under "Waiting for your decision" stays until a CLI command (`done` / `skip`) is typed, which the owner cannot do from a phone, so jobs applied to by hand (or ignored) kept reappearing.
 Decision: each waiting, failed and stalled item in the email gets two links that open a pre-filled issue (`done KEY8` / `skip KEY8`, label `job-decision`) in the data repo. The owner presses Submit (GitHub login is the authentication); `docs/decide-workflow.yml`, installed in `career-data`, runs `jobscan.decide` for the repo owner only, accepts only that exact title form, commits `applications/queue.json`, comments and closes the issue. No server, no new hosting, no secrets. `approve` is deliberately not reachable this way. Items already submitted are never overwritten.
 Consequences: two clicks instead of a command. The workflow must be copied to `career-data` once; without it the links open an issue nobody processes. Later versions (dashboard, history, auth, OAuth) are in ROADMAP "Owner portal" and should reuse the same `decide` module.
+
+## ADR-027 · 2026-10-22 · Admin bypass on main, pull requests only
+Context: SDLC.md said no bypass, but the owner is the only Code Owner (`*` in CODEOWNERS) and cannot approve their own PRs.
+Decision: ruleset protect-main allows the Repository admin role to bypass for pull requests only. Direct pushes to main stay blocked. Agent PRs are merged only after pytest is green.
+Consequences: the owner can merge their own PRs; for agent PRs, discipline replaces a technical block.
+
+## ADR-028 · 2026-10-22 · Claude GitHub App installed on all repositories
+Context: SDLC.md said install it on the repository; the owner chose all repositories.
+Decision: the App has access to all repos. ANTHROPIC_API_KEY and the sdlc workflow exist only in career-ai.
+Consequences: career-data has no agents, no secret and no workflow; new repos inherit the App but need their own workflow and key to use it.
