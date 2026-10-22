@@ -16,6 +16,7 @@ from .apply.policy import apply_cfg
 from .decide import repo_slug
 from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
+from . import feedback
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
 from .normalize import is_http_url
 from .state import Journal, Seen
@@ -102,7 +103,8 @@ def _card(row: dict) -> str:
     )
 
 
-def render_email(day: str, matches: list, pending: list, extra_html: str = "", urgent_html: str = "") -> str:
+def render_email(day: str, matches: list, pending: list, extra_html: str = "", urgent_html: str = "",
+                 repo: str = feedback.DEFAULT_REPO) -> str:
     """``urgent_html`` (applications to do by hand) goes first: it is the part that needs you today."""
     body = [f'<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px">',
             f'<h2 style="margin:0 0 4px">Job scan · {html.escape(day)}</h2>',
@@ -115,6 +117,7 @@ def render_email(day: str, matches: list, pending: list, extra_html: str = "", u
         body.append('<h3>To verify</h3>')
         body += [_card(p) for p in pending]
     body.append(extra_html)
+    body.append(feedback.links_html(day, repo))
     body.append('<p style="color:#888;font-size:12px;margin-top:20px">'
                 'Automated scan. Applications are only ever submitted if you enabled it; see the Applications section.</p></div>')
     return "\n".join(body)
@@ -135,11 +138,12 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         matches, pending = _bucket(own, decisions, [profile])
         wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
         apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False,
-                               decision_repo=decision_repo) if queue else ""
-        urgent = render_failures(queue, pid, decision_repo=decision_repo) if queue else ""
+                                   decision_repo=decision_repo) if queue else ""
+        repo = (cfg.get("feedback") or {}).get("repo") or feedback.DEFAULT_REPO
+        urgent = render_failures(queue, pid, repo=repo, decision_repo=decision_repo) if queue else ""
         by_hand = count_failures(queue, pid) if queue else 0
         body = out_dir / f"email-{pid}.html"
-        body.write_text(render_email(day, matches, pending, apps, urgent), encoding="utf-8")
+        body.write_text(render_email(day, matches, pending, apps, urgent, repo), encoding="utf-8")
         deliveries.append({
             "profile": pid,
             "to": recipients(profile),

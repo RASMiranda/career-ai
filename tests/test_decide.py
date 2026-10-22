@@ -1,4 +1,4 @@
-"""The email's "I applied" / "Not interested" links and the handler behind them (ADR-025)."""
+"""The email's "I applied" / "Not interested" links and the handler behind them (ADR-026)."""
 
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse

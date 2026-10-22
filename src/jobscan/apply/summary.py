@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..decide import link as decision_link
 from ..normalize import is_http_url
+from .. import feedback
 from . import tracker
 from .faillog import EXPLAIN
 from .queue import Queue
@@ -125,7 +126,7 @@ def _decide(slug: str | None, key: str) -> str:
 
 
 def render_failures(queue: Queue, profile: str | None = None, stalled_hours: int = STALLED_HOURS,
-                    decision_repo: str | None = None) -> str:
+                    repo: str = feedback.DEFAULT_REPO, decision_repo: str | None = None) -> str:
     """The block for the top of the email: every application the owner must now do by hand."""
     e = html.escape
     s = sections(queue, profile=profile, stalled_hours=stalled_hours)
@@ -139,6 +140,8 @@ def render_failures(queue: Queue, profile: str | None = None, stalled_hours: int
         link = f'<a href="{e(url)}" style="color:#0b5cad">Open the posting and apply</a>' if url else "no link stored"
         use = (f"Use the <b>{e(i['cv'])}</b> CV. " if i.get("cv") else "") + (
             f"Drafts: <code>{e(i['kit'])}</code>. " if i.get("kit") else "")
+        if i.get("status") == "failed":
+            use += f'<a href="{e(feedback.failure_url(i, repo))}" style="color:#0b5cad">Report this failure</a>'
         items.append(f'<li style="margin:0 0 12px"><b>{e(i["title"])}</b> — {e(i["company"])} '
                      f'· fit {e(str(i.get("fit", "?")))} · <code>{e(i["candidate_key"][:8])}</code><br>'
                      f'{link}<br><span style="color:#8a6d3b">{e(why)}</span><br>'

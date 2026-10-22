@@ -1,4 +1,4 @@
-# Copy to career-data/.github/workflows/decide.yml (ADR-025). Contains no personal data.
+# Copy to career-data/.github/workflows/decide.yml (ADR-026). Contains no personal data.
 # Runs when the owner submits the pre-filled issue from the email's "I applied" / "Not interested" link.
 name: decide
 on:

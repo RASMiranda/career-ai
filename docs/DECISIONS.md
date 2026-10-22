@@ -368,8 +368,27 @@ Context: the SDLC playbook (ADR-023) says skills only make policy likely, hooks 
 Decision: `.claude/settings.json` denies the owner-only files and the `apply run` / `questions approve|reject|set` / force-push commands, and runs `scripts/hooks/guard.py` as a PreToolUse gate on Bash and file edits (also blocks pushes to `main`, `--no-verify`, `allow_auto_submit`). `REVIEW.md` defines review passes and Important vs nit. `docs/managed-settings.example.json` is a template the owner installs as managed settings; nothing in the repo can enforce it by itself.
 Consequences: the scan routine is unaffected (the pipeline pushes from Python, not through the Bash tool). Changes to hooks, settings, `CLAUDE.md` or `routine-prompt.md` need the owner's explicit say-so.
 
+## ADR-025 · 2026-10-15 · GitHub issues start the SDLC; agents act only through files; labels are the owner's gates
+Context: ADR-023 and ADR-024 set the playbook's roles, hooks and review rules. The owner asked for GitHub to be the
+ticketing and change-management system, for report-a-problem and suggest-a-feature links in the app, for support
+tiers L1 to L3, and for those issues to start the agentic SDLC. The repository is public, so anyone can open an issue,
+and issue text is untrusted input to a model that can write code.
+Decision: (1) three issue forms (problem, feature, help), blank issues off, each with a privacy tick and `stage:intake`;
+the scan email, each failed application and `python -m jobscan.feedback` open them pre-filled with the version, the day
+and, for a failure, the error code and site only. (2) The `sdlc` workflow starts a stage only when the owner opens an
+issue, or a person applies an `agent:*` label; a label by a bot, or an issue by anyone else, starts nothing. (3) Agents
+get files, not powers: no push, merge, label, GitHub or web. A deterministic `jobscan.sdlc check` rejects changes outside
+the stage, to protected paths (workflows, `.claude/`, `CLAUDE.md`, `REVIEW.md`, `routine-prompt.md`, ADRs, dependencies,
+authorization, config, profiles, scripts) and added credentials, emails or phone numbers; only then does the workflow
+commit, push to `agent/*`, open a draft PR and post the report. (4) Each stage waits for a human gate: the next label.
+Build is followed by a read-only reviewer and security-reviewer pass; a human merges under branch protection. (5) L1, L2
+and L3 support, a reviewer, a security reviewer and a release manager join the seven roles of ADR-023.
+Consequences: a stranger can file but cannot spend the API budget or move code. Nothing the agents write reaches `main`
+without a human. The cost is a human click at every gate and API credit per stage. The workflow needs the Claude GitHub
+App, an API key secret and three repository settings (docs/SDLC.md), and has been verified by tests of its rules, not
+yet run on GitHub. Workflow-token pushes start no other workflow, so the stage starts `tests.yml` explicitly.
 
-## ADR-025 · 2026-10-15 · Email links record "I applied" / "Not interested" through a GitHub issue
+## ADR-026 · 2026-10-22 · Email links record "I applied" / "Not interested" through a GitHub issue
 Context: an item under "Waiting for your decision" stays until a CLI command (`done` / `skip`) is typed, which the owner cannot do from a phone, so jobs applied to by hand (or ignored) kept reappearing.
 Decision: each waiting, failed and stalled item in the email gets two links that open a pre-filled issue (`done KEY8` / `skip KEY8`, label `job-decision`) in the data repo. The owner presses Submit (GitHub login is the authentication); `docs/decide-workflow.yml`, installed in `career-data`, runs `jobscan.decide` for the repo owner only, accepts only that exact title form, commits `applications/queue.json`, comments and closes the issue. No server, no new hosting, no secrets. `approve` is deliberately not reachable this way. Items already submitted are never overwritten.
 Consequences: two clicks instead of a command. The workflow must be copied to `career-data` once; without it the links open an issue nobody processes. Later versions (dashboard, history, auth, OAuth) are in ROADMAP "Owner portal" and should reuse the same `decide` module.

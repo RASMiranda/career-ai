@@ -1,4 +1,4 @@
-"""One-click "I applied" / "not interested" from the email (ADR-025).
+"""One-click "I applied" / "not interested" from the email (ADR-026).
 
 The email carries a link that opens a pre-filled GitHub issue in the private data repo. The owner
 presses *Submit new issue* (GitHub's own login is the authentication), a workflow in that repo runs
