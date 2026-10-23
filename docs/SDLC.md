@@ -74,6 +74,13 @@ originator, product owner, code owner and release manager; the agents prepare, y
 5. Run the `labels` workflow once (Actions, labels, Run workflow) to create the issue labels.
 Until 1 to 3 are done the `sdlc` workflow cannot run; nothing else changes.
 
+### Token rotation and revocation
+- **Rotate:** mint a new token with `claude setup-token` (re-running it does not replace the old one). Update the
+  `CLAUDE_CODE_OAUTH_TOKEN` secret and the Bitwarden entry, then revoke the old token in claude.ai Settings, Claude Code
+  (location not yet verified), then verify that the workflow still authenticates and the old token no longer works.
+- **If leaked:** delete the repository secret first, then revoke the token, verify the revocation, check usage for spikes,
+  and contact Anthropic support if the token still works.
+
 ### Limits you should know
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit
 per stage (turn caps: 10 to 40). It is for the code repository; `career-data` has no agents and no issues.
