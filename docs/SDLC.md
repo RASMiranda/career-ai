@@ -74,6 +74,9 @@ originator, product owner, code owner and release manager; the agents prepare, y
 5. Run the `labels` workflow once (Actions, labels, Run workflow) to create the issue labels.
 Until 1 to 3 are done the `sdlc` workflow cannot run; nothing else changes.
 
+### Token rotation and revocation
+CLAUDE_CODE_OAUTH_TOKEN was created 2026-10-23 and expires 2027-10-23. The expiry date is recorded in the repository variable CLAUDE_TOKEN_EXPIRES (a plain-text date, not a secret). When you rotate the token, update that variable too.
+
 ### Limits you should know
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit
 per stage (turn caps: 10 to 40). It is for the code repository; `career-data` has no agents and no issues.
