@@ -253,3 +253,55 @@ def test_the_untrusted_title_is_never_written_to_the_workflow_outputs(tmp_path, 
     sdlc._outputs(sdlc.decide(event(title="x\nrun=evil")))
     text = out.read_text()
     assert "title=" not in text and "\nrun=evil" not in text
+
+
+# ------------------------------------------------- agent text under the gitignored .sdlc/
+FAKE_TOKEN = "sk-ant-oat01-" + "FAKE" * 8                 # obviously fake; shaped like an OAuth token
+
+
+def gitignored_sdlc_checkout(tmp_path, monkeypatch):
+    """A real checkout where .sdlc/ is ignored, as in the workflow, so git status never lists its files."""
+    import subprocess
+    monkeypatch.chdir(tmp_path)
+    run = lambda *a: subprocess.run(a, check=True, capture_output=True, cwd=tmp_path)  # noqa: E731
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "t@example.com"); run("git", "config", "user.name", "t")
+    (tmp_path / ".gitignore").write_text(".sdlc/\n")
+    (tmp_path / "README.md").write_text("hi")
+    run("git", "add", "."); run("git", "commit", "-qm", "base")
+    (tmp_path / ".sdlc").mkdir()
+    (tmp_path / ".sdlc/decision.json").write_text(json.dumps(stage("review")))
+    return tmp_path / ".sdlc"
+
+
+@pytest.mark.parametrize("name", ["comment.md", "review.md", "pytest.txt", "labels.txt"])
+def test_a_token_in_any_posted_file_is_rejected_although_git_does_not_list_it(tmp_path, monkeypatch, capsys, name):
+    out = gitignored_sdlc_checkout(tmp_path, monkeypatch)
+    (out / "comment.md").write_text("done")
+    assert sdlc.main(["check"]) == 0
+    (out / name).write_text(f"oops {FAKE_TOKEN}")
+    capsys.readouterr()
+    assert sdlc.main(["check"]) == 1
+    err = capsys.readouterr().err
+    assert f".sdlc/{name}: an added line contains a credential" in err and FAKE_TOKEN not in err
+    assert sdlc.main(["scan"]) == 1                                     # the final gate before posting says the same
+
+
+def test_personal_data_is_looked_for_in_prose_but_not_in_test_output_or_labels(tmp_path, monkeypatch):
+    out = gitignored_sdlc_checkout(tmp_path, monkeypatch)
+    for name in ("pytest.txt", "labels.txt"):
+        (out / name).write_text("author rui.real@gmail.com +351 912 345 678")
+    assert sdlc.main(["check"]) == 0
+    for name in ("comment.md", "review.md"):
+        (out / name).write_text("mail rui.real@gmail.com")
+        assert sdlc.main(["check"]) == 1, name
+        (out / name).write_text("call +351 912 345 678")
+        assert sdlc.main(["check"]) == 1, name
+        (out / name).unlink()
+
+
+def test_the_output_files_do_not_count_as_repository_changes(tmp_path, monkeypatch):
+    out = gitignored_sdlc_checkout(tmp_path, monkeypatch)
+    (out / "comment.md").write_text("fine")
+    changed, added = sdlc.changes_in_checkout()
+    assert changed == [] and added == {".sdlc/comment.md": "fine"}

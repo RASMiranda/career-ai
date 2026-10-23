@@ -174,3 +174,94 @@ def test_the_protected_list_covers_what_adr_024_reserves_for_the_owner():
                  "REVIEW.md", "routine-prompt.md", "docs/managed-settings.example.json"):
         assert sdlc.matches(path, sdlc.PROTECTED), path
     assert ".sdlc/" in (ROOT / ".gitignore").read_text()
+
+
+# ---------------------------------------------------------------- token exposure
+FAKE_TOKEN = "sk-ant-oat01-" + "FAKE" * 8                 # obviously fake
+
+
+def agent_steps():
+    return [s for s in steps("sdlc") if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")]
+
+
+def test_the_action_is_pinned_to_a_commit_and_scrubs_subprocess_environments():
+    runs = agent_steps()
+    assert len(runs) == 2
+    for s in runs:
+        assert s["uses"] == "anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9"
+        assert s["env"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] == "1"
+    assert all(re.search(r"@[0-9a-f]{40} # v1$", line.strip())
+               for line in (WF / "sdlc.yml").read_text().splitlines() if "claude-code-action@" in line)
+
+
+def test_project_settings_deny_the_runner_files_that_hold_credentials():
+    deny = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]["deny"]
+    for rule in ("Read(//proc/**)", "Read(//home/runner/.ssh/**)", "Read(//home/runner/.config/**)",
+                 "Bash(git diff --no-index:*)", "Bash(git diff *--no-index*)"):
+        assert rule in deny, rule
+    assert not any(r in ("Read(//home/**)", "Read(//home/runner/**)", "Read") for r in deny)   # the checkout lives there
+
+
+def run_post_step(tmp_path, env_extra, files):
+    """Run the workflow's real post step with a fake `gh`, and return the body it would post."""
+    import os
+    import shutil
+    import subprocess
+    if not shutil.which("bash"):
+        pytest.skip("needs bash")
+    step = next(s for s in steps("sdlc") if str(s.get("name", "")).startswith("Post the report"))
+    (tmp_path / "src").symlink_to(ROOT / "src")                            # the step runs from the repository root
+    (tmp_path / ".sdlc").mkdir()
+    for name, text in files.items():
+        (tmp_path / ".sdlc" / name).write_text(text)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    fake = bin_ / "gh"
+    fake.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = --body-file ] && cat "$2" >> "$POSTED"; shift; done\n')
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "POSTED": str(tmp_path / "posted.txt"),
+           "NUMBER": "7", "TRIGGER_LABEL": "", "STAGE": "build", "ROLES": "[]",
+           "REJECTED": "success", **env_extra}
+    env.pop("blocked", None) if "blocked" not in env_extra else None
+    env.pop("PYTHONPATH", None)
+    subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
+    return (tmp_path / "posted.txt").read_text()
+
+
+FIXED = "Blocked by the safety check. See the run log."
+
+
+def leaky():
+    return {"comment.md": f"report {FAKE_TOKEN}", "review.md": f"finding {FAKE_TOKEN}", "pytest.txt": f"2 passed {FAKE_TOKEN}",
+            "labels.txt": "needs-info\n"}
+
+
+def test_a_blocked_run_posts_only_the_fixed_message(tmp_path):
+    body = run_post_step(tmp_path, {"blocked": "true"}, leaky())
+    assert FIXED in body and FAKE_TOKEN not in body and "Review" not in body and "passed" not in body
+
+
+def test_a_failed_review_reject_step_also_posts_only_the_fixed_message(tmp_path):
+    body = run_post_step(tmp_path, {"REJECTED": "failure"}, leaky())
+    assert FIXED in body and FAKE_TOKEN not in body and "Review" not in body
+
+
+def test_text_written_after_the_first_check_is_scanned_again_before_posting(tmp_path):
+    body = run_post_step(tmp_path, {}, leaky())                            # no `blocked` flag: the final scan catches it
+    assert FIXED in body and FAKE_TOKEN not in body
+
+
+def test_a_normal_run_still_posts_the_report_review_and_test_result(tmp_path):
+    body = run_post_step(tmp_path, {}, {"comment.md": "built it", "review.md": "Verdict: no Important findings",
+                                        "pytest.txt": "12 passed"})
+    assert "built it" in body and "Verdict: no Important findings" in body and "12 passed" in body and FIXED not in body
+    assert "Next gate (yours)" in body
+
+
+def test_a_stop_for_another_reason_still_posts_the_workflows_own_message(tmp_path):
+    body = run_post_step(tmp_path, {"stop": "true"}, {"comment.md": "No branch for this issue yet: run the intent stage first."})
+    assert "No branch for this issue yet" in body and FIXED not in body
+
+
+def test_the_workflow_never_writes_agent_output_to_the_job_summary():
+    assert "GITHUB_STEP_SUMMARY" not in (WF / "sdlc.yml").read_text()
