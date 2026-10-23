@@ -12,7 +12,12 @@
       "Bash(python -m jobscan.apply questions approve:*)",
       "Bash(python -m jobscan.apply questions reject:*)",
       "Bash(python -m jobscan.apply questions set:*)",
-      "Bash(git push --force:*)"
+      "Bash(git push --force:*)",
+      "Read(//proc/**)",
+      "Read(//home/runner/.ssh/**)",
+      "Read(//home/runner/.config/**)",
+      "Bash(git diff --no-index:*)",
+      "Bash(git diff *--no-index*)"
     ]
   },
   "hooks": {

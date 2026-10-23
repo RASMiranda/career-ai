@@ -6,6 +6,7 @@ Agents write files; this code decides, checks and frames. The workflows only cal
     python -m jobscan.sdlc issue  --event E --comments C --out F   the issue as untrusted, fenced text
     python -m jobscan.sdlc prompt --decision D --out F       the stage prompt the agent is told to follow
     python -m jobscan.sdlc check  --decision D               did the agent stay inside its stage?
+    python -m jobscan.sdlc scan                              do the texts the workflow posts carry a secret?
 
 The agent never gets git push, gh, the network or a token. It edits files in the checkout; ``check``
 refuses protected paths, paths outside the stage, secrets and personal data in added lines; only then
@@ -80,6 +81,11 @@ _SECRETS = [("a credential", lambda t: bool(_CREDENTIAL.search(t))),
             ("an email address", _real_email),
             ("a phone number", lambda t: bool(_PHONE.search(t)))]
 MAX_FILES, MAX_ADDED_BYTES = 60, 400_000
+
+# Agent-written text the workflow posts to the issue. ``.sdlc/`` is gitignored, so ``git status`` never lists these:
+# they are read from disk. Credentials are looked for everywhere; personal data only in prose the agent wrote.
+SDLC_OUTPUT = {".sdlc/comment.md": _SECRETS, ".sdlc/review.md": _SECRETS,
+               ".sdlc/pytest.txt": _SECRETS[:1], ".sdlc/labels.txt": _SECRETS[:1]}
 
 
 # ------------------------------------------------------------------------ paths
@@ -259,7 +265,7 @@ def check(decision: dict, changed: list[str], added: dict[str, str]) -> list[str
     if sum(len(t) for t in added.values()) > MAX_ADDED_BYTES:
         return problems + ["more than 400 KB added"]          # too big to scan, and already rejected
     for path, text in added.items():
-        for what, found in _SECRETS:
+        for what, found in SDLC_OUTPUT.get(path, _SECRETS):
             if found(text):
                 problems.append(f"{path}: an added line contains {what}")
     return problems
@@ -283,7 +289,24 @@ def changes_in_checkout() -> tuple[list[str], dict[str, str]]:
                 added[path] = "\n".join(l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++"))
         except (OSError, subprocess.CalledProcessError):
             added[path] = ""
+    added.update(sdlc_output())
     return changed, added
+
+
+def sdlc_output() -> dict[str, str]:
+    """The text of each file in ``SDLC_OUTPUT`` that exists, read from disk."""
+    out = {}
+    for path in SDLC_OUTPUT:
+        try:
+            out[path] = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    return out
+
+
+def scan_problems(texts: dict[str, str]) -> list[str]:
+    return [f"{path}: contains {what}" for path, text in texts.items()
+            for what, found in SDLC_OUTPUT.get(path, _SECRETS) if found(text)]
 
 
 # -------------------------------------------------------------------------- cli
@@ -319,6 +342,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("check")
     p.add_argument("--decision", default=".sdlc/decision.json")
     p.add_argument("--as", dest="as_stage", choices=sorted(STAGES))
+    sub.add_parser("scan")
     args = ap.parse_args(argv)
 
     load = lambda f: json.loads(Path(f).read_text(encoding="utf-8")) if f and Path(f).is_file() else []  # noqa: E731
@@ -336,6 +360,11 @@ def main(argv=None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(render_issue(event, load(args.comments), load(args.pr_comments)), encoding="utf-8")
         return 0
+    if args.cmd == "scan":
+        problems = scan_problems(sdlc_output())
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1 if problems else 0
     decision = json.loads(Path(args.decision).read_text(encoding="utf-8"))
     if args.as_stage:
         decision = as_stage(decision, args.as_stage)
