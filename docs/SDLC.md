@@ -66,7 +66,8 @@ originator, product owner, code owner and release manager; the agents prepare, y
 
 ### One-time setup (owner)
 1. Install the Claude GitHub App on the repository (https://github.com/apps/claude).
-2. Add the repository secret `ANTHROPIC_API_KEY` (Settings, Secrets and variables, Actions).
+2. Add the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (Settings, Secrets and variables, Actions). Create the token with
+   `claude setup-token` on a Pro or Max account (ADR-030). It is valid for 1 year: renew it before it expires.
 3. Settings, Actions, General: allow GitHub Actions to create pull requests.
 4. Branch protection on `main`: require a pull request, the `pytest` check, and review from Code Owners
    (`.github/CODEOWNERS`); allow bypass only for the Repository admin role, for pull requests only (ADR-027). This, not the agents, is what stops a bad merge.

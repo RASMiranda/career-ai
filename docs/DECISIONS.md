@@ -407,3 +407,8 @@ Consequences: career-data has no agents, no secret and no workflow; new repos in
 Context: owner prefers remote/hybrid/onsite from Bangkok, open to relocating anywhere if compensation is good.
 Decision: location is data in each profile; no deterministic location rejection; Evaluator scores location fit and checks compensation vs the relocation threshold.
 Consequences: more onsite-elsewhere roles in the digest; compensation check must handle missing pay; visa/work-authorisation questions stay human-only.
+
+## ADR-030 · 2026-10-23 · SDLC agents authenticate with the owner's Pro subscription token
+Context: an API key bills per token on top of the Pro subscription, and the Console plan had $0 credit; the owner wants no cost beyond Pro.
+Decision: the sdlc workflow uses claude_code_oauth_token from the repository secret CLAUDE_CODE_OAUTH_TOKEN, created with `claude setup-token` (valid for 1 year, renew before it expires). The ANTHROPIC_API_KEY secret and the Console key are removed. Usage credits stay off. Personal use only; the paid product keeps using the API (ADR-002).
+Consequences: the cost ceiling is the Pro usage limits, shared with the owner's own use; a leaked token exposes the account, so it lives only in Bitwarden and the repository secret.
