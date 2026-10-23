@@ -402,3 +402,8 @@ Consequences: the owner can merge their own PRs; for agent PRs, discipline repla
 Context: SDLC.md said install it on the repository; the owner chose all repositories.
 Decision: the App has access to all repos. ANTHROPIC_API_KEY and the sdlc workflow exist only in career-ai.
 Consequences: career-data has no agents, no secret and no workflow; new repos inherit the App but need their own workflow and key to use it.
+
+## ADR-029 · 2026-10-23 · Location is a per-user preference with a compensation-gated relocation override
+Context: owner prefers remote/hybrid/onsite from Bangkok, open to relocating anywhere if compensation is good.
+Decision: location is data in each profile; no deterministic location rejection; Evaluator scores location fit and checks compensation vs the relocation threshold.
+Consequences: more onsite-elsewhere roles in the digest; compensation check must handle missing pay; visa/work-authorisation questions stay human-only.
