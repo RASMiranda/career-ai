@@ -1,0 +1,37 @@
+name: token-expiry
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    if: github.repository == 'RASMiranda/career-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Claude token expiry
+        env:
+          EXPIRES: ${{ vars.CLAUDE_TOKEN_EXPIRES }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXPIRES" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "::error::Repository variable CLAUDE_TOKEN_EXPIRES is empty or not YYYY-MM-DD"
+            exit 1
+          fi
+          if ! end=$(date -u -d "$EXPIRES" +%s 2>/dev/null); then
+            echo "::error::CLAUDE_TOKEN_EXPIRES is not a valid date"
+            exit 1
+          fi
+          now=$(date -u -d "$(date -u +%F)" +%s)
+          days=$(( (end - now) / 86400 ))
+          if [ "$days" -le 30 ]; then
+            echo "::error::Renew CLAUDE_CODE_OAUTH_TOKEN: $days days left (expires $EXPIRES)"
+            exit 1
+          fi
+          echo "Claude token: $days days left (expires $EXPIRES)"
+          echo "Claude token: $days days left (expires $EXPIRES)" >> "$GITHUB_STEP_SUMMARY"
