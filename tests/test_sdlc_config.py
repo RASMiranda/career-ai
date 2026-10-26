@@ -184,12 +184,13 @@ def agent_steps():
     return [s for s in steps("sdlc") if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")]
 
 
-def test_the_action_is_pinned_to_a_commit_and_scrubs_subprocess_environments():
+def test_the_action_is_pinned_to_a_commit_and_does_not_set_the_subprocess_env_scrub():
     runs = agent_steps()
     assert len(runs) == 2
     for s in runs:
         assert s["uses"] == "anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9"
-        assert s["env"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] == "1"
+        # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap, which the runner lacks: it failed the first run (ADR-033).
+        assert "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" not in s.get("env", {})
     assert all(re.search(r"@[0-9a-f]{40} # v1$", line.strip())
                for line in (WF / "sdlc.yml").read_text().splitlines() if "claude-code-action@" in line)
 
