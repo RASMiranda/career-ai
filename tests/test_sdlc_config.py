@@ -271,3 +271,37 @@ def test_the_workflow_never_writes_agent_output_to_the_job_summary():
     end = text.index("      - name: Check out the issue's branch")
     assert "GITHUB_STEP_SUMMARY" not in text[:start] + text[end:]
     assert ".sdlc/post.md" not in text[start:end]
+
+
+# ------------------------------------------------------- the commit step's shell
+def test_the_push_step_stages_and_commits_with_an_ignored_sdlc_dir(tmp_path):
+    """Run the step's real add/commit lines in a scratch repo where .sdlc is gitignored (run 40297305744)."""
+    import os
+    import subprocess
+
+    step = next(s for s in steps("sdlc") if s.get("id") == "push")
+    lines = step["run"].splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("git add"))
+    end = next(i for i, l in enumerate(lines) if l.strip().startswith("git push"))
+    script = "\n".join(lines[start:end]) + "\nfi\n"               # up to the commit; close the if/else
+
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True).stdout
+
+    git("init", "-q")
+    git("config", "user.name", "t")
+    git("config", "user.email", "t@example.invalid")
+    (tmp_path / ".gitignore").write_text(".sdlc/\n")
+    (tmp_path / "tracked.txt").write_text("one\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    (tmp_path / "tracked.txt").write_text("two\n")
+    (tmp_path / ".sdlc").mkdir()
+    (tmp_path / ".sdlc" / "comment.md").write_text("x\n")
+
+    env = {**os.environ, "NUMBER": "7", "STAGE": "intent", "GIT_CONFIG_GLOBAL": os.devnull}
+    run = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert git("show", "--name-only", "--format=", "HEAD").split() == ["tracked.txt"]
+    assert not [l for l in git("ls-files").splitlines() if l.startswith(".sdlc")]
+    assert git("diff", "--cached", "--name-only").strip() == ""
