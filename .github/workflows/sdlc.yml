@@ -115,8 +115,6 @@ jobs:
       - name: Run the stage agents
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
-        env:
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"     # Bash, hooks and MCP children lose credentials; the claude process keeps its own
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: >-
@@ -173,8 +171,6 @@ jobs:
       - name: Run the review agents
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
-        env:
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"     # Bash, hooks and MCP children lose credentials; the claude process keeps its own
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: >-
