@@ -45,6 +45,28 @@ jobs:
           git for-each-ref --format='%(refname:short)' refs/remotes/origin/agent/ | sed 's#^origin/##' > .sdlc/branches.txt
           PYTHONPATH=src python -m jobscan.sdlc decide --event "$GITHUB_EVENT_PATH" --branches .sdlc/branches.txt
 
+      - name: Budget gate (agent minutes per rolling window, ADR-032)
+        if: steps.d.outputs.run == 'true'
+        env:
+          RUN_ID: ${{ github.run_id }}
+          STAGE: ${{ steps.d.outputs.stage }}
+          MAX_24H: ${{ vars.SDLC_MAX_AGENT_MIN_24H }}
+          MAX_7D: ${{ vars.SDLC_MAX_AGENT_MIN_7D }}
+        run: |
+          # Unset or non-numeric caps become 60 and 240 inside budget.py; a cap of 0 blocks everything. An
+          # unreadable run history also blocks (fail closed). The job stays green either way.
+          rc=0
+          PYTHONPATH=src python -m jobscan.sdlc.budget --run-id "$RUN_ID" --stage "$STAGE" --max-24h "$MAX_24H" --max-7d "$MAX_7D" \
+            --summary "$GITHUB_STEP_SUMMARY" --comment .sdlc/comment.md || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -ne 3 ]; then
+              echo "Budget gate: could not read the run history, so nothing ran." > .sdlc/comment.md
+              echo "::warning title=Budget gate::could not read the run history, so nothing ran"
+              echo "Budget gate for stage \`$STAGE\`: blocked, the run history could not be read." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "stop=true" >> "$GITHUB_ENV"
+          fi
+
       - name: Check out the issue's branch
         if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true'
         env:

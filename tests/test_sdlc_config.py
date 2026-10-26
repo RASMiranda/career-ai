@@ -264,4 +264,9 @@ def test_a_stop_for_another_reason_still_posts_the_workflows_own_message(tmp_pat
 
 
 def test_the_workflow_never_writes_agent_output_to_the_job_summary():
-    assert "GITHUB_STEP_SUMMARY" not in (WF / "sdlc.yml").read_text()
+    # The one writer is the Budget gate, which prints only its own numbers (ADR-032), never agent text.
+    text = (WF / "sdlc.yml").read_text()
+    start = text.index("      - name: Budget gate")
+    end = text.index("      - name: Check out the issue's branch")
+    assert "GITHUB_STEP_SUMMARY" not in text[:start] + text[end:]
+    assert ".sdlc/post.md" not in text[start:end]

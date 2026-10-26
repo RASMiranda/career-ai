@@ -87,3 +87,18 @@ CLAUDE_CODE_OAUTH_TOKEN was created 2026-10-23 and expires 2027-10-23. The expir
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit
 per stage (turn caps: 10 to 40). It is for the code repository; `career-data` has no agents and no issues.
 
+## Usage budget
+
+The agents run on the owner's Pro subscription (ADR-030), so a hard cap on agent time protects the usage limits.
+The "Budget gate" step (ADR-032) adds up the minutes of earlier `sdlc` runs (duration is `updated_at - run_started_at`,
+an approximation; runs under 30 seconds, cancelled runs and the current run do not count) and refuses the stage when
+either window is over its cap. It comments on the issue, stays green, and the step summary of every run shows the
+minutes used, the caps and the decision.
+
+| Repository variable (Settings, Secrets and variables, Actions, Variables) | Window | Default |
+|---|---|---|
+| `SDLC_MAX_AGENT_MIN_24H` | rolling 24 hours | 60 |
+| `SDLC_MAX_AGENT_MIN_7D` | rolling 7 days | 240 |
+
+Unset or non-numeric means the default, never unlimited. Exactly at a cap is allowed. **To stop everything**, set
+either variable to `0`: every stage is refused until you raise it. Remove the variable to go back to the default.
