@@ -37,8 +37,8 @@ No new automated test. A test on one word's spelling is the spell-check guard th
 
 ## Tasks
 
-- [ ] Confirm "seperate" is at `README.md` line 6
-- [ ] Change it to "separate", touching nothing else
-- [ ] Run proof checks 1–3
-- [ ] Run `python -m pytest -q`, confirm it passes
+- [x] Confirm "seperate" is at `README.md` line 6
+- [x] Change it to "separate", touching nothing else
+- [x] Run proof checks 1–3
+- [x] Run `python -m pytest -q`, confirm it passes
 - [ ] Open the PR; note the proof results in its description
