@@ -25,7 +25,7 @@ Four steps. Only step 2 uses AI, and only for candidates the code cannot settle.
 | 4. `report` | Python | Render `report.md` + one `email-<profile>.html` each, plus `deliveries.json` (recipients from `profiles[].notify.email`); update seen/budget/journal |
 
 Claude never sees credentials, never calls a job API, never sends the email
-itself from inside the Python steps. Delivery is a seperate, explicitly
+itself from inside the Python steps. Delivery is a separate, explicitly
 authorised action.
 
 ## Running it with few model turns
