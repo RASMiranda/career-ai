@@ -49,7 +49,8 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
 - **Review.** Every build is followed by a reviewer and a security-reviewer pass (`REVIEW.md`), read only; apply
   `agent:review` to run them again after your own pushes. Findings never approve or block by themselves.
 - **Merge.** Only a human merges, after `pytest` is green and a code owner approves (branch protection). The agent that
-  wrote the code never approves it.
+  wrote the code never approves it. The draft PR body starts with `Closes #N`, so the PR shows in the issue's
+  Development sidebar and merging it closes the issue (ADR-034): merge only after the checklist in the PR is done.
 
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
