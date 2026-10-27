@@ -3,7 +3,7 @@
 Deterministic engine for a personal, AI-assisted job-scan pipeline.
 
 **This repo contains no personal data.** Career facts, matching criteria, real
-search queries, run state and generated reports live in a seperate **private**
+search queries, run state and generated reports live in a separate **private**
 repository (`career-data`). This split is deliberate: code is shareable,
 criteria and history are not.
 
