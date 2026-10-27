@@ -218,11 +218,11 @@ def run_post_step(tmp_path, env_extra, files):
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     fake = bin_ / "gh"
-    fake.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = --body-file ] && cat "$2" >> "$POSTED"; shift; done\n')
+    fake.write_text('#!/bin/sh\n[ "$1 $2" = "pr list" ] && { [ -n "$FAKE_PR" ] && echo "$FAKE_PR"; exit 0; }\nwhile [ $# -gt 0 ]; do [ "$1" = --body-file ] && cat "$2" >> "$POSTED"; shift; done\n')
     fake.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "POSTED": str(tmp_path / "posted.txt"),
            "NUMBER": "7", "TRIGGER_LABEL": "", "STAGE": "build", "ROLES": "[]",
-           "REJECTED": "success", **env_extra}
+           "REJECTED": "success", "BRANCH": "agent/7-x", "FAKE_PR": "", **env_extra}
     env.pop("blocked", None) if "blocked" not in env_extra else None
     env.pop("PYTHONPATH", None)
     subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
@@ -257,6 +257,26 @@ def test_a_normal_run_still_posts_the_report_review_and_test_result(tmp_path):
                                         "pytest.txt": "12 passed"})
     assert "built it" in body and "Verdict: no Important findings" in body and "12 passed" in body and FIXED not in body
     assert "Next gate (yours)" in body
+
+
+def test_the_report_names_the_open_pr_near_the_top_and_only_then(tmp_path):
+    files = {"comment.md": "built it"}
+    body = run_post_step(tmp_path, {"FAKE_PR": "12"}, files)
+    assert body.splitlines()[1] == "PR: #12"
+    (tmp_path / "b").mkdir()
+    body = run_post_step(tmp_path / "b", {}, files)
+    assert "PR:" not in body and "built it" in body
+
+
+def test_a_blocked_run_has_no_pr_line(tmp_path):
+    assert "PR:" not in run_post_step(tmp_path, {"blocked": "true", "FAKE_PR": "12"}, leaky())
+
+
+def test_the_draft_pr_body_comes_from_the_tested_function_and_only_type_labels_are_copied():
+    text = (WF / "sdlc.yml").read_text()
+    assert "Refs #" not in text and "jobscan.sdlc pr-body" in text
+    assert 'type:*) gh pr edit "$PR_NEW" --add-label "$l"' in text
+    assert "agent:*) gh pr edit" not in text and "stage:*) gh pr edit" not in text
 
 
 def test_a_stop_for_another_reason_still_posts_the_workflows_own_message(tmp_path):

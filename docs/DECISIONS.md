@@ -427,3 +427,8 @@ Consequences: a runaway day cannot drain the subscription; the cost is that a bu
 Context: the first real sdlc run (run 40296239640, intent stage on issue #37) failed before the agent started with "error: bubblewrap is required for subprocess env scrubbing and isolation". `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"` (ADR-031 item 4) requires bubblewrap, which the runner does not have. Nothing ran.
 Decision: the setting is removed from both `anthropics/claude-code-action` steps; nothing else in the workflow changes, and a test asserts it stays absent.
 Consequences: the token therefore stays in the environment of subprocesses such as pytest in the build stage, which ADR-031 had meant to fix. Options still open: install bubblewrap on the runner (unverified that it would work), or run the tests in a step without the token.
+
+## ADR-034 · 2026-10-27 · Closes instead of Refs in the draft PR body
+Context: the draft PR body began with "Refs #N", which GitHub does not treat as a link: the PR was missing from the issue's Development sidebar and merging did not close the issue.
+Decision: the body (`jobscan.sdlc.pr_body`) starts with "Closes #N" and adds "Stage reports are on the issue: #N." The issue comment gets a "PR: #n" line when an open PR exists for the branch (never on a blocked run), and the issue's `type:*` labels are copied onto the PR, best effort (never `agent:*` or `stage:*`).
+Consequences: the PR is linked and merging closes the issue. Trade-off: an early merge of the intent-only draft PR would close the issue before spec, plan and build; the checklist in the PR body and docs/SDLC.md say to merge only when it is done, and merging stays a human act.
