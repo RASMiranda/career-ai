@@ -147,7 +147,8 @@ jobs:
         run: |
           git config user.name "career-ai-sdlc"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- . ':(exclude).sdlc'
+          git add -A
+          git reset -q -- .sdlc || true      # defensive: .sdlc is gitignored, but never commit it if that changes
           if git diff --cached --quiet; then
             echo "The agent produced no file changes." >> .sdlc/comment.md
           else
