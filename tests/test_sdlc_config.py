@@ -225,6 +225,7 @@ def run_post_step(tmp_path, env_extra, files):
            "REJECTED": "success", "BRANCH": "agent/7-x", "FAKE_PR": "", **env_extra}
     env.pop("blocked", None) if "blocked" not in env_extra else None
     env.pop("PYTHONPATH", None)
+    env.setdefault("TRUSTED_SRC", str(tmp_path / "src"))                  # ADR-036: the post step imports jobscan from here
     subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
     return (tmp_path / "posted.txt").read_text()
 

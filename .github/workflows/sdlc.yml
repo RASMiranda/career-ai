@@ -144,11 +144,19 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git config --local --unset-all credential.helper || true
           git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
+      - name: Load the trusted jobscan code from main (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # ADR-036. jobscan comes from origin/main (git archive, not the working tree), so code the agents wrote
+          # cannot run in a step that holds the repository token. The archive holds src/ at its root, hence the /src suffix.
+          # Loaded again after the reviewers: the review agents may Write under RUNNER_TEMP too.
+          rm -rf "$RUNNER_TEMP/trusted" && mkdir -p "$RUNNER_TEMP/trusted" && git archive origin/main src | tar -x -C "$RUNNER_TEMP/trusted"
+          echo "TRUSTED_SRC=$RUNNER_TEMP/trusted/src" >> "$GITHUB_ENV"
       - name: Check what the agent changed
         id: check
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         run: |
-          if ! PYTHONPATH=src python -m jobscan.sdlc check 2> .sdlc/check.txt; then
+          if ! PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc check 2> .sdlc/check.txt; then
             cat .sdlc/check.txt >&2
             echo "Blocked by the safety check. See the run log." > .sdlc/comment.md
             echo "stop=true" >> "$GITHUB_ENV"
@@ -174,7 +182,7 @@ jobs:
             git commit -q -m "[#$NUMBER] sdlc: $STAGE" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
             git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
             if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')" ]; then
-              PYTHONPATH=src python -m jobscan.sdlc pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
+              PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
               gh pr create --draft --base main --head "$BRANCH" --title "[#$NUMBER] $ISSUE_TITLE" --body-file .sdlc/pr-body.md \
                 || echo "The branch was pushed but the PR could not be opened: enable 'Allow GitHub Actions to create and approve pull requests' in Settings, Actions, General." >> .sdlc/comment.md
               # Best effort: copy the issue's type:* labels onto the PR (never agent:* or stage:*); never fails the step.
@@ -194,7 +202,7 @@ jobs:
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
         run: |
           git diff origin/main...HEAD > .sdlc/diff.patch
-          PYTHONPATH=src python -m jobscan.sdlc prompt --as review --out .sdlc/review-prompt.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc prompt --as review --out .sdlc/review-prompt.md
       - name: Run the review agents
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
@@ -216,10 +224,18 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git config --local --unset-all credential.helper || true
           git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
+      - name: Load the trusted jobscan code from main again after the reviewers (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # ADR-036. jobscan comes from origin/main (git archive, not the working tree), so code the agents wrote
+          # cannot run in a step that holds the repository token. The archive holds src/ at its root, hence the /src suffix.
+          # Loaded again after the reviewers: the review agents may Write under RUNNER_TEMP too.
+          rm -rf "$RUNNER_TEMP/trusted" && mkdir -p "$RUNNER_TEMP/trusted" && git archive origin/main src | tar -x -C "$RUNNER_TEMP/trusted"
+          echo "TRUSTED_SRC=$RUNNER_TEMP/trusted/src" >> "$GITHUB_ENV"
       - name: Reject any change the reviewers made
         id: reject
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
-        run: PYTHONPATH=src python -m jobscan.sdlc check --as review
+        run: PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc check --as review
 
       - name: Run the tests once more and keep the result
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
@@ -237,7 +253,7 @@ jobs:
           # A blocked run posts one fixed sentence and nothing the agent wrote. The agent's text is scanned once
           # more here, because the reviewers and the test run write after the first check.
           if [ "$blocked" != "true" ] && [ "$REJECTED" != "failure" ]; then
-            PYTHONPATH=src python -m jobscan.sdlc scan || blocked=true
+            PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc scan || blocked=true
           else
             blocked=true
           fi
@@ -264,7 +280,7 @@ jobs:
             {
               PR_OPEN=""
               [ -n "${BRANCH:-}" ] && PR_OPEN=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
-              PYTHONPATH=src python -c 'import sys; from jobscan.sdlc import report_header; print(report_header(*sys.argv[1:]))' "$STAGE" "$ROLES" "$PR_OPEN"
+              PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from jobscan.sdlc import report_header; print(report_header(*sys.argv[1:]))' "$STAGE" "$ROLES" "$PR_OPEN"
               echo
               head -c 2500 .sdlc/comment.md
               if [ -f .sdlc/review.md ]; then echo; echo "---"; echo "**Review**"; echo; head -c 4000 .sdlc/review.md; fi
