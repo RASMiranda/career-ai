@@ -48,3 +48,12 @@ def test_allows_the_routine_and_normal_development():
 def test_bad_input_does_not_block():
     r = subprocess.run([sys.executable, str(GUARD)], input="not json", capture_output=True, text=True)
     assert r.returncode == 0
+
+
+def test_blocks_writes_under_dot_git():
+    for tool in ("Write", "Edit"):
+        for path in (".git/hooks/pre-commit", "/home/runner/work/r/r/.git/config", ".git/packed-refs", "x/.git/objects/ab/cd"):
+            call = {"tool_name": tool, "tool_input": {"file_path": path}}
+            assert run(call).returncode == 2, (tool, path)
+    assert run({"tool_name": "Write", "tool_input": {"file_path": "docs/.gitkeep"}}).returncode == 0
+    assert run({"tool_name": "Write", "tool_input": {"file_path": ".github/x.md"}}).returncode == 0
