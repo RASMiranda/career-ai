@@ -25,6 +25,8 @@ def check(call: dict) -> str | None:
         path = args.get("file_path") or args.get("notebook_path") or ""
         if PurePath(path).name in PROTECTED_FILES:
             return f"{PurePath(path).name} is owner-only (authorization, config and profiles)"
+        if ".git" in PurePath(path).parts:                                # ADR-036: hooks, config, refs, objects
+            return "an agent may not write under .git/ (hooks and config run commands)"
     if tool == "Bash":
         cmd = args.get("command", "")
         for pattern, why in BASH_RULES:

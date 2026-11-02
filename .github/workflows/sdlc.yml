@@ -28,6 +28,11 @@ jobs:
     # and pytest do not inherit it. tests/test_sdlc_token_scope.py pins the list.
     env:
       NUMBER: ${{ github.event.issue.number }}
+      GIT_CONFIG_COUNT: "2"                 # ADR-036: no repo hooks, no fsmonitor, whatever .git/config says
+      GIT_CONFIG_KEY_0: core.hooksPath
+      GIT_CONFIG_VALUE_0: /dev/null
+      GIT_CONFIG_KEY_1: core.fsmonitor
+      GIT_CONFIG_VALUE_1: "false"
       ISSUE_TITLE: ${{ github.event.issue.title }}
       TRIGGER_LABEL: ${{ github.event.label.name }}
     steps:
@@ -50,6 +55,8 @@ jobs:
         if: steps.d.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
           RUN_ID: ${{ github.run_id }}
           STAGE: ${{ steps.d.outputs.stage }}
           MAX_24H: ${{ vars.SDLC_MAX_AGENT_MIN_24H }}
@@ -101,9 +108,12 @@ jobs:
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
           BRANCH: ${{ steps.d.outputs.branch }}
           CHECKOUT: ${{ steps.d.outputs.checkout }}
         run: |
+          git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
           if [ "$CHECKOUT" = "true" ]; then git diff origin/main...HEAD > .sdlc/diff.patch; fi
           gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate | jq -s 'add // []' > .sdlc/comments.json
           PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
@@ -135,23 +145,46 @@ jobs:
             --allowedTools "${{ steps.d.outputs.tools }}"
             --disallowedTools "WebFetch,WebSearch"
 
-      - name: Remove the token the action wrote into .git/config (ADR-035)
+      - name: Remove the token the action wrote into .git/config (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
-          # claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
-          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it before any code
-          # the agent wrote runs; the push step authenticates with its own URL, so nothing needs this.
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git config --local --unset-all credential.helper || true
-          git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
-      - name: Load the trusted jobscan code from main (ADR-036)
+          # ADR-035: claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
+          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it.
+          # ADR-036: the agents can Write under .git/ and the tests they wrote run code, so .git/config and
+          # .git/hooks are not trusted. Unset the keys that make git run a command or send the token elsewhere,
+          # then drop every key checkout did not write.
+          git config --local --remove-section include 2>/dev/null || true
+          git config --local --unset-all include.path || true
+          git config --local --unset-all core.fsmonitor || true
+          git config --local --unset-all core.hooksPath || true
+          keys=$(git config --local --name-only --list | grep -Eiv '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks)|remote\.[^.]+\.fetch|branch\..+|user\.(name|email)|gc\.auto)$' | sort -u || true)
+          printf '%s\n' "$keys" | while IFS= read -r k; do
+            if [ -n "$k" ]; then git config --local --unset-all "$k"; fi
+          done
+          git config --local remote.origin.url "https://github.com/${GITHUB_REPOSITORY}.git"
+          rm -f .git/config.worktree
+          rm -rf .git/hooks && mkdir .git/hooks
+      - name: Trusted jobscan code (1 of 3) clear the folder (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
-          # ADR-036. jobscan comes from origin/main (git archive, not the working tree), so code the agents wrote
-          # cannot run in a step that holds the repository token. The archive holds src/ at its root, hence the /src suffix.
-          # Loaded again after the reviewers: the review agents may Write under RUNNER_TEMP too.
-          rm -rf "$RUNNER_TEMP/trusted" && mkdir -p "$RUNNER_TEMP/trusted" && git archive origin/main src | tar -x -C "$RUNNER_TEMP/trusted"
-          echo "TRUSTED_SRC=$RUNNER_TEMP/trusted/src" >> "$GITHUB_ENV"
+          # The folder may hold anything an agent wrote. Hide it from git status and git add.
+          rm -rf trusted
+          mkdir -p .git/info
+          grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
+      - name: Trusted jobscan code (2 of 3) check out the trigger commit (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          sparse-checkout: src
+          persist-credentials: false
+      - name: Trusted jobscan code (3 of 3) use it (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # Taken after each agent run: the review agents may Write anywhere in the workspace too.
+          test -f trusted/src/jobscan/sdlc/__init__.py
+          echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
       - name: Check what the agent changed
         id: check
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
@@ -168,10 +201,13 @@ jobs:
         if: steps.d.outputs.run == 'true' && steps.d.outputs.repo == 'true' && env.stop != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
           BRANCH: ${{ steps.d.outputs.branch }}
           STAGE: ${{ steps.d.outputs.stage }}
           WORKDIR: ${{ steps.d.outputs.workdir }}
         run: |
+          git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
           git config user.name "career-ai-sdlc"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -215,23 +251,46 @@ jobs:
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
             --disallowedTools "WebFetch,WebSearch"
-      - name: Remove the token the action wrote into .git/config again after the reviewers (ADR-035)
+      - name: Remove the token the action wrote into .git/config again after the reviewers (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
-          # claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
-          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it before any code
-          # the agent wrote runs; the push step authenticates with its own URL, so nothing needs this.
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git config --local --unset-all credential.helper || true
-          git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
-      - name: Load the trusted jobscan code from main again after the reviewers (ADR-036)
+          # ADR-035: claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
+          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it.
+          # ADR-036: the agents can Write under .git/ and the tests they wrote run code, so .git/config and
+          # .git/hooks are not trusted. Unset the keys that make git run a command or send the token elsewhere,
+          # then drop every key checkout did not write.
+          git config --local --remove-section include 2>/dev/null || true
+          git config --local --unset-all include.path || true
+          git config --local --unset-all core.fsmonitor || true
+          git config --local --unset-all core.hooksPath || true
+          keys=$(git config --local --name-only --list | grep -Eiv '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks)|remote\.[^.]+\.fetch|branch\..+|user\.(name|email)|gc\.auto)$' | sort -u || true)
+          printf '%s\n' "$keys" | while IFS= read -r k; do
+            if [ -n "$k" ]; then git config --local --unset-all "$k"; fi
+          done
+          git config --local remote.origin.url "https://github.com/${GITHUB_REPOSITORY}.git"
+          rm -f .git/config.worktree
+          rm -rf .git/hooks && mkdir .git/hooks
+      - name: Trusted jobscan code, again after the reviewers (1 of 3) clear the folder (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
-          # ADR-036. jobscan comes from origin/main (git archive, not the working tree), so code the agents wrote
-          # cannot run in a step that holds the repository token. The archive holds src/ at its root, hence the /src suffix.
-          # Loaded again after the reviewers: the review agents may Write under RUNNER_TEMP too.
-          rm -rf "$RUNNER_TEMP/trusted" && mkdir -p "$RUNNER_TEMP/trusted" && git archive origin/main src | tar -x -C "$RUNNER_TEMP/trusted"
-          echo "TRUSTED_SRC=$RUNNER_TEMP/trusted/src" >> "$GITHUB_ENV"
+          # The folder may hold anything an agent wrote. Hide it from git status and git add.
+          rm -rf trusted
+          mkdir -p .git/info
+          grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
+      - name: Trusted jobscan code, again after the reviewers (2 of 3) check out the trigger commit (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          sparse-checkout: src
+          persist-credentials: false
+      - name: Trusted jobscan code, again after the reviewers (3 of 3) use it (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # Taken after each agent run: the review agents may Write anywhere in the workspace too.
+          test -f trusted/src/jobscan/sdlc/__init__.py
+          echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
       - name: Reject any change the reviewers made
         id: reject
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
@@ -245,6 +304,8 @@ jobs:
         if: always() && steps.d.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
           STAGE: ${{ steps.d.outputs.stage }}
           ROLES: ${{ steps.d.outputs.roles }}
           REJECTED: ${{ steps.reject.outcome }}
