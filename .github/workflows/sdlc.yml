@@ -114,13 +114,7 @@ jobs:
           CHECKOUT: ${{ steps.d.outputs.checkout }}
         run: |
           git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
-          if [ "$CHECKOUT" = "true" ]; then
-            git diff origin/main...HEAD > .sdlc/diff.patch
-            # ADR-037: the reviewers cannot run tests, so they read the tests workflow's result (name, status, conclusion).
-            gh api "repos/$GITHUB_REPOSITORY/commits/$(git rev-parse HEAD)/check-runs" \
-              --jq '.check_runs[] | "\(.name): \(.status) \(.conclusion // "no conclusion yet")"' > .sdlc/checks.txt 2>/dev/null || true
-            [ -s .sdlc/checks.txt ] || echo "No check results are available for this commit yet." > .sdlc/checks.txt
-          fi
+          if [ "$CHECKOUT" = "true" ]; then git diff origin/main...HEAD > .sdlc/diff.patch; fi
           gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate | jq -s 'add // []' > .sdlc/comments.json
           PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
           if [ -n "$PR" ]; then
@@ -133,6 +127,32 @@ jobs:
         run: |
           PYTHONPATH=src python -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
           PYTHONPATH=src python -m jobscan.sdlc prompt
+
+      - name: Read the check results of the current commit (for a review or release stage, ADR-037)
+        if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true' && steps.d.outputs.repo != 'true' && env.stop != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
+        run: |
+          git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
+          # ADR-037: the reviewers cannot run tests. This step, not the build agent, writes what they read: the check
+          # runs of the commit as it is now. Non-fatal: a failure is written into the file, never hidden.
+          SHA="${PUSHED_SHA:-}"
+          if [ -z "$SHA" ]; then SHA=$(git rev-parse HEAD) || SHA="unknown"; fi
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "Could not read check results for $SHA: not a commit id" > .sdlc/checks.txt
+          elif out=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs" --paginate \
+                       --jq '.check_runs[] | "\(.name): \(.status) \(.conclusion // "no conclusion yet")"' 2>&1); then
+            if [ -n "$out" ]; then
+              { echo "commit: $SHA"; echo "$out"; } > .sdlc/checks.txt
+            else
+              echo "Could not read check results for $SHA: no check runs reported yet" > .sdlc/checks.txt
+            fi
+          else
+            echo "Could not read check results for $SHA: $(printf '%s' "$out" | head -c 300 | tr '\n' ' ')" > .sdlc/checks.txt
+            echo "::warning title=Check results::could not read the check runs for $SHA"
+          fi
 
       - name: Run the stage agents
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
@@ -235,6 +255,34 @@ jobs:
             # Pushes made with the workflow token do not start other workflows, so ask for the tests explicitly.
             gh workflow run tests.yml --ref "$BRANCH" || echo "Could not start the tests workflow on the branch." >> .sdlc/comment.md
             echo "pushed=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read the check results of the pushed commit (for the reviewers, ADR-037)
+        if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_GLOBAL: /dev/null          # ADR-036: an agent may have written ~/.gitconfig
+          GIT_CONFIG_NOSYSTEM: "1"
+          PUSHED_SHA: ${{ steps.push.outputs.sha }}
+        run: |
+          git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
+          # ADR-037: the reviewers cannot run tests. This step, not the build agent, writes what they read: the check
+          # runs of the commit as it is now. Non-fatal: a failure is written into the file, never hidden.
+          SHA="${PUSHED_SHA:-}"
+          if [ -z "$SHA" ]; then SHA=$(git rev-parse HEAD) || SHA="unknown"; fi
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "Could not read check results for $SHA: not a commit id" > .sdlc/checks.txt
+          elif out=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs" --paginate \
+                       --jq '.check_runs[] | "\(.name): \(.status) \(.conclusion // "no conclusion yet")"' 2>&1); then
+            if [ -n "$out" ]; then
+              { echo "commit: $SHA"; echo "$out"; } > .sdlc/checks.txt
+            else
+              echo "Could not read check results for $SHA: no check runs reported yet" > .sdlc/checks.txt
+            fi
+          else
+            echo "Could not read check results for $SHA: $(printf '%s' "$out" | head -c 300 | tr '\n' ' ')" > .sdlc/checks.txt
+            echo "::warning title=Check results::could not read the check runs for $SHA"
           fi
 
       - name: Review the build (reviewer and security reviewer, read only)

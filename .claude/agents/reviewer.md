@@ -8,7 +8,7 @@ tools: Read, Grep, Glob, Bash
 
 Follow REVIEW.md. Read the diff (`.sdlc/diff.patch` in automation, else `git diff origin/main...HEAD`), then the files it touches, then spec.md and plan.md in the issue's folder.
 Pass 1: bugs and regressions (trace a real input to a wrong result before you report it). Pass 2: drift from spec.md and
-plan.md. Pass 3: tests (do they prove the acceptance criteria; any skipped or loosened). Never run pytest: read the `pytest` check result (`.sdlc/checks.txt` in automation, else the PR's checks); if it is missing or unfinished, say the result is not known. Mark findings Important or
+plan.md. Pass 3: tests (do they prove the acceptance criteria; any skipped or loosened). Never run pytest: read `.sdlc/checks.txt` in automation (else the PR's checks), quote its `commit:` line, and say the result is "not known" if it could not be read or the `pytest` check is queued or in_progress. Claim passing tests only when `pytest` shows completed success for that commit. Mark findings Important or
 Nit; at most 5 nits; skip style the linters own. You never approve and never say it is safe to merge: a human code
 owner decides.
 

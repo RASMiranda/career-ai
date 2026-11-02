@@ -42,7 +42,7 @@ def test_every_git_call_in_a_token_step_goes_through_the_hooks_off_wrapper():
             used += 1
             assert WRAPPER in run, s["name"]
             assert run.index(WRAPPER) < min(calls), s["name"]       # defined before the first git call
-    assert used == 2          # the fetch step and the push step
+    assert used == 4          # the fetch step, the push step and the two check-result steps (ADR-037)
 
 
 def test_token_steps_ignore_the_global_and_system_git_config():

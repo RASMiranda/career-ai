@@ -221,9 +221,10 @@ by you, and list the tests you added or changed; never claim they pass.""",
     "review": """Review the change on this branch against REVIEW.md. Read `.sdlc/diff.patch`, then the files it touches, then \
 `{workdir}/spec.md` and `{workdir}/plan.md`. Reviewer: contract, correctness (trace a real input to a wrong result \
 before you report anything), drift from spec and plan, tests (any skipped, loosened or missing). You cannot run tests: \
-read the result of the `pytest` check in `.sdlc/checks.txt` if it is there. If it says nothing, or the check has not \
-finished (a review right after a build normally runs before it ends), say the result is not known and never claim the \
-tests pass. Security reviewer: \
+read `.sdlc/checks.txt`, which the workflow wrote for the commit just pushed or checked out. Quote its first line \
+(`commit: <sha>`) in your review. Say the test result is "not known" if the file says it could not read results, \
+has no `pytest` line, or shows that check as queued or in_progress (a review right after a build usually runs before \
+it ends). Never claim the tests pass unless a `pytest` line shows `completed success` for that commit. Security reviewer: \
 untrusted text reaching a prompt, a shell, a path or a URL; secrets or personal data; a weakened guard, hook, \
 allow-list or protected path; a model given a browser, a token or the network. Write `.sdlc/review.md`: findings as a \
 list, each Important or Nit with file:line and the realistic failure (at most 5 nits), then a last line `Verdict: no \
