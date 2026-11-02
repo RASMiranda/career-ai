@@ -25,7 +25,7 @@ jobs:
       actions: write         # start the tests workflow on the pushed branch
       id-token: write        # claude-code-action
     # No job-level GH_TOKEN (ADR-035): only the steps that call gh or git push set it, so the agent's children
-    # and pytest do not inherit it. tests/test_sdlc_token_scope.py pins the list.
+    # does not inherit it. ADR-037: no step runs repository test code. tests/test_sdlc_token_scope.py pins the list.
     env:
       NUMBER: ${{ github.event.issue.number }}
       GIT_CONFIG_COUNT: "2"                 # ADR-036: no repo hooks, no fsmonitor, whatever .git/config says
@@ -114,7 +114,13 @@ jobs:
           CHECKOUT: ${{ steps.d.outputs.checkout }}
         run: |
           git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }   # ADR-036: no hooks, no fsmonitor
-          if [ "$CHECKOUT" = "true" ]; then git diff origin/main...HEAD > .sdlc/diff.patch; fi
+          if [ "$CHECKOUT" = "true" ]; then
+            git diff origin/main...HEAD > .sdlc/diff.patch
+            # ADR-037: the reviewers cannot run tests, so they read the tests workflow's result (name, status, conclusion).
+            gh api "repos/$GITHUB_REPOSITORY/commits/$(git rev-parse HEAD)/check-runs" \
+              --jq '.check_runs[] | "\(.name): \(.status) \(.conclusion // "no conclusion yet")"' > .sdlc/checks.txt 2>/dev/null || true
+            [ -s .sdlc/checks.txt ] || echo "No check results are available for this commit yet." > .sdlc/checks.txt
+          fi
           gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate | jq -s 'add // []' > .sdlc/comments.json
           PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
           if [ -n "$PR" ]; then
@@ -127,9 +133,6 @@ jobs:
         run: |
           PYTHONPATH=src python -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
           PYTHONPATH=src python -m jobscan.sdlc prompt
-      - name: Install the test dependencies
-        if: steps.d.outputs.run == 'true' && env.stop != 'true'
-        run: pip install -q -r requirements.txt pytest
 
       - name: Run the stage agents
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
@@ -143,7 +146,7 @@ jobs:
             --max-turns ${{ steps.d.outputs.turns }}
             --model claude-sonnet-5-5
             --allowedTools "${{ steps.d.outputs.tools }}"
-            --disallowedTools "WebFetch,WebSearch"
+            --disallowedTools "WebFetch,WebSearch,Read(//proc/**)"
 
       - name: Remove the token the action wrote into .git/config (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
@@ -250,7 +253,7 @@ jobs:
             --max-turns 15
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
-            --disallowedTools "WebFetch,WebSearch"
+            --disallowedTools "WebFetch,WebSearch,Read(//proc/**)"
       - name: Remove the token the action wrote into .git/config again after the reviewers (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
@@ -296,10 +299,6 @@ jobs:
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
         run: PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc check --as review
 
-      - name: Run the tests once more and keep the result
-        if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
-        run: python -m pytest -q 2>&1 | tail -12 > .sdlc/pytest.txt || true
-
       - name: Post the report, apply the stage label
         if: always() && steps.d.outputs.run == 'true'
         env:
@@ -312,14 +311,14 @@ jobs:
           BRANCH: ${{ steps.d.outputs.branch }}
         run: |
           # A blocked run posts one fixed sentence and nothing the agent wrote. The agent's text is scanned once
-          # more here, because the reviewers and the test run write after the first check.
+          # more here, because the reviewers write after the first check.
           if [ "$blocked" != "true" ] && [ "$REJECTED" != "failure" ]; then
             PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc scan || blocked=true
           else
             blocked=true
           fi
           if [ "$blocked" = "true" ]; then
-            rm -f .sdlc/review.md .sdlc/pytest.txt .sdlc/labels.txt
+            rm -f .sdlc/review.md .sdlc/labels.txt
             echo "Blocked by the safety check. See the run log." > .sdlc/comment.md
           fi
           [ -f .sdlc/comment.md ] || echo "The stage ended without a report from the agent." > .sdlc/comment.md
@@ -345,7 +344,8 @@ jobs:
               echo
               head -c 2500 .sdlc/comment.md
               if [ -f .sdlc/review.md ]; then echo; echo "---"; echo "**Review**"; echo; head -c 4000 .sdlc/review.md; fi
-              if [ -f .sdlc/pytest.txt ]; then echo; echo '```text'; cat .sdlc/pytest.txt; echo '```'; fi
+              NOTE=$(PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from jobscan.sdlc import tests_note; print(tests_note(sys.argv[1]))' "$STAGE")
+              if [ -n "$NOTE" ]; then echo; echo "$NOTE"; fi
               echo; echo "**Next gate (yours):** $NEXT"
               echo; echo "---"; echo "_Generated by [Claude Code](https://claude.ai/code)_"
             } > .sdlc/post.md

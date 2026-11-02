@@ -43,14 +43,30 @@ def test_every_step_that_uses_gh_or_pushes_has_the_token():
             assert "GH_TOKEN" in (s.get("env") or {}), s["name"]
 
 
-def test_pytest_steps_have_no_secret_env():
+def test_no_step_runs_pytest_or_pip():
+    # ADR-037 replaces the old "pytest steps carry no secret env" check: there are no pytest steps at all.
     wf, st = steps()
-    found = [s for s in st if "-m pytest" in s.get("run", "")]
-    assert found
-    for s in found:
-        assert not [k for k in (s.get("env") or {}) if any(n in k for n in SECRET_NAMES)], s["name"]
-        assert "secrets." not in str(s) and "github.token" not in str(s)
-    assert "pip install" not in "".join(s["run"] for s in found)
+    for s in st:
+        run = s.get("run", "")
+        assert not re.search(r"\bpytest\b|\bpip3?\b|-m\s+pip\b|setup\.py|\bpoetry\b|\buv\s+(pip|run|sync)\b", run), s["name"]
+    assert not any(s["name"].startswith(("Install the test dependencies", "Run the tests once more")) for s in st)
+
+
+def test_the_dispatch_of_the_tests_workflow_stays_in_the_push_step_after_the_push():
+    _, st = steps()
+    push = next(s for s in st if s.get("id") == "push")
+    run = push["run"]
+    assert 'gh workflow run tests.yml --ref "$BRANCH"' in run
+    assert run.index("git push") < run.index("gh workflow run tests.yml")
+
+
+def test_the_report_says_the_tests_were_not_run_and_names_the_check_without_naming_it_in_the_workflow():
+    from jobscan import sdlc
+    note = sdlc.tests_note("build")
+    assert "NOT run" in note and "`pytest` check" in note and "evidence" in note
+    assert sdlc.tests_note("review") == "" and sdlc.tests_note("intent") == ""
+    post = next(s for s in steps()[1] if s["name"].startswith("Post the report"))
+    assert "tests_note" in post["run"] and ".sdlc/pytest.txt" not in post["run"]       # agent text cannot stand in for the check
 
 
 def test_the_action_secret_is_only_passed_through_with_and_the_token_is_not_in_other_steps():
