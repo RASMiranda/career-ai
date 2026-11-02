@@ -53,6 +53,23 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
   wrote the code never approves it. The draft PR body starts with `Closes #N`, so the PR shows in the issue's
   Development sidebar and merging it closes the issue (ADR-034): merge only after the checklist in the PR is done.
 
+### Events that start nothing get their own concurrency group (ADR-038)
+The issue forms apply `type:*` and `stage:intake` at creation, so one new issue fires `opened` plus one `labeled` per form
+label within about a second. All of them used to share the group `sdlc-issue-N`; with `cancel-in-progress: false` a newer
+*pending* run replaces an older pending one, so a no-op `labeled type:bug` could replace the real `opened` run (#50).
+Now the group key and the job `if` use the same condition, which is `jobscan.sdlc.decide` written as an expression:
+
+| Event | Starts a stage | Concurrency group | Job |
+|---|---|---|---|
+| `opened`, open and unlocked issue, author OWNER, MEMBER or COLLABORATOR | yes (`intent`, or `support-l1` for `type:support`) | `sdlc-issue-N` | runs |
+| `labeled` with a key of `LABEL_TO_STAGE` (`agent:intent`, `spec`, `plan`, `build`, `review`, `release`, `support`, `l2`, `l3`), by a User, not a `[bot]` login | yes | `sdlc-issue-N` | runs |
+| `labeled` with any other label (`type:*`, `stage:*`, `needs-info`, `support:*`) | no | `sdlc-noop-<run id>` | skipped |
+| `opened` by anyone else; a bot or non-User label; closed or locked issue; a pull request | no | `sdlc-noop-<run id>` | skipped |
+
+Two real events for the same issue still share `sdlc-issue-N` and queue as before. A no-op run still appears in the
+Actions list (the trigger cannot filter by label) but finishes at once and takes no group a real run needs.
+`decide` stays the authority inside the job; `tests/test_sdlc_concurrency.py` keeps the YAML condition equal to it.
+
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
 |---|---|---|---|
