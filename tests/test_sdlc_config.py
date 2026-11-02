@@ -14,6 +14,10 @@ WF = ROOT / ".github" / "workflows"
 LABELS = {l["name"] for l in json.loads((ROOT / ".github/labels.json").read_text())}
 
 
+EVENT_FOR_PROMPTS = {"action": "labeled", "label": {"name": "agent:build"}, "sender": {"type": "User", "login": "o"},
+                     "issue": {"number": 7, "title": "t", "state": "open", "labels": [], "user": {"login": "o"}}}
+
+
 def workflow(name):
     return yaml.safe_load((WF / f"{name}.yml").read_text())
 
@@ -91,6 +95,34 @@ def test_the_check_runs_before_anything_is_committed_and_the_review_cannot_chang
     assert names.index("Check what the agent changed") < names.index("Commit and push the artifact, open the draft PR, start the tests")
     reject = next(s for s in steps("sdlc") if s.get("name") == "Reject any change the reviewers made")
     assert "check --as review" in reject["run"]
+
+
+def test_no_stage_allows_pytest_pip_or_any_repo_code_and_the_action_steps_do_not_either():
+    given = [re.search(r'--allowedTools "([^"]*)"', s["with"]["claude_args"]).group(1) for s in agent_steps()]
+    for tools in given + [sdlc.STAGES[x]["tools"] for x in sdlc.STAGES] + [sdlc.BUILD_TOOLS, sdlc.DOC_TOOLS, sdlc.READ_TOOLS]:
+        assert not re.search(r"pytest|\bpip\b|python|poetry|\buv\b|\bmake\b|\bnpm\b", tools, re.I), tools
+    for x in sdlc.STAGES:                                                   # every Bash rule left is a read-only git one
+        for rule in re.findall(r"Bash\(([^)]*)\)", sdlc.STAGES[x]["tools"]):
+            assert rule in ("git status:*", "git diff:*", "git log:*"), (x, rule)
+    assert sdlc.STAGES["build"]["tools"] == sdlc.DOC_TOOLS                  # nothing else changed for build
+
+
+def test_the_proc_read_deny_is_in_the_project_settings_and_on_both_agent_steps():
+    deny = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]["deny"]
+    assert "Read(//proc/**)" in deny                                         # `//path` = absolute path from the filesystem root
+    for s in agent_steps():
+        assert "Read(//proc/**)" in re.search(r'--disallowedTools "([^"]*)"', s["with"]["claude_args"]).group(1)
+
+
+def test_the_build_and_review_prompts_say_tests_are_written_but_not_run():
+    build = sdlc.render_prompt(sdlc.decide(json.loads(json.dumps(EVENT_FOR_PROMPTS)), ["agent/7-x"]))
+    assert "cannot run tests" in build and "NOT run" in build and "pytest -q" not in build
+    review = sdlc.render_prompt(sdlc.as_stage(sdlc.decide(EVENT_FOR_PROMPTS, ["agent/7-x"]), "review"))
+    assert "cannot run tests" in review and ".sdlc/checks.txt" in review
+    for name in ("developer", "tester"):
+        text = (ROOT / ".claude/agents" / f"{name}.md").read_text()
+        assert "never run them" in text and "NOT run" in text and "`pytest` check" in text
+    assert "Never run pytest" in (ROOT / ".claude/agents/reviewer.md").read_text()
 
 
 def test_agent_branches_start_the_tests_workflow_explicitly():
@@ -254,9 +286,11 @@ def test_text_written_after_the_first_check_is_scanned_again_before_posting(tmp_
 
 
 def test_a_normal_run_still_posts_the_report_review_and_test_result(tmp_path):
+    # ADR-037: an agent-written .sdlc/pytest.txt is no longer posted; the workflow's own line says tests were not run.
     body = run_post_step(tmp_path, {}, {"comment.md": "built it", "review.md": "Verdict: no Important findings",
                                         "pytest.txt": "12 passed"})
-    assert "built it" in body and "Verdict: no Important findings" in body and "12 passed" in body and FIXED not in body
+    assert "built it" in body and "Verdict: no Important findings" in body and "12 passed" not in body and FIXED not in body
+    assert "Tests were NOT run by the agent" in body and "`pytest` check on the PR" in body
     assert "Next gate (yours)" in body
 
 
