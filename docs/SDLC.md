@@ -84,7 +84,9 @@ Until 1 to 3 are done the `sdlc` workflow cannot run; nothing else changes.
 
 CLAUDE_CODE_OAUTH_TOKEN was created 2026-10-23 and expires 2027-10-23. The expiry date is recorded in the repository variable CLAUDE_TOKEN_EXPIRES (a plain-text date, not a secret). When you rotate the token, update that variable too.
 
-The subprocess env scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is not used: it needs bubblewrap and failed the first run (ADR-033). The token therefore stays in the environment of subprocesses such as pytest in the build stage; installing bubblewrap or running tests in a step without the token are still open.
+The subprocess env scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is not used: it needs bubblewrap and failed the first run (ADR-033). Since ADR-035 the repository token is no longer in that environment (see below).
+
+**Where `GH_TOKEN` lives (ADR-035).** It is set per step, never on the job: only "Budget gate", "Fetch the issue and PR comments (gh)", "Commit and push the artifact, open the draft PR, start the tests" and "Post the report, apply the stage label" carry it, because those call `gh` or `git push`. The agent steps, the safety `check`, `pip install` and the final `pytest` run without it and without `ANTHROPIC*` or `CLAUDE_CODE_OAUTH_TOKEN` variables (the OAuth token reaches only the action's `with:`). `anthropics/claude-code-action` writes the token into the `origin` URL in `.git/config` (`src/github/operations/git-config.ts`, `git remote set-url origin https://x-access-token:...`), so a step after each action run resets `origin` before any agent-written code runs. `tests/test_sdlc_token_scope.py` pins all of this by parsing the workflow. Not verified by a real run.
 
 ### Limits you should know
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit

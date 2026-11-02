@@ -24,8 +24,9 @@ jobs:
       pull-requests: write   # open the draft PR
       actions: write         # start the tests workflow on the pushed branch
       id-token: write        # claude-code-action
+    # No job-level GH_TOKEN (ADR-035): only the steps that call gh or git push set it, so the agent's children
+    # and pytest do not inherit it. tests/test_sdlc_token_scope.py pins the list.
     env:
-      GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number }}
       ISSUE_TITLE: ${{ github.event.issue.title }}
       TRIGGER_LABEL: ${{ github.event.label.name }}
@@ -48,6 +49,7 @@ jobs:
       - name: Budget gate (agent minutes per rolling window, ADR-032)
         if: steps.d.outputs.run == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
           STAGE: ${{ steps.d.outputs.stage }}
           MAX_24H: ${{ vars.SDLC_MAX_AGENT_MIN_24H }}
@@ -95,9 +97,10 @@ jobs:
             echo "stop=true" >> "$GITHUB_ENV"
           fi
 
-      - name: Frame the issue as untrusted input and write the stage prompt
+      - name: Fetch the issue and PR comments (gh)
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.d.outputs.branch }}
           CHECKOUT: ${{ steps.d.outputs.checkout }}
         run: |
@@ -108,9 +111,15 @@ jobs:
             { gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate
               gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/comments" --paginate; } | jq -s 'add // []' > .sdlc/pr-comments.json
           fi
+
+      - name: Frame the issue as untrusted input and write the stage prompt
+        if: steps.d.outputs.run == 'true' && env.stop != 'true'
+        run: |
           PYTHONPATH=src python -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
           PYTHONPATH=src python -m jobscan.sdlc prompt
-          pip install -q -r requirements.txt pytest
+      - name: Install the test dependencies
+        if: steps.d.outputs.run == 'true' && env.stop != 'true'
+        run: pip install -q -r requirements.txt pytest
 
       - name: Run the stage agents
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
@@ -126,6 +135,15 @@ jobs:
             --allowedTools "${{ steps.d.outputs.tools }}"
             --disallowedTools "WebFetch,WebSearch"
 
+      - name: Remove the token the action wrote into .git/config (ADR-035)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
+          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it before any code
+          # the agent wrote runs; the push step authenticates with its own URL, so nothing needs this.
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git config --local --unset-all credential.helper || true
+          git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
       - name: Check what the agent changed
         id: check
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
@@ -141,6 +159,7 @@ jobs:
         id: push
         if: steps.d.outputs.run == 'true' && steps.d.outputs.repo == 'true' && env.stop != 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.d.outputs.branch }}
           STAGE: ${{ steps.d.outputs.stage }}
           WORKDIR: ${{ steps.d.outputs.workdir }}
@@ -188,6 +207,15 @@ jobs:
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
             --disallowedTools "WebFetch,WebSearch"
+      - name: Remove the token the action wrote into .git/config again after the reviewers (ADR-035)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # claude-code-action sets origin to https://x-access-token:<token>@github.com/... when
+          # allowed_non_write_users is unset (src/github/operations/git-config.ts). Reset it before any code
+          # the agent wrote runs; the push step authenticates with its own URL, so nothing needs this.
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git config --local --unset-all credential.helper || true
+          git config --local --unset-all "http.${GITHUB_SERVER_URL}/.extraheader" || true
       - name: Reject any change the reviewers made
         id: reject
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
@@ -200,6 +228,7 @@ jobs:
       - name: Post the report, apply the stage label
         if: always() && steps.d.outputs.run == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           STAGE: ${{ steps.d.outputs.stage }}
           ROLES: ${{ steps.d.outputs.roles }}
           REJECTED: ${{ steps.reject.outcome }}
