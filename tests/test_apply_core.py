@@ -411,3 +411,44 @@ def test_dedup_an_applied_record_is_never_submitted_again(tmp_path, monkeypatch,
     assert len(calls) == 1                                  # the page was never opened a second time
     assert "already applied" in capsys.readouterr().out
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["applied_at"]
+
+
+def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
+    base = make_data(tmp_path, mode="assisted")
+    plan = {                                   # what the fake adapter does for each approved job
+        "https://jobs.lever.co/acme/1": "submitted",
+        "https://job-boards.greenhouse.io/acme/jobs/2": Code.CONSENT_PENDING,
+        "https://jobs.ashbyhq.com/acme/3": Code.NOT_FOUND,
+        "https://apply.workable.com/acme/4": Code.UNKNOWN_REQUIRED_FIELD,
+        "https://jobs.lever.co/acme/5": "already applied",
+    }
+    q = Queue(tmp_path)
+    for n, url in enumerate(plan):
+        q.add(f"run{n}aaaa1111", {"profile": "p", "title": "Java", "company": "Acme", "url": url,
+                                  "fit": 90, "tier": "core", "confidence": "high", "cv": "general",
+                                  "status": "approved"})
+    q.items["run4aaaa1111"]["applied_at"] = "2026-11-01T09:00:00+00:00"    # went out earlier
+    q.save()
+
+    class Fake:
+        def __init__(self, what):
+            self.what = what
+
+        def apply(self, job, *a, **k):
+            if self.what == "submitted":
+                return ApplyResult("submitted", [], confirmation_url="https://apply.test/job/1/confirmation")
+            if self.what == "already applied":
+                raise AssertionError("an applied item must never reach an adapter")
+            raise ApplyFailure(self.what, "fake", "fill")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Fake(plan[url]))
+    assert run_cli(base, "run") == 0
+
+    from jobscan.store import FileStore
+    rows = FileStore(tmp_path).read_lines("logs/runs.jsonl")
+    assert len(rows) == 5
+    totals = {c: sum(r[c] for r in rows) for c in ("submitted_count", "skipped_count",
+                                                    "consent_pending_count", "not_found_count")}
+    assert totals == {"submitted_count": 1, "skipped_count": 2,
+                      "consent_pending_count": 1, "not_found_count": 1}
+    assert {r["source_url"] for r in rows} == set(plan)
+    assert [r["site"] for r in rows if r["consent_pending_count"]] == ["job-boards.greenhouse.io"]

@@ -32,8 +32,9 @@ from .. import cv
 from ..triage import clean
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
+from ..store import FileStore
 from . import answers as drafted
-from . import faillog, policy, summary, tracker
+from . import faillog, policy, runlog, summary, tracker
 from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
 from .queue import TRACKING, Queue
 
@@ -177,6 +178,7 @@ def cmd_run(args, root, cfg, auth):
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
     flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
+    runs = runlog.RunLog(FileStore(root))
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -204,38 +206,47 @@ def cmd_run(args, root, cfg, auth):
     for n, item in enumerate(todo):
         key, t0 = item["candidate_key"], time.time()
         label = f"{item['title']} — {item['company']}"
+        record = runs.start(run_id, item["url"])
+        outcome = "already_applied"
         if policy.already_applied(item):      # dedup: an applied_at record is never submitted again
             print(f"  already applied {label}")
-            continue
+        else:
+            try:
+                if Blacklist.from_config(cfg, item.get("profile")).match(item):
+                    raise ApplyFailure(Code.BLOCKED_BY_POLICY, "company is blacklisted", "gate")
+                adapter = pick_adapter(item["url"], acfg["auto"]["allowed_adapters"])
+                if adapter is None:
+                    raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
+                applicant, answers = applicants[item["profile"]]
+                answers = drafted.answers_for(store, item["profile"], key, answers)   # approved ones; yours win
+                result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
+                                       submit=submit, headless=headless, hold=mode == "assisted")
+                outcome = result.status
+                attempt = {"run": run_id, "outcome": result.status}
+                if result.status == "submitted":
+                    # Proof is the /confirmation page; the record keeps when and where it was confirmed.
+                    attempt.update(applied_at=result.applied_at, confirmation_url=result.confirmation_url)
+                    q.set(key, "submitted", applied_at=result.applied_at, confirmation_url=result.confirmation_url)
+                    print(f"  submitted  {label}")
+                elif args.dry_run:
+                    print(f"  dry-run ok {label} (fields: {len(result.filled)})")
+                else:
+                    q.set(key, "filled"); print(f"  filled     {label}")
+                item["attempts"].append(attempt)
+            except ApplyFailure as fail:
+                _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
+                outcome = fail.code
+                print(f"  FAILED     {label} → {fail.code}")
+            except Exception as exc:  # never let one job abort the batch
+                fail = ApplyFailure(Code.INTERNAL, type(exc).__name__, "run")
+                _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
+                outcome = Code.INTERNAL
+                print(f"  FAILED     {label} → INTERNAL ({type(exc).__name__})")
+        q.save()                              # the queue first: a failed run-log write must not lose a submit
         try:
-            if Blacklist.from_config(cfg, item.get("profile")).match(item):
-                raise ApplyFailure(Code.BLOCKED_BY_POLICY, "company is blacklisted", "gate")
-            adapter = pick_adapter(item["url"], acfg["auto"]["allowed_adapters"])
-            if adapter is None:
-                raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
-            applicant, answers = applicants[item["profile"]]
-            answers = drafted.answers_for(store, item["profile"], key, answers)   # approved ones; yours win
-            result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
-                                   submit=submit, headless=headless, hold=mode == "assisted")
-            attempt = {"run": run_id, "outcome": result.status}
-            if result.status == "submitted":
-                # Proof is the /confirmation page; the record keeps when and where it was confirmed.
-                attempt.update(applied_at=result.applied_at, confirmation_url=result.confirmation_url)
-                q.set(key, "submitted", applied_at=result.applied_at, confirmation_url=result.confirmation_url)
-                print(f"  submitted  {label}")
-            elif args.dry_run:
-                print(f"  dry-run ok {label} (fields: {len(result.filled)})")
-            else:
-                q.set(key, "filled"); print(f"  filled     {label}")
-            item["attempts"].append(attempt)
-        except ApplyFailure as fail:
-            _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
-            print(f"  FAILED     {label} → {fail.code}")
-        except Exception as exc:  # never let one job abort the batch
-            fail = ApplyFailure(Code.INTERNAL, type(exc).__name__, "run")
-            _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
-            print(f"  FAILED     {label} → INTERNAL ({type(exc).__name__})")
-        q.save()
+            runs.finish(record, outcome)
+        except (OSError, ValueError) as exc:
+            print(f"  run log not written ({type(exc).__name__})", file=sys.stderr)
         if submit and n < len(todo) - 1:
             time.sleep(acfg["delay_seconds"])
     return 0
