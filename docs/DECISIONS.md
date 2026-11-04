@@ -19,6 +19,8 @@ Decision: Claude writes a schema-validated decision per candidate. Collection,
 dedupe, blacklist, validation, rendering, email delivery and any submission are
 deterministic code. No model-driven browsing or submission.
 Consequences: prompt-injection in postings cannot cause an external action.
+*Submission clause superseded by ADR-042 (2026-11-04): deterministic code may submit under its conditions.
+"No model-driven browsing" stands.*
 
 ## ADR-004 · 2026-10-02 · Application submission is opt-in and bounded
 Decision: default `manual`; `assisted` and `auto` behind a master switch with a
@@ -27,6 +29,7 @@ Never: CAPTCHA solving, LinkedIn automation, auto-answering legal questions.
 Consequences: expect many "hand to human" outcomes; that is correct behaviour.
 *Amended by ADR-017 (2026-10-08): "LinkedIn automation" is no longer a blanket ban; the
 CAPTCHA and legal-question rules stand.*
+*LinkedIn clause superseded by ADR-042 (2026-11-04): LinkedIn Easy Apply in auto mode, deterministic code only, under its conditions.*
 
 ## ADR-005 · 2026-10-02 · Blacklist enforced three times
 Decision: filter in `collect`, fail in `validate`, refuse in `apply`.
@@ -480,3 +483,45 @@ a new ADR first.
 Context: ADR-038 (apply-session hardening) states the rules. This records how the engine enforces them in code, and what the owner should expect.
 Decision: (1) `classify_field` marks consent, privacy, NDA, declaration and acceptance labels; the FormAdapter never answers them, even with a pre-approved yes, and stops before submit as `consent_pending` (ADR-020 hand-over). Legal and work-authorisation questions keep their stop (ADR-019). (2) A submit is confirmed only when the final URL path ends in `/confirmation`; `applied_at` (UTC) and `confirmation_url` are stored on the queue item and its attempt, and the runner skips any record with `applied_at`. Thank-you text elsewhere is `SUBMIT_UNCONFIRMED`. (3) Greenhouse references keep their host (`job-boards.greenhouse.io` or `job-boards.eu.greenhouse.io`). `state/slug_cache.json` is written only after a 200 for that form page; a miss is `NOT_FOUND`, with no guess and no network call. (4) `logs/runs.jsonl` gets one appended line per job the runner looks at (`Store`/`FileStore`, relative names only). (5) `jobscan cv-check` compares the CVs named in `cv_manifest.json` with their SHA-256 and names the changed or missing ones. (6) `AdaptiveLimiter` (2 s, then 10 s after the second 429 in a run; Retry-After honoured) is per run; it is not yet wired into the fetchers.
 Consequences: a consent box always reaches the owner, and some forms that used to submit unattended now stop by design. Whether real Greenhouse submits redirect to `/confirmation` and how consent markup looks are not verified against live pages; ADR-038 already lists the Retry-After check as untested. The queue, answers and failure-log modules still use their own helpers rather than `FileStore`.
+
+## ADR-042 · 2026-11-04 · LinkedIn Easy Apply in auto mode, by deterministic code only; supersedes the submission clause of ADR-003 and the LinkedIn clause of ADR-004 *(DRAFT, not yet accepted)*
+Context: the owner wants unattended applications on LinkedIn Easy Apply within caps, and asked for a browser
+executor that a model drives. ADR-017 allowed direct LinkedIn access under conditions but wrote no adapter. ADR-040
+is an owner-only manual exception and is not product behaviour. ADR-003, ADR-007 and ADR-017 §4 keep the model out
+of the browser, because a posting is untrusted text that can carry instructions. A model-driven browser cannot be
+bounded by code in the way a fixed adapter can, so this ADR puts the executor in code, not in a model.
+Decision:
+1. **Adapter `linkedin_easy_apply`.** `mode: auto` is allowed only when all of these hold: `authorization.yaml →
+   application_submission.master_switch` is `true`; the adapter's own `enabled` flag is `true`; and a dated
+   `linkedin_tos_acknowledgement` exists, written by the owner. Otherwise the run refuses, and the adapter may run
+   only as `manual` or `assisted`. The adapter has its own caps, with conservative defaults: 2 a day, 5 a week, one
+   per company per 30 days, fit at least 85, confidence `high`, tier `core` only.
+2. **Jobs come only from the owner's own forwarded LinkedIn alerts** (`email_alert`, ADR-017). There is no
+   LinkedIn scraping, no search crawling and no fetch of listings the owner did not forward.
+3. **Browser executor: deterministic code, inside `apply run` only.** No LLM is in the browser loop, and no model
+   decides a click, a fill or a submit. The executor:
+   - holds no secrets in the page context or in logs, and uses a dedicated browser profile, never the owner's
+     general profile;
+   - fills a field only from the answer bank (`answer_bank.yaml`, owner-written, approved answers only);
+   - stops and hands the job to the human on: an unknown required question; any consent, privacy or declaration
+     box (ADR-041); any legal, work-authorisation or demographic question; a CAPTCHA; a login wall; or a changed layout;
+   - treats every page and posting text as untrusted data. It is never an instruction, and nothing in it can
+     change a field, a cap or a rule.
+4. **Kill switch.** The first LinkedIn warning, challenge or "unusual activity" page halts the whole run, records
+   the event, and sets a cooldown (default 7 days) during which the adapter refuses to start. Nothing retries that day.
+5. **Kept from ADR-004, unchanged:** the blacklist is refused in `apply` as well as in `collect` and `validate`
+   (ADR-005); logs are redacted at write time; `--dry-run` fills and never submits; one submission is recorded
+   only when a `/confirmation` page is reached (ADR-041); no CAPTCHA solving or bypass; no evasion (no spoofed
+   fingerprints, no proxy rotation).
+6. **Where it runs.** Only on the owner's own machine, in `apply run`. Never in the scan routine, never in the
+   cloud, never for another user (ARCHITECTURE §6 product implication stands).
+
+Not superseded: the model never drives a browser and never submits (ADR-003 for the model, ADR-007, ADR-017 §4).
+Only deterministic code may submit, and only under this ADR. Legal, consent and work-authorisation questions stay
+human-only (ADR-019, ADR-041).
+
+Consequences: the owner accepts LinkedIn account-restriction risk. Its User Agreement restricts automated access
+(verify current text before relying on it). The acknowledgement is the owner's own dated statement, not something
+code or a model writes. Build order: this ADR is accepted, then the schema and adapter with fake-page tests, then
+career-data. Acceptance tests run on fakes with no network. Not verified against live LinkedIn pages: selectors are
+written from recorded fixtures only, and the first real run is a dry run on the owner's machine.
