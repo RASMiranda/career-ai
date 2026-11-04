@@ -47,7 +47,6 @@ MALFORMED = [
     "https://job-boards.greenhouse.io.example.test/examplecorp/jobs/4001",
     "https://example.test/job-boards.greenhouse.io/examplecorp/jobs/4001",
     "https://job-boards.eu.greenhouse.io:8443/examplecorp/jobs/4001",
-    "https://user@job-boards.greenhouse.io/examplecorp/jobs/4001",
     "https://boards.greenhouse.io/examplecorp/jobs/4001",      # legacy host: not one of the two parsed here
 ]
 

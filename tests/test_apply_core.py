@@ -6,7 +6,14 @@ import pytest
 import yaml
 
 from jobscan.apply import cli, faillog, policy, summary
-from jobscan.apply.adapters import ApplyFailure, ApplyResult, Code, detect_ats, is_confirmation_url, resolve_value
+from jobscan.apply.adapters import (
+    ApplyFailure,
+    ApplyResult,
+    Code,
+    detect_ats,
+    is_confirmation_url,
+    resolve_value,
+)
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
 from jobscan.config import ConfigError
@@ -456,10 +463,14 @@ def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
 
 def test_apply_stage_refuses_an_approved_job_from_a_blacklisted_company(tmp_path, monkeypatch):
     """ADR-005, third stage: the list changed after the job was approved, so the runner must refuse."""
-    base = make_data(tmp_path, mode="assisted")              # Proxify is on the blacklist in config.yaml
+    base = make_data(tmp_path, mode="assisted")
+    config = tmp_path / "config.yaml"
+    cfg = yaml.safe_load(config.read_text(encoding="utf-8"))
+    cfg["blacklist"]["companies"] = ["Blocked Example"]      # the list changed after the approval
+    config.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     q = Queue(tmp_path)
-    q.add("cccc3333dddd4444", {"profile": "p", "title": "Java", "company": "Proxify",
-                               "url": "https://jobs.lever.co/proxify/9", "fit": 90, "tier": "core",
+    q.add("cccc3333dddd4444", {"profile": "p", "title": "Java", "company": "Blocked Example",
+                               "url": "https://jobs.lever.co/blocked-example/9", "fit": 90, "tier": "core",
                                "confidence": "high", "cv": "general", "status": "approved"})
     q.save()
     reached = []

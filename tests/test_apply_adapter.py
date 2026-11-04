@@ -27,6 +27,18 @@ BASE = """<html><head><title>Apply</title></head><body><h1>Senior Engineer</h1>
 
 PAGES = {
     "/ok": BASE.format(extra=""),
+    "/confirmation": "<html><body><h1>Thank you for applying</h1></body></html>",
+    "/inline": BASE.format(extra="").replace('action="/submit"', 'action="/submit-inline"'),
+    "/questions-shape": BASE.format(extra=(
+        '<div class="field"><label for="yj">Years of Java experience *</label><select id="yj" name="yj" required>'
+        '<option value="">Select...</option><option>0-2</option><option>3-5</option><option>6+</option></select></div>'
+        '<div class="field"><label for="why">Why do you want to work here? *</label>'
+        '<textarea id="why" name="why" maxlength="600" required></textarea></div>'
+        '<div class="field"><label for="sb">How many years of Spring Boot? *</label>'
+        '<input id="sb" name="sb" type="number" required></div>'
+        '<fieldset class="field"><legend>Are you comfortable with on-call rotation? *</legend>'
+        '<label><input type="radio" name="oc" value="y" required> Yes</label>'
+        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>')),
     "/salary": BASE.format(extra='<div class="field"><label for="s">Salary expectations *</label>'
                                  '<textarea id="s" name="s" required></textarea></div>'),
     "/radio": BASE.format(extra='<fieldset class="field"><legend>Are you authorized to work in the EU? *'
@@ -46,10 +58,9 @@ PAGES = {
         '<input id="sb" name="sb" type="number" required></div>'
         '<fieldset class="field"><legend>Are you comfortable with on-call rotation? *</legend>'
         '<label><input type="radio" name="oc" value="y" required> Yes</label>'
-        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>')),
+        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>'
+        '<label><input type="checkbox" name="c" required> I agree to the privacy policy *</label>')),
     "/closed": "<html><body><h1>Sorry, this position is no longer accepting applications.</h1></body></html>",
-    "/confirmation": "<html><body><h1>Thank you for applying</h1></body></html>",
-    "/inline": BASE.format(extra="").replace('action="/submit"', 'action="/submit-inline"'),
 }
 APPLICANT = {"first_name": "Ana", "last_name": "Silva", "email": "ana@example.test", "phone": ""}
 
@@ -158,6 +169,12 @@ def test_consent_box_stops_the_form_even_with_a_pre_approved_yes(site, cv):
     assert fail.code == Code.CONSENT_PENDING and posted == 0      # a yes you wrote still does not tick it
 
 
+def test_a_consent_box_beside_other_questions_stops_the_form(site, cv):
+    _, fail, posted = run(site, "/questions", cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0         # consent outranks the open questions
+    assert fail.details["consent_fields"] == ["I agree to the privacy policy"]
+
+
 def test_consent_text_field_is_never_filled(site, cv):
     _, fail, posted = run(site, "/consent-text", {"application declaration": "I confirm"}, cv=cv, submit=True)
     assert fail.code == Code.CONSENT_PENDING and posted == 0
@@ -216,7 +233,7 @@ def test_missing_required_cv_stops(site):
 
 
 def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, cv):
-    _, fail, posted = run(site, "/questions", cv=cv, submit=True)
+    _, fail, posted = run(site, "/questions-shape", cv=cv, submit=True)
     assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and posted == 0
     got = {q["label"]: q for q in fail.details["unknown_questions"]}
     assert set(got) == set(fail.details["unknown_fields"])                    # same questions, richer
@@ -232,6 +249,6 @@ def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, c
 def test_answers_in_the_drafted_shape_fill_the_form(site, cv):
     answers = {"years of java experience": "6+", "why do you want": "I like platform work.",
                "years of spring boot": "7", "on-call rotation": "Yes"}
-    res, fail, posted = run(site, "/questions", answers, cv=cv, submit=True)
+    res, fail, posted = run(site, "/questions-shape", answers, cv=cv, submit=True)
     assert fail is None and posted == 1
     assert {"Years of Java experience", "Why do you want to work here?"} <= set(res.filled)
