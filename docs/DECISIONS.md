@@ -458,3 +458,20 @@ Consequences: a new issue from a form starts exactly one intent run and no cance
 Context: A 15-application Greenhouse batch run showed four recurring failures. Consent, NDA and declaration dropdowns blocked submission. Slugs cannot be derived from job IDs. Inertia reads hit 429s at a fixed pace. Stale CV text could be reused silently. Dedup relied on re-checking live pages.
 Decision: The engine never answers consent-type fields (CONSENT_PENDING => stop and hand over, per non-negotiable 4). Slugs come only from a verified cache; a miss is NOT_FOUND. Request pacing is adaptive (2 s, then 10 s after the second 429 in a run). Success is recorded only when the final URL ends in /confirmation, with applied_at and confirmation_url stored. CVs are checked against a SHA-256 manifest in career-data. The blacklist stays single-source in config.yaml. Run summaries go to runs.jsonl behind FileStore (a Postgres table waits for P3).
 Consequences: Some forms always need a human click. Browser batch sessions run in the Claude desktop app and are an LLM-driven exception to non-negotiable 3, covered by Rui's standing per-session approval and never used for server-side or multi-user submission. The skill and the engine share one vocabulary: SUBMITTED, SKIP/NOT FOUND, EXTERNAL/LOGIN-NEEDED, CONSENT-PENDING, SKIP-RECOMMENDED, BLOCKED. Untested: real Greenhouse behaviour for Retry-After; verify against a live 429 before relying on it.
+
+## ADR-040 · 2026-11-04 · Owner-run assisted apply is an owner-only exception, not product behaviour
+Context: the owner submits LinkedIn Easy Apply and similar applications through
+the browser batch sessions that ADR-038 already allows, after approving one
+numbered list each time. Applied to the product, this would break
+non-negotiables 3 and 4 and ADR-003/004 (LinkedIn access conditions: ADR-017).
+Decision: this is an owner-only, human-approved exception on the owner's own
+accounts, and it is never shipped, documented or sold as product behaviour. It
+adds no mechanism of its own; ADR-038's batch-session rules are the only route.
+The product keeps deterministic adapters, the ADR-017 conditions for any direct
+LinkedIn access, and human-only consent and work-authorisation answers. Standing
+answers live in memory (single source); the skill's answer bank is the fallback.
+Consequences: the owner accepts LinkedIn account-restriction risk (its User
+Agreement restricts automated access; verify current text). Every submission
+needs per-list approval, and consent and work-authorisation answers are
+reviewed in that list. Generalising this to other users needs legal review and
+a new ADR first.
