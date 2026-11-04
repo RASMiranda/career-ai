@@ -452,3 +452,23 @@ def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
                       "consent_pending_count": 1, "not_found_count": 1}
     assert {r["source_url"] for r in rows} == set(plan)
     assert [r["site"] for r in rows if r["consent_pending_count"]] == ["job-boards.greenhouse.io"]
+
+
+def test_apply_stage_refuses_an_approved_job_from_a_blacklisted_company(tmp_path, monkeypatch):
+    """ADR-005, third stage: the list changed after the job was approved, so the runner must refuse."""
+    base = make_data(tmp_path, mode="assisted")              # Proxify is on the blacklist in config.yaml
+    q = Queue(tmp_path)
+    q.add("cccc3333dddd4444", {"profile": "p", "title": "Java", "company": "Proxify",
+                               "url": "https://jobs.lever.co/proxify/9", "fit": 90, "tier": "core",
+                               "confidence": "high", "cv": "general", "status": "approved"})
+    q.save()
+    reached = []
+
+    class Spy:
+        def apply(self, *a, **k):
+            reached.append(1)
+            raise AssertionError("a blacklisted company must never reach an adapter")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Spy())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["cccc3333dddd4444"]
+    assert reached == [] and item_["status"] == "failed" and item_["error_code"] == "BLOCKED_BY_POLICY"
