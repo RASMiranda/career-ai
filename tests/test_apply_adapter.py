@@ -5,6 +5,7 @@ Skipped automatically if Chromium is not available.
 """
 
 import threading
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -47,6 +48,8 @@ PAGES = {
         '<label><input type="radio" name="oc" value="y" required> Yes</label>'
         '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>')),
     "/closed": "<html><body><h1>Sorry, this position is no longer accepting applications.</h1></body></html>",
+    "/confirmation": "<html><body><h1>Thank you for applying</h1></body></html>",
+    "/inline": BASE.format(extra="").replace('action="/submit"', 'action="/submit-inline"'),
 }
 APPLICANT = {"first_name": "Ana", "last_name": "Silva", "email": "ana@example.test", "phone": ""}
 
@@ -65,7 +68,10 @@ def site():
         def do_POST(self):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             posts.append(self.path)
-            self._send("<h1>Thank you for applying</h1>")
+            if self.path == "/submit-inline":        # thank-you text on the same page: not a confirmation
+                self._send("<h1>Thank you for applying</h1>")
+            else:                                    # a real submit redirects to the confirmation page
+                self.send_response(303); self.send_header("Location", "/confirmation"); self.end_headers()
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -110,7 +116,18 @@ def test_dry_run_fills_but_never_submits(site, cv):
 def test_submit_posts_once_and_confirms(site, cv):
     res, fail, posted = run(site, "/ok", cv=cv, submit=True)
     assert fail is None and res.status == "submitted" and posted == 1
-    assert "thank you" in res.confirmation.lower()
+    assert res.confirmation_url.endswith("/confirmation")
+    assert datetime.fromisoformat(res.applied_at).utcoffset() == timedelta(0)     # UTC ISO-8601
+
+
+def test_thank_you_text_on_the_same_page_is_not_a_confirmation(site, cv):
+    base, posts = site
+    before = len(posts)
+    with pytest.raises(ApplyFailure) as exc:
+        FormAdapter("greenhouse", submit_wait=2).apply({"url": base + "/inline"}, APPLICANT, {}, cv,
+                                                       submit=True, headless=True)
+    assert exc.value.code == Code.SUBMIT_UNCONFIRMED
+    assert len(posts) - before == 1          # sent once, and reported unconfirmed rather than applied
 
 
 def test_unknown_required_question_stops_before_submit(site, cv):

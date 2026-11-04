@@ -39,6 +39,12 @@ def remaining_quota(acfg: dict, queue: Queue) -> int:
                       a["max_per_week"] - len(queue.submitted_within(7))))
 
 
+def already_applied(item: dict) -> bool:
+    """Dedup: a record with applied_at is an application that went out. It is never submitted again,
+    and the live page is not re-checked to find out."""
+    return bool(item.get("applied_at")) or any(a.get("applied_at") for a in item.get("attempts", []))
+
+
 def recently_applied(queue: Queue, company: str, days: int) -> bool:
     target = canon(company)
     return any(canon(i.get("company", "")) == target

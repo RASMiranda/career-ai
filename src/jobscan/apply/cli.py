@@ -204,6 +204,9 @@ def cmd_run(args, root, cfg, auth):
     for n, item in enumerate(todo):
         key, t0 = item["candidate_key"], time.time()
         label = f"{item['title']} — {item['company']}"
+        if policy.already_applied(item):      # dedup: an applied_at record is never submitted again
+            print(f"  already applied {label}")
+            continue
         try:
             if Blacklist.from_config(cfg, item.get("profile")).match(item):
                 raise ApplyFailure(Code.BLOCKED_BY_POLICY, "company is blacklisted", "gate")
@@ -214,13 +217,17 @@ def cmd_run(args, root, cfg, auth):
             answers = drafted.answers_for(store, item["profile"], key, answers)   # approved ones; yours win
             result = adapter.apply(item, applicant, answers, _cv_for(item, root, cfg),
                                    submit=submit, headless=headless, hold=mode == "assisted")
+            attempt = {"run": run_id, "outcome": result.status}
             if result.status == "submitted":
-                q.set(key, "submitted"); print(f"  submitted  {label}")
+                # Proof is the /confirmation page; the record keeps when and where it was confirmed.
+                attempt.update(applied_at=result.applied_at, confirmation_url=result.confirmation_url)
+                q.set(key, "submitted", applied_at=result.applied_at, confirmation_url=result.confirmation_url)
+                print(f"  submitted  {label}")
             elif args.dry_run:
                 print(f"  dry-run ok {label} (fields: {len(result.filled)})")
             else:
                 q.set(key, "filled"); print(f"  filled     {label}")
-            item["attempts"].append({"run": run_id, "outcome": result.status})
+            item["attempts"].append(attempt)
         except ApplyFailure as fail:
             _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
             print(f"  FAILED     {label} → {fail.code}")

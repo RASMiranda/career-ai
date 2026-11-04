@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from jobscan.apply import cli, faillog, policy, summary
-from jobscan.apply.adapters import ApplyFailure, Code, detect_ats, resolve_value
+from jobscan.apply.adapters import ApplyFailure, ApplyResult, Code, detect_ats, is_confirmation_url, resolve_value
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
 from jobscan.config import ConfigError
@@ -236,7 +236,7 @@ def test_auto_run_success_and_cap(tmp_path, monkeypatch):
     class Ok:
         def apply(self, *a, **k):
             from jobscan.apply.adapters import ApplyResult
-            return ApplyResult("submitted", ["First name"], "thank you")
+            return ApplyResult("submitted", ["First name"], confirmation_url="https://apply.test/job/1/confirmation")
     monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
     assert run_cli(base, "run") == 0
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["status"] == "submitted"
@@ -351,3 +351,63 @@ def test_consent_pending_is_handed_to_the_human_with_the_link(tmp_path, monkeypa
     logged = [json.loads(line) for p in (tmp_path / "logs/apply").glob("*.jsonl")
               for line in p.read_text(encoding="utf-8").splitlines()]
     assert logged[-1]["error_code"] == "consent_pending"
+
+
+# ------------------------------------------------------ submission record (P0 item 5)
+def test_only_a_confirmation_path_counts_as_confirmed():
+    confirmed = ["https://jobs.example.test/acme/jobs/1/confirmation",
+                 "https://apply.example.test/confirmation?ref=1", "/confirmation"]
+    not_confirmed = ["https://jobs.example.test/acme/jobs/1", "https://apply.example.test/thanks",
+                     "https://apply.example.test/confirmation/", "https://apply.example.test/confirmation-old",
+                     "https://apply.example.test/submit", ""]
+    for url in confirmed:
+        assert is_confirmation_url(url), url
+    for url in not_confirmed:
+        assert not is_confirmation_url(url), url
+
+
+def test_a_submitted_result_needs_a_confirmation_page_and_is_stamped_in_utc():
+    with pytest.raises(ValueError):
+        ApplyResult("submitted", [], confirmation_url="https://apply.example.test/thanks")
+    res = ApplyResult("submitted", [], confirmation_url="https://apply.example.test/job/1/confirmation")
+    assert datetime.fromisoformat(res.applied_at).utcoffset() == timedelta(0)
+    assert ApplyResult("filled_not_submitted", ["x"]).applied_at == ""     # nothing sent, nothing stamped
+
+
+def test_a_confirmed_submit_is_recorded_on_the_queue_and_the_attempt(tmp_path, monkeypatch):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+
+    class Ok:
+        def apply(self, *a, **k):
+            return ApplyResult("submitted", ["First name"],
+                               confirmation_url="https://apply.test/job/1/confirmation")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["aaaa1111bbbb2222"]
+    assert item_["status"] == "submitted"
+    assert item_["confirmation_url"] == "https://apply.test/job/1/confirmation"
+    assert datetime.fromisoformat(item_["applied_at"]).utcoffset() == timedelta(0)
+    attempt = item_["attempts"][-1]
+    assert attempt["outcome"] == "submitted" and attempt["applied_at"] == item_["applied_at"]
+    assert attempt["confirmation_url"] == item_["confirmation_url"]
+
+
+def test_dedup_an_applied_record_is_never_submitted_again(tmp_path, monkeypatch, capsys):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+    calls = []
+
+    class Ok:
+        def apply(self, *a, **k):
+            calls.append(1)
+            return ApplyResult("submitted", ["First name"],
+                               confirmation_url="https://apply.test/job/1/confirmation")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
+    assert run_cli(base, "run") == 0 and len(calls) == 1
+    # The owner approves again an item that already went out: the runner must not apply twice.
+    assert run_cli(base, "approve", "aaaa11") == 0
+    assert run_cli(base, "run") == 0
+    assert len(calls) == 1                                  # the page was never opened a second time
+    assert "already applied" in capsys.readouterr().out
+    assert Queue(tmp_path).items["aaaa1111bbbb2222"]["applied_at"]

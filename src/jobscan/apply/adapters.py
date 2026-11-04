@@ -11,6 +11,7 @@ STATUS: tested against a local fixture form only. Real ATS pages differ; use
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from .consent import FieldClass, classify_field
@@ -42,11 +43,31 @@ class ApplyFailure(Exception):
         self.details = details or {}
 
 
+def is_confirmation_url(url: str) -> bool:
+    """The only proof of a submission: the final page's path ends in /confirmation.
+
+    Thank-you text on any other page proves nothing (it may be an error page or a sentence in a form).
+    """
+    try:
+        path = urlparse(url or "").path
+    except ValueError:
+        return False
+    return path.endswith("/confirmation")
+
+
 @dataclass
 class ApplyResult:
     status: str                      # submitted | filled_not_submitted
     filled: list[str] = field(default_factory=list)
-    confirmation: str = ""
+    confirmation_url: str = ""       # set when submitted: the /confirmation page the site showed
+    applied_at: str = ""             # UTC ISO-8601, set when submitted
+
+    def __post_init__(self):
+        if self.status == "submitted":
+            if not is_confirmation_url(self.confirmation_url):
+                raise ValueError("a submitted application needs a /confirmation page as proof")
+            if not self.applied_at:
+                self.applied_at = datetime.now(UTC).isoformat(timespec="seconds")
 
 
 ATS_HOSTS = {
@@ -153,9 +174,6 @@ _CLOSED = re.compile(
     r"no longer (accepting|available)|position (has been )?filled|"
     r"(job|posting|position) (not found|is closed|has expired|has been removed)|page not found",
     re.I)
-_SUCCESS = re.compile(
-    r"thank you|application (has been )?(submitted|received|sent)|"
-    r"we.ve received|successfully submitted", re.I)
 _LOGIN = re.compile(r"\b(sign in|log in|create an account)\b", re.I)
 
 _TEXT_CONTROLS = (
@@ -173,8 +191,9 @@ class Adapter:
 
 
 class FormAdapter(Adapter):
-    def __init__(self, ats: str):
+    def __init__(self, ats: str, submit_wait: float = 20.0):
         self.name = ats
+        self.submit_wait = submit_wait      # seconds to wait for the /confirmation page after submit
 
     # -- public ---------------------------------------------------------------
     def apply(self, job, applicant, answers, cv_path, *, submit, headless, hold=False):
@@ -208,7 +227,7 @@ class FormAdapter(Adapter):
                     return ApplyResult("filled_not_submitted", filled)
 
                 step = "submit"
-                return ApplyResult("submitted", filled, self._submit(page))
+                return ApplyResult("submitted", filled, confirmation_url=self._submit(page))
             except ApplyFailure as fail:
                 fail.step = fail.step or step
                 fail.details.setdefault("form_outline", self._outline(page))
@@ -344,20 +363,20 @@ class FormAdapter(Adapter):
         return filled
 
     def _submit(self, page) -> str:
+        """Click submit and return the /confirmation URL, the only proof a submission went through."""
         btn = page.get_by_role("button", name=re.compile(r"^(submit|send|apply)\b", re.I))
         if not btn.count():
             raise ApplyFailure(Code.FORM_CHANGED, "no submit button", "submit")
         btn.first.click()
-        deadline = time.time() + 20
+        deadline = time.time() + self.submit_wait
         while time.time() < deadline:
             try:
-                body = self._body(page)
-            except Exception:           # navigation in flight
+                url = page.url                  # the final URL, after any redirect
+            except Exception:                   # navigation in flight
                 time.sleep(0.5)
                 continue
-            m = _SUCCESS.search(body)
-            if m:
-                return m.group(0)
+            if is_confirmation_url(url):
+                return url
             time.sleep(0.5)
 
         errors = page.evaluate(
@@ -368,7 +387,8 @@ class FormAdapter(Adapter):
                                "submit", {"visible_errors": errors})
         if page.evaluate(_JS_CAPTCHA):
             raise ApplyFailure(Code.CAPTCHA, "captcha appeared after submit", "submit")
-        raise ApplyFailure(Code.SUBMIT_UNCONFIRMED, "clicked submit; no confirmation seen", "submit")
+        raise ApplyFailure(Code.SUBMIT_UNCONFIRMED,
+                           "clicked submit; no /confirmation page was reached", "submit")
 
     # -- helpers --------------------------------------------------------------
     @staticmethod
