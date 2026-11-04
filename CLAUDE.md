@@ -16,6 +16,8 @@ You score jobs. You do **not** submit applications, drive a browser, or run
 `python -m jobscan.apply run`. Submission is deterministic code on the owner's
 own machine, behind `authorization.yaml → application_submission`. Your only
 apply-related actions are `enqueue` and `summary`, which submit nothing.
+LinkedIn Easy Apply in auto mode (ADR-042) is part of that same owner-only `apply run`:
+the model never drives a browser, and the scan routine never touches LinkedIn.
 
 ## Order of steps
 

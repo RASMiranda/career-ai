@@ -14,6 +14,7 @@ _PHONE = re.compile(r"(?<![\w])\+?\d[\d\s().-]{7,}\d(?![\w])")
 EXPLAIN = {
     "NO_ADAPTER": "No automatic adapter exists for this site.",
     "CAPTCHA": "The site asked for a CAPTCHA. This tool never solves those.",
+    "LINKEDIN_CHALLENGE": "LinkedIn showed a warning or challenge page. The run stopped and LinkedIn is paused for the cooldown. Nothing was retried.",
     "LOGIN_REQUIRED": "The site wants an account or login first.",
     "UNKNOWN_REQUIRED_FIELD": "The form asks required questions with no pre-approved answer.",
     "CV_MISSING": "The CV file configured for this role was not found.",

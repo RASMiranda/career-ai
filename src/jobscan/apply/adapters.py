@@ -21,6 +21,7 @@ class Code:
     NO_ADAPTER = "NO_ADAPTER"
     CONSENT_PENDING = "consent_pending"      # a consent or declaration box: the owner answers it, never the adapter
     CAPTCHA = "CAPTCHA"
+    LINKEDIN_CHALLENGE = "LINKEDIN_CHALLENGE"  # LinkedIn warning or challenge page: the run halts and cools down (ADR-042)
     LOGIN_REQUIRED = "LOGIN_REQUIRED"
     UNKNOWN_REQUIRED_FIELD = "UNKNOWN_REQUIRED_FIELD"
     CV_MISSING = "CV_MISSING"
@@ -75,16 +76,20 @@ ATS_HOSTS = {
     "lever": ("jobs.lever.co",),
     "ashby": ("jobs.ashbyhq.com",),
     "workable": ("apply.workable.com",),
+    "linkedin_easy_apply": ("linkedin.com",),
 }
 
 
 def detect_ats(url: str) -> str | None:
     try:
-        host = (urlparse(url).hostname or "").lower()
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
     except ValueError:
         return None
     for name, hosts in ATS_HOSTS.items():
         if any(host == h or host.endswith("." + h) for h in hosts):
+            if name == "linkedin_easy_apply" and not parsed.path.startswith("/jobs/"):
+                continue        # profiles, feeds and search pages are never a job to apply to (ADR-042)
             return name
     return None
 
@@ -418,4 +423,7 @@ def pick_adapter(url: str, allowed: list[str] | None = None) -> Adapter | None:
     ats = detect_ats(url)
     if ats is None or (allowed is not None and ats not in allowed):
         return None
+    if ats == "linkedin_easy_apply":
+        from .linkedin import LinkedInEasyApply
+        return LinkedInEasyApply()
     return FormAdapter(ats)

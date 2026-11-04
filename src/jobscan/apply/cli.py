@@ -34,7 +34,7 @@ from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
 from ..store import FileStore
 from . import answers as drafted
-from . import faillog, policy, runlog, summary, tracker
+from . import authz, faillog, linkedin, policy, runlog, summary, tracker
 from .adapters import ApplyFailure, Code, detect_ats, pick_adapter
 from .queue import TRACKING, Queue
 
@@ -171,14 +171,15 @@ def cmd_run(args, root, cfg, auth):
         return 0
     if mode == "auto" and not args.dry_run and not policy.auto_switch_on(auth):
         print("auto mode needs authorization.yaml → application_submission."
-              "allow_auto_submit: true AND acknowledged_on: <date>. Refusing.", file=sys.stderr)
+              "master_switch: true AND acknowledged_on: <date>. Refusing.", file=sys.stderr)
         return 2
 
     applicants = _known_applicants(root, cfg)
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
     flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
-    runs = runlog.RunLog(FileStore(root))
+    fstore = FileStore(root)
+    runs = runlog.RunLog(fstore)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -202,19 +203,27 @@ def cmd_run(args, root, cfg, auth):
         return 2        # approved jobs exist but none has a usable applicant.yaml
 
     print(f"run {run_id}: mode={mode} dry_run={args.dry_run} items={len(todo)}")
+    cooling = submit and linkedin.cooldown_active(fstore)
+    if cooling:
+        print("LinkedIn is in cooldown after a warning page: LinkedIn items wait")
+    halted = False
 
     for n, item in enumerate(todo):
         key, t0 = item["candidate_key"], time.time()
         label = f"{item['title']} — {item['company']}"
         record = runs.start(run_id, item["url"])
         outcome = "already_applied"
+        hold = _hold_reason(item, q, acfg, auth, submit, cooling)
         if policy.already_applied(item):      # dedup: an applied_at record is never submitted again
             print(f"  already applied {label}")
+        elif hold:
+            outcome = "held"
+            print(f"  held       {label} → {hold}")
         else:
             try:
                 if Blacklist.from_config(cfg, item.get("profile")).match(item):
                     raise ApplyFailure(Code.BLOCKED_BY_POLICY, "company is blacklisted", "gate")
-                adapter = pick_adapter(item["url"], acfg["auto"]["allowed_adapters"])
+                adapter = pick_adapter(item["url"], policy.allowed_adapters(acfg, auth))
                 if adapter is None:
                     raise ApplyFailure(Code.NO_ADAPTER, "no adapter for host", "gate")
                 applicant, answers = applicants[item["profile"]]
@@ -237,6 +246,10 @@ def cmd_run(args, root, cfg, auth):
                 _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
                 outcome = fail.code
                 print(f"  FAILED     {label} → {fail.code}")
+                if fail.code == Code.LINKEDIN_CHALLENGE and not args.dry_run:
+                    until = linkedin.start_cooldown(fstore, authz.linkedin_cooldown_days(auth))
+                    print(f"  HALTED: LinkedIn cooldown until {until}. Nothing else is tried this run.")
+                    halted = True
             except Exception as exc:  # never let one job abort the batch
                 fail = ApplyFailure(Code.INTERNAL, type(exc).__name__, "run")
                 _record_failure(flog, q, item, fail, mode, run_id, t0, args.dry_run)
@@ -247,9 +260,32 @@ def cmd_run(args, root, cfg, auth):
             runs.finish(record, outcome)
         except (OSError, ValueError) as exc:
             print(f"  run log not written ({type(exc).__name__})", file=sys.stderr)
+        if halted:
+            break
         if submit and n < len(todo) - 1:
             time.sleep(acfg["delay_seconds"])
     return 0
+
+
+def _hold_reason(item, q, acfg, auth, submit, cooling) -> str | None:
+    """Why a submit run must not start this item now, or None. Caps and cooldown are read live."""
+    if not submit:
+        return None
+    ats = detect_ats(item["url"])
+    if policy.remaining_quota(acfg, q) == 0:
+        return "daily/weekly cap reached"
+    if ats == linkedin.ADAPTER:
+        if cooling:
+            return "LinkedIn cooldown after a warning page"
+        caps = authz.linkedin_caps(auth)
+        if policy.remaining_quota(acfg, q, linkedin.ADAPTER, caps) == 0:
+            return "LinkedIn's own daily or weekly cap reached"
+    else:
+        caps = acfg["auto"]
+    if policy.recently_applied(q, item.get("company", ""), caps["one_per_company_days"]):
+        return (f"already applied to {item.get('company', 'this company')} "
+                f"in the last {caps['one_per_company_days']} days")
+    return None
 
 
 def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
