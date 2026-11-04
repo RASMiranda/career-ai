@@ -1,4 +1,4 @@
-"""ADR-038: a no-op `issues` event must never share a concurrency group with a real stage run.
+"""ADR-039: a no-op `issues` event must never share a concurrency group with a real stage run.
 
 The workflow's group key and job `if` are GitHub expressions. A tiny evaluator for the subset they use runs them
 against fixture events and compares with `jobscan.sdlc.decide`, the single authority. Fixtures only, no network."""

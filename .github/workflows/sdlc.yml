@@ -7,7 +7,7 @@ on:
   issues:
     types: [opened, labeled]
 
-# ADR-038: an event `decide` would ignore gets its own group, so it can never replace a real run that is pending in
+# ADR-039: an event `decide` would ignore gets its own group, so it can never replace a real run that is pending in
 # the issue's group. The issue form fires `opened` plus one `labeled` per form label within a second; with
 # cancel-in-progress false a newer pending run replaces an older pending one. The condition below is the same text as the
 # job `if` and is kept equal to `jobscan.sdlc.decide` by tests/test_sdlc_concurrency.py.

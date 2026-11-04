@@ -53,7 +53,7 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
   wrote the code never approves it. The draft PR body starts with `Closes #N`, so the PR shows in the issue's
   Development sidebar and merging it closes the issue (ADR-034): merge only after the checklist in the PR is done.
 
-### Events that start nothing get their own concurrency group (ADR-038)
+### Events that start nothing get their own concurrency group (ADR-039)
 The issue forms apply `type:*` and `stage:intake` at creation, so one new issue fires `opened` plus one `labeled` per form
 label within about a second. All of them used to share the group `sdlc-issue-N`; with `cancel-in-progress: false` a newer
 *pending* run replaces an older pending one, so a no-op `labeled type:bug` could replace the real `opened` run (#50).
