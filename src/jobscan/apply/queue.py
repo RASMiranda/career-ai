@@ -1,6 +1,6 @@
 """Application queue, stored in the private data repo.
 
-status: queued -> approved -> submitted | filled | failed
+status: queued -> approved -> submitted | filled | failed | consent_pending
         queued -> done (you applied by hand) | skipped
         submitted | done -> replied -> interview -> offer      (tracker, see tracker.py)
         submitted | done | replied | interview -> rejected | withdrawn
@@ -13,7 +13,8 @@ from ..state import _read, _write
 
 # After an application went out the tracker records what came back.
 TRACKING = ("replied", "interview", "offer", "rejected", "withdrawn")
-STATUSES = ("queued", "approved", "filled", "submitted", "failed", "done", "skipped", *TRACKING)
+STATUSES = ("queued", "approved", "filled", "submitted", "failed", "consent_pending", "done", "skipped",
+            *TRACKING)
 # Statuses in which an application exists, however it ended.
 APPLIED = ("submitted", "done", *TRACKING)
 

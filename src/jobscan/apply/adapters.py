@@ -11,11 +11,15 @@ STATUS: tested against a local fixture form only. Real ATS pages differ; use
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from urllib.parse import urlparse
+
+from .consent import FieldClass, classify_field
 
 
 class Code:
     NO_ADAPTER = "NO_ADAPTER"
+    CONSENT_PENDING = "consent_pending"      # a consent or declaration box: the owner answers it, never the adapter
     CAPTCHA = "CAPTCHA"
     LOGIN_REQUIRED = "LOGIN_REQUIRED"
     UNKNOWN_REQUIRED_FIELD = "UNKNOWN_REQUIRED_FIELD"
@@ -28,6 +32,7 @@ class Code:
     NETWORK = "NETWORK"
     SUBMIT_UNCONFIRMED = "SUBMIT_UNCONFIRMED"
     BLOCKED_BY_POLICY = "BLOCKED_BY_POLICY"
+    NOT_FOUND = "NOT_FOUND"                  # no verified board address for this job; nothing is guessed
     INTERNAL = "INTERNAL"
 
 
@@ -38,11 +43,31 @@ class ApplyFailure(Exception):
         self.details = details or {}
 
 
+def is_confirmation_url(url: str) -> bool:
+    """The only proof of a submission: the final page's path ends in /confirmation.
+
+    Thank-you text on any other page proves nothing (it may be an error page or a sentence in a form).
+    """
+    try:
+        path = urlparse(url or "").path
+    except ValueError:
+        return False
+    return path.endswith("/confirmation")
+
+
 @dataclass
 class ApplyResult:
     status: str                      # submitted | filled_not_submitted
     filled: list[str] = field(default_factory=list)
-    confirmation: str = ""
+    confirmation_url: str = ""       # set when submitted: the /confirmation page the site showed
+    applied_at: str = ""             # UTC ISO-8601, set when submitted
+
+    def __post_init__(self):
+        if self.status == "submitted":
+            if not is_confirmation_url(self.confirmation_url):
+                raise ValueError("a submitted application needs a /confirmation page as proof")
+            if not self.applied_at:
+                self.applied_at = datetime.now(UTC).isoformat(timespec="seconds")
 
 
 ATS_HOSTS = {
@@ -149,9 +174,6 @@ _CLOSED = re.compile(
     r"no longer (accepting|available)|position (has been )?filled|"
     r"(job|posting|position) (not found|is closed|has expired|has been removed)|page not found",
     re.I)
-_SUCCESS = re.compile(
-    r"thank you|application (has been )?(submitted|received|sent)|"
-    r"we.ve received|successfully submitted", re.I)
 _LOGIN = re.compile(r"\b(sign in|log in|create an account)\b", re.I)
 
 _TEXT_CONTROLS = (
@@ -169,8 +191,9 @@ class Adapter:
 
 
 class FormAdapter(Adapter):
-    def __init__(self, ats: str):
+    def __init__(self, ats: str, submit_wait: float = 20.0):
         self.name = ats
+        self.submit_wait = submit_wait      # seconds to wait for the /confirmation page after submit
 
     # -- public ---------------------------------------------------------------
     def apply(self, job, applicant, answers, cv_path, *, submit, headless, hold=False):
@@ -204,7 +227,7 @@ class FormAdapter(Adapter):
                     return ApplyResult("filled_not_submitted", filled)
 
                 step = "submit"
-                return ApplyResult("submitted", filled, self._submit(page))
+                return ApplyResult("submitted", filled, confirmation_url=self._submit(page))
             except ApplyFailure as fail:
                 fail.step = fail.step or step
                 fail.details.setdefault("form_outline", self._outline(page))
@@ -241,7 +264,7 @@ class FormAdapter(Adapter):
             raise ApplyFailure(Code.CAPTCHA, "captcha widget present", step)
 
     def _fill(self, page, applicant, answers, cv_path) -> list[str]:
-        filled, unknown, questions = [], [], []
+        filled, unknown, questions, consent = [], [], [], []
 
         def ask(label: str, kind: str, options=(), max_length: int = 0) -> None:
             """A required question with no pre-approved answer, with enough shape to draft one."""
@@ -250,10 +273,17 @@ class FormAdapter(Adapter):
             questions.append({"label": label[:200], "kind": kind, "max_length": max_length,
                               "options": [str(o)[:80] for o in options][:40]})
 
+        def held(label: str) -> None:
+            """A consent or declaration: never answered, pre-approved or not; drafted by no model."""
+            consent.append((label or "(unlabelled)").strip(" *✱")[:200])
+
         for el in page.query_selector_all(_TEXT_CONTROLS):
             if not el.is_visible() or el.is_disabled():
                 continue
             label, required = el.evaluate(_JS_LABEL), el.evaluate(_JS_REQUIRED)
+            if classify_field(label, el.get_attribute("type") or "text") is FieldClass.CONSENT_PENDING:
+                held(label)
+                continue
             value = resolve_value(label, applicant, answers)
             if value is None:
                 if required:
@@ -272,11 +302,15 @@ class FormAdapter(Adapter):
             except Exception:
                 unknown.append(f"{label.strip(' *✱')} (could not set answer)")
 
-        # checkboxes: only ticked when you pre-approved an explicit yes
+        # checkboxes: only ticked when you pre-approved an explicit yes. A consent box is held
+        # whether or not it is visible or required: stopping on it is the safe direction.
         for el in page.query_selector_all("input[type=checkbox]"):
+            label = el.evaluate(_JS_LABEL)
+            if classify_field(label, "checkbox") is FieldClass.CONSENT_PENDING:
+                held(label)
+                continue
             if not el.evaluate(_JS_REQUIRED) or el.is_disabled():
                 continue
-            label = el.evaluate(_JS_LABEL)
             value = resolve_value(label, applicant, answers)
             if value and value.strip().lower() in ("yes", "true", "1", "agree"):
                 el.check()
@@ -289,14 +323,18 @@ class FormAdapter(Adapter):
         for el in page.query_selector_all("input[type=radio]"):
             groups.setdefault(el.get_attribute("name") or el.get_attribute("id") or "?", []).append(el)
         for els in groups.values():
+            question = els[0].evaluate(_JS_GROUP)
+            options = [e.evaluate(_JS_LABEL) for e in els]
+            if any(classify_field(t, "radio") is FieldClass.CONSENT_PENDING for t in (question, *options)):
+                held(question)
+                continue
             if not any(e.evaluate(_JS_REQUIRED) for e in els):
                 continue
-            question = els[0].evaluate(_JS_GROUP)
             value = resolve_value(question, applicant, answers)
-            chosen = next((e for e in els
-                           if value and _lab(e.evaluate(_JS_LABEL)) == _lab(value)), None)
+            chosen = next((e for e, opt in zip(els, options)
+                           if value and _lab(opt) == _lab(value)), None)
             if chosen is None:
-                ask(question or "(unlabelled choice)", "radio", [e.evaluate(_JS_LABEL) for e in els])
+                ask(question or "(unlabelled choice)", "radio", options)
             else:
                 chosen.check()
                 filled.append(question.strip(" *✱"))
@@ -312,6 +350,11 @@ class FormAdapter(Adapter):
         elif files and files[0].evaluate(_JS_REQUIRED):
             unknown.append("resume (no CV configured)")
 
+        if consent:       # checked first: nothing is submitted, and the owner gets the link either way
+            raise ApplyFailure(
+                Code.CONSENT_PENDING,
+                f"{len(consent)} consent or declaration field(s) need your own answer", "fill",
+                {"consent_fields": consent, "filled_fields": filled})
         if unknown:
             raise ApplyFailure(
                 Code.UNKNOWN_REQUIRED_FIELD,
@@ -320,20 +363,20 @@ class FormAdapter(Adapter):
         return filled
 
     def _submit(self, page) -> str:
+        """Click submit and return the /confirmation URL, the only proof a submission went through."""
         btn = page.get_by_role("button", name=re.compile(r"^(submit|send|apply)\b", re.I))
         if not btn.count():
             raise ApplyFailure(Code.FORM_CHANGED, "no submit button", "submit")
         btn.first.click()
-        deadline = time.time() + 20
+        deadline = time.time() + self.submit_wait
         while time.time() < deadline:
             try:
-                body = self._body(page)
-            except Exception:           # navigation in flight
+                url = page.url                  # the final URL, after any redirect
+            except Exception:                   # navigation in flight
                 time.sleep(0.5)
                 continue
-            m = _SUCCESS.search(body)
-            if m:
-                return m.group(0)
+            if is_confirmation_url(url):
+                return url
             time.sleep(0.5)
 
         errors = page.evaluate(
@@ -344,7 +387,8 @@ class FormAdapter(Adapter):
                                "submit", {"visible_errors": errors})
         if page.evaluate(_JS_CAPTCHA):
             raise ApplyFailure(Code.CAPTCHA, "captcha appeared after submit", "submit")
-        raise ApplyFailure(Code.SUBMIT_UNCONFIRMED, "clicked submit; no confirmation seen", "submit")
+        raise ApplyFailure(Code.SUBMIT_UNCONFIRMED,
+                           "clicked submit; no /confirmation page was reached", "submit")
 
     # -- helpers --------------------------------------------------------------
     @staticmethod

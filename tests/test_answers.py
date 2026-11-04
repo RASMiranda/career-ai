@@ -367,7 +367,7 @@ def test_the_runner_hands_the_form_only_approved_answers_and_yours_win(tmp_path,
     class Spy:
         def apply(self, job, applicant, answers, *a, **k):
             seen.update(answers)
-            return ApplyResult("submitted", [], "thanks")
+            return ApplyResult("submitted", [], confirmation_url="https://apply.test/job/1/confirmation")
     monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Spy())
     assert run_cli(base, "run") == 0
     assert seen["Preferred database system"] == "Postgres"            # approved: passed to the form

@@ -6,7 +6,14 @@ import pytest
 import yaml
 
 from jobscan.apply import cli, faillog, policy, summary
-from jobscan.apply.adapters import ApplyFailure, Code, detect_ats, resolve_value
+from jobscan.apply.adapters import (
+    ApplyFailure,
+    ApplyResult,
+    Code,
+    detect_ats,
+    is_confirmation_url,
+    resolve_value,
+)
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
 from jobscan.config import ConfigError
@@ -236,7 +243,7 @@ def test_auto_run_success_and_cap(tmp_path, monkeypatch):
     class Ok:
         def apply(self, *a, **k):
             from jobscan.apply.adapters import ApplyResult
-            return ApplyResult("submitted", ["First name"], "thank you")
+            return ApplyResult("submitted", ["First name"], confirmation_url="https://apply.test/job/1/confirmation")
     monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
     assert run_cli(base, "run") == 0
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["status"] == "submitted"
@@ -328,3 +335,151 @@ def test_run_exits_nonzero_when_no_approved_job_has_an_applicant(tmp_path, monke
                                "url": "https://jobs.lever.co/x/1", "fit": 90, "status": "approved"})
     q.save()
     assert run_cli(base, "run", "--dry-run") == 2
+
+
+def test_consent_pending_is_handed_to_the_human_with_the_link(tmp_path, monkeypatch, capsys):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+
+    class Consent:
+        def apply(self, *a, **k):
+            raise ApplyFailure(Code.CONSENT_PENDING, "1 consent field", "fill",
+                               {"consent_fields": ["I agree to the privacy policy"]})
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Consent())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["aaaa1111bbbb2222"]
+    assert item_["status"] == "consent_pending" and item_["error_code"] == "consent_pending"
+    assert item_["attempts"][-1]["outcome"] == "failed"
+
+    q = Queue(tmp_path)
+    assert summary.count_failures(q) == 1                    # the daily email still goes out
+    md = summary.render_markdown(q)
+    assert "Apply manually" in md and "https://jobs.lever.co/acme/1" in md and "consent" in md.lower()
+    logged = [json.loads(line) for p in (tmp_path / "logs/apply").glob("*.jsonl")
+              for line in p.read_text(encoding="utf-8").splitlines()]
+    assert logged[-1]["error_code"] == "consent_pending"
+
+
+# ------------------------------------------------------ submission record (P0 item 5)
+def test_only_a_confirmation_path_counts_as_confirmed():
+    confirmed = ["https://jobs.example.test/acme/jobs/1/confirmation",
+                 "https://apply.example.test/confirmation?ref=1", "/confirmation"]
+    not_confirmed = ["https://jobs.example.test/acme/jobs/1", "https://apply.example.test/thanks",
+                     "https://apply.example.test/confirmation/", "https://apply.example.test/confirmation-old",
+                     "https://apply.example.test/submit", ""]
+    for url in confirmed:
+        assert is_confirmation_url(url), url
+    for url in not_confirmed:
+        assert not is_confirmation_url(url), url
+
+
+def test_a_submitted_result_needs_a_confirmation_page_and_is_stamped_in_utc():
+    with pytest.raises(ValueError):
+        ApplyResult("submitted", [], confirmation_url="https://apply.example.test/thanks")
+    res = ApplyResult("submitted", [], confirmation_url="https://apply.example.test/job/1/confirmation")
+    assert datetime.fromisoformat(res.applied_at).utcoffset() == timedelta(0)
+    assert ApplyResult("filled_not_submitted", ["x"]).applied_at == ""     # nothing sent, nothing stamped
+
+
+def test_a_confirmed_submit_is_recorded_on_the_queue_and_the_attempt(tmp_path, monkeypatch):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+
+    class Ok:
+        def apply(self, *a, **k):
+            return ApplyResult("submitted", ["First name"],
+                               confirmation_url="https://apply.test/job/1/confirmation")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["aaaa1111bbbb2222"]
+    assert item_["status"] == "submitted"
+    assert item_["confirmation_url"] == "https://apply.test/job/1/confirmation"
+    assert datetime.fromisoformat(item_["applied_at"]).utcoffset() == timedelta(0)
+    attempt = item_["attempts"][-1]
+    assert attempt["outcome"] == "submitted" and attempt["applied_at"] == item_["applied_at"]
+    assert attempt["confirmation_url"] == item_["confirmation_url"]
+
+
+def test_dedup_an_applied_record_is_never_submitted_again(tmp_path, monkeypatch, capsys):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+    calls = []
+
+    class Ok:
+        def apply(self, *a, **k):
+            calls.append(1)
+            return ApplyResult("submitted", ["First name"],
+                               confirmation_url="https://apply.test/job/1/confirmation")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Ok())
+    assert run_cli(base, "run") == 0 and len(calls) == 1
+    # The owner approves again an item that already went out: the runner must not apply twice.
+    assert run_cli(base, "approve", "aaaa11") == 0
+    assert run_cli(base, "run") == 0
+    assert len(calls) == 1                                  # the page was never opened a second time
+    assert "already applied" in capsys.readouterr().out
+    assert Queue(tmp_path).items["aaaa1111bbbb2222"]["applied_at"]
+
+
+def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
+    base = make_data(tmp_path, mode="assisted")
+    plan = {                                   # what the fake adapter does for each approved job
+        "https://jobs.lever.co/acme/1": "submitted",
+        "https://job-boards.greenhouse.io/acme/jobs/2": Code.CONSENT_PENDING,
+        "https://jobs.ashbyhq.com/acme/3": Code.NOT_FOUND,
+        "https://apply.workable.com/acme/4": Code.UNKNOWN_REQUIRED_FIELD,
+        "https://jobs.lever.co/acme/5": "already applied",
+    }
+    q = Queue(tmp_path)
+    for n, url in enumerate(plan):
+        q.add(f"run{n}aaaa1111", {"profile": "p", "title": "Java", "company": "Acme", "url": url,
+                                  "fit": 90, "tier": "core", "confidence": "high", "cv": "general",
+                                  "status": "approved"})
+    q.items["run4aaaa1111"]["applied_at"] = "2026-11-01T09:00:00+00:00"    # went out earlier
+    q.save()
+
+    class Fake:
+        def __init__(self, what):
+            self.what = what
+
+        def apply(self, job, *a, **k):
+            if self.what == "submitted":
+                return ApplyResult("submitted", [], confirmation_url="https://apply.test/job/1/confirmation")
+            if self.what == "already applied":
+                raise AssertionError("an applied item must never reach an adapter")
+            raise ApplyFailure(self.what, "fake", "fill")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Fake(plan[url]))
+    assert run_cli(base, "run") == 0
+
+    from jobscan.store import FileStore
+    rows = FileStore(tmp_path).read_lines("logs/runs.jsonl")
+    assert len(rows) == 5
+    totals = {c: sum(r[c] for r in rows) for c in ("submitted_count", "skipped_count",
+                                                    "consent_pending_count", "not_found_count")}
+    assert totals == {"submitted_count": 1, "skipped_count": 2,
+                      "consent_pending_count": 1, "not_found_count": 1}
+    assert {r["source_url"] for r in rows} == set(plan)
+    assert [r["site"] for r in rows if r["consent_pending_count"]] == ["job-boards.greenhouse.io"]
+
+
+def test_apply_stage_refuses_an_approved_job_from_a_blacklisted_company(tmp_path, monkeypatch):
+    """ADR-005, third stage: the list changed after the job was approved, so the runner must refuse."""
+    base = make_data(tmp_path, mode="assisted")
+    config = tmp_path / "config.yaml"
+    cfg = yaml.safe_load(config.read_text(encoding="utf-8"))
+    cfg["blacklist"]["companies"] = ["Blocked Example"]      # the list changed after the approval
+    config.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    q = Queue(tmp_path)
+    q.add("cccc3333dddd4444", {"profile": "p", "title": "Java", "company": "Blocked Example",
+                               "url": "https://jobs.lever.co/blocked-example/9", "fit": 90, "tier": "core",
+                               "confidence": "high", "cv": "general", "status": "approved"})
+    q.save()
+    reached = []
+
+    class Spy:
+        def apply(self, *a, **k):
+            reached.append(1)
+            raise AssertionError("a blacklisted company must never reach an adapter")
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Spy())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["cccc3333dddd4444"]
+    assert reached == [] and item_["status"] == "failed" and item_["error_code"] == "BLOCKED_BY_POLICY"

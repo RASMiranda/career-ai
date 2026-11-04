@@ -5,6 +5,7 @@ Skipped automatically if Chromium is not available.
 """
 
 import threading
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -26,6 +27,18 @@ BASE = """<html><head><title>Apply</title></head><body><h1>Senior Engineer</h1>
 
 PAGES = {
     "/ok": BASE.format(extra=""),
+    "/confirmation": "<html><body><h1>Thank you for applying</h1></body></html>",
+    "/inline": BASE.format(extra="").replace('action="/submit"', 'action="/submit-inline"'),
+    "/questions-shape": BASE.format(extra=(
+        '<div class="field"><label for="yj">Years of Java experience *</label><select id="yj" name="yj" required>'
+        '<option value="">Select...</option><option>0-2</option><option>3-5</option><option>6+</option></select></div>'
+        '<div class="field"><label for="why">Why do you want to work here? *</label>'
+        '<textarea id="why" name="why" maxlength="600" required></textarea></div>'
+        '<div class="field"><label for="sb">How many years of Spring Boot? *</label>'
+        '<input id="sb" name="sb" type="number" required></div>'
+        '<fieldset class="field"><legend>Are you comfortable with on-call rotation? *</legend>'
+        '<label><input type="radio" name="oc" value="y" required> Yes</label>'
+        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>')),
     "/salary": BASE.format(extra='<div class="field"><label for="s">Salary expectations *</label>'
                                  '<textarea id="s" name="s" required></textarea></div>'),
     "/radio": BASE.format(extra='<fieldset class="field"><legend>Are you authorized to work in the EU? *'
@@ -33,6 +46,8 @@ PAGES = {
                                 '<label><input type="radio" name="a" value="n" required> No</label></fieldset>'),
     "/consent": BASE.format(extra='<label><input type="checkbox" name="c" required> '
                                   'I agree to the privacy policy *</label>'),
+    "/consent-text": BASE.format(extra='<div class="field"><label for="dc">Application declaration *</label>'
+                                       '<input id="dc" name="dc" required></div>'),
     "/captcha": BASE.format(extra='<div class="g-recaptcha" style="width:300px;height:80px"></div>'),
     "/questions": BASE.format(extra=(
         '<div class="field"><label for="yj">Years of Java experience *</label><select id="yj" name="yj" required>'
@@ -64,7 +79,10 @@ def site():
         def do_POST(self):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             posts.append(self.path)
-            self._send("<h1>Thank you for applying</h1>")
+            if self.path == "/submit-inline":        # thank-you text on the same page: not a confirmation
+                self._send("<h1>Thank you for applying</h1>")
+            else:                                    # a real submit redirects to the confirmation page
+                self.send_response(303); self.send_header("Location", "/confirmation"); self.end_headers()
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -109,7 +127,18 @@ def test_dry_run_fills_but_never_submits(site, cv):
 def test_submit_posts_once_and_confirms(site, cv):
     res, fail, posted = run(site, "/ok", cv=cv, submit=True)
     assert fail is None and res.status == "submitted" and posted == 1
-    assert "thank you" in res.confirmation.lower()
+    assert res.confirmation_url.endswith("/confirmation")
+    assert datetime.fromisoformat(res.applied_at).utcoffset() == timedelta(0)     # UTC ISO-8601
+
+
+def test_thank_you_text_on_the_same_page_is_not_a_confirmation(site, cv):
+    base, posts = site
+    before = len(posts)
+    with pytest.raises(ApplyFailure) as exc:
+        FormAdapter("greenhouse", submit_wait=2).apply({"url": base + "/inline"}, APPLICANT, {}, cv,
+                                                       submit=True, headless=True)
+    assert exc.value.code == Code.SUBMIT_UNCONFIRMED
+    assert len(posts) - before == 1          # sent once, and reported unconfirmed rather than applied
 
 
 def test_unknown_required_question_stops_before_submit(site, cv):
@@ -132,11 +161,54 @@ def test_work_authorisation_radio_needs_explicit_answer(site, cv):
     assert fail is None and posted == 1
 
 
-def test_consent_box_is_never_ticked_unless_you_said_so(site, cv):
+def test_consent_box_stops_the_form_even_with_a_pre_approved_yes(site, cv):
     _, fail, posted = run(site, "/consent", cv=cv, submit=True)
-    assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and posted == 0
-    res, fail, posted = run(site, "/consent", {"privacy policy": "yes"}, cv=cv, submit=True)
-    assert fail is None and posted == 1
+    assert fail.code == Code.CONSENT_PENDING and posted == 0
+    assert fail.details["consent_fields"] == ["I agree to the privacy policy"]
+    _, fail, posted = run(site, "/consent", {"privacy policy": "yes"}, cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0      # a yes you wrote still does not tick it
+
+
+def test_a_consent_box_beside_other_questions_stops_the_form(site, cv):
+    _, fail, posted = run(site, "/questions", cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0         # consent outranks the open questions
+    assert fail.details["consent_fields"] == ["I agree to the privacy policy"]
+
+
+def test_consent_text_field_is_never_filled(site, cv):
+    _, fail, posted = run(site, "/consent-text", {"application declaration": "I confirm"}, cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0
+    assert fail.details["consent_fields"] == ["Application declaration"]
+
+
+def test_consent_fields_are_not_drafted_as_questions(site, cv):
+    _, fail, _ = run(site, "/consent-text", cv=cv, submit=True)
+    assert "unknown_questions" not in fail.details and "unknown_fields" not in fail.details
+
+
+def test_fake_form_no_answer_is_written_to_a_consent_field(cv):
+    """A local fake form: the consent text box and checkbox must stay empty and unticked."""
+    from playwright.sync_api import sync_playwright
+    html = ('<html><body><form>'
+            '<label for="dc">Application declaration *</label><input id="dc" name="dc" required>'
+            '<label for="ln">Last name *</label><input id="ln" name="ln" required>'
+            '<label><input id="pp" type="checkbox" name="pp" required> I agree to the privacy policy *</label>'
+            '</form></body></html>')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(html)
+            with pytest.raises(ApplyFailure) as exc:
+                FormAdapter("greenhouse")._fill(page, APPLICANT,
+                                                {"application declaration": "I confirm",
+                                                 "privacy policy": "yes"}, None)
+            assert exc.value.code == Code.CONSENT_PENDING
+            assert page.input_value("#dc") == ""           # the declaration was never answered
+            assert page.is_checked("#pp") is False          # the consent box was never ticked
+            assert page.input_value("#ln") == "Silva"       # ordinary fields are still filled
+        finally:
+            browser.close()
 
 
 def test_captcha_is_never_attempted(site, cv):
@@ -161,7 +233,7 @@ def test_missing_required_cv_stops(site):
 
 
 def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, cv):
-    _, fail, posted = run(site, "/questions", cv=cv, submit=True)
+    _, fail, posted = run(site, "/questions-shape", cv=cv, submit=True)
     assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and posted == 0
     got = {q["label"]: q for q in fail.details["unknown_questions"]}
     assert set(got) == set(fail.details["unknown_fields"])                    # same questions, richer
@@ -172,12 +244,11 @@ def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, c
     assert got["How many years of Spring Boot?"]["kind"] == "number"
     assert got["Are you comfortable with on-call rotation?"]["kind"] == "radio"
     assert got["Are you comfortable with on-call rotation?"]["options"] == ["Yes", "No"]
-    assert got["I agree to the privacy policy"]["kind"] == "checkbox"
 
 
 def test_answers_in_the_drafted_shape_fill_the_form(site, cv):
     answers = {"years of java experience": "6+", "why do you want": "I like platform work.",
-               "years of spring boot": "7", "on-call rotation": "Yes", "privacy policy": "yes"}
-    res, fail, posted = run(site, "/questions", answers, cv=cv, submit=True)
+               "years of spring boot": "7", "on-call rotation": "Yes"}
+    res, fail, posted = run(site, "/questions-shape", answers, cv=cv, submit=True)
     assert fail is None and posted == 1
     assert {"Years of Java experience", "Why do you want to work here?"} <= set(res.filled)
