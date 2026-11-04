@@ -13,9 +13,12 @@ import time
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
+from .consent import FieldClass, classify_field
+
 
 class Code:
     NO_ADAPTER = "NO_ADAPTER"
+    CONSENT_PENDING = "consent_pending"      # a consent or declaration box: the owner answers it, never the adapter
     CAPTCHA = "CAPTCHA"
     LOGIN_REQUIRED = "LOGIN_REQUIRED"
     UNKNOWN_REQUIRED_FIELD = "UNKNOWN_REQUIRED_FIELD"
@@ -241,7 +244,7 @@ class FormAdapter(Adapter):
             raise ApplyFailure(Code.CAPTCHA, "captcha widget present", step)
 
     def _fill(self, page, applicant, answers, cv_path) -> list[str]:
-        filled, unknown, questions = [], [], []
+        filled, unknown, questions, consent = [], [], [], []
 
         def ask(label: str, kind: str, options=(), max_length: int = 0) -> None:
             """A required question with no pre-approved answer, with enough shape to draft one."""
@@ -250,10 +253,17 @@ class FormAdapter(Adapter):
             questions.append({"label": label[:200], "kind": kind, "max_length": max_length,
                               "options": [str(o)[:80] for o in options][:40]})
 
+        def held(label: str) -> None:
+            """A consent or declaration: never answered, pre-approved or not; drafted by no model."""
+            consent.append((label or "(unlabelled)").strip(" *✱")[:200])
+
         for el in page.query_selector_all(_TEXT_CONTROLS):
             if not el.is_visible() or el.is_disabled():
                 continue
             label, required = el.evaluate(_JS_LABEL), el.evaluate(_JS_REQUIRED)
+            if classify_field(label, el.get_attribute("type") or "text") is FieldClass.CONSENT_PENDING:
+                held(label)
+                continue
             value = resolve_value(label, applicant, answers)
             if value is None:
                 if required:
@@ -272,11 +282,15 @@ class FormAdapter(Adapter):
             except Exception:
                 unknown.append(f"{label.strip(' *✱')} (could not set answer)")
 
-        # checkboxes: only ticked when you pre-approved an explicit yes
+        # checkboxes: only ticked when you pre-approved an explicit yes. A consent box is held
+        # whether or not it is visible or required: stopping on it is the safe direction.
         for el in page.query_selector_all("input[type=checkbox]"):
+            label = el.evaluate(_JS_LABEL)
+            if classify_field(label, "checkbox") is FieldClass.CONSENT_PENDING:
+                held(label)
+                continue
             if not el.evaluate(_JS_REQUIRED) or el.is_disabled():
                 continue
-            label = el.evaluate(_JS_LABEL)
             value = resolve_value(label, applicant, answers)
             if value and value.strip().lower() in ("yes", "true", "1", "agree"):
                 el.check()
@@ -289,14 +303,18 @@ class FormAdapter(Adapter):
         for el in page.query_selector_all("input[type=radio]"):
             groups.setdefault(el.get_attribute("name") or el.get_attribute("id") or "?", []).append(el)
         for els in groups.values():
+            question = els[0].evaluate(_JS_GROUP)
+            options = [e.evaluate(_JS_LABEL) for e in els]
+            if any(classify_field(t, "radio") is FieldClass.CONSENT_PENDING for t in (question, *options)):
+                held(question)
+                continue
             if not any(e.evaluate(_JS_REQUIRED) for e in els):
                 continue
-            question = els[0].evaluate(_JS_GROUP)
             value = resolve_value(question, applicant, answers)
-            chosen = next((e for e in els
-                           if value and _lab(e.evaluate(_JS_LABEL)) == _lab(value)), None)
+            chosen = next((e for e, opt in zip(els, options)
+                           if value and _lab(opt) == _lab(value)), None)
             if chosen is None:
-                ask(question or "(unlabelled choice)", "radio", [e.evaluate(_JS_LABEL) for e in els])
+                ask(question or "(unlabelled choice)", "radio", options)
             else:
                 chosen.check()
                 filled.append(question.strip(" *✱"))
@@ -312,6 +330,11 @@ class FormAdapter(Adapter):
         elif files and files[0].evaluate(_JS_REQUIRED):
             unknown.append("resume (no CV configured)")
 
+        if consent:       # checked first: nothing is submitted, and the owner gets the link either way
+            raise ApplyFailure(
+                Code.CONSENT_PENDING,
+                f"{len(consent)} consent or declaration field(s) need your own answer", "fill",
+                {"consent_fields": consent, "filled_fields": filled})
         if unknown:
             raise ApplyFailure(
                 Code.UNKNOWN_REQUIRED_FIELD,

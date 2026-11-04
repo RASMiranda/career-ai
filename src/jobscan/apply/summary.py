@@ -32,7 +32,7 @@ def sections(queue: Queue, days: int = 7, profile: str | None = None,
                               if profile is None or i.get("profile") == profile),
                              key=lambda i: -i.get("fit", 0))
     return {
-        "failed": pick("failed"),
+        "failed": pick("failed", "consent_pending"),     # both: the owner does these by hand, with the link
         "stalled": [i for i in pick("approved") if _age_hours(i) >= stalled_hours],
         "queued": pick("queued"),
         "filled": pick("filled"),

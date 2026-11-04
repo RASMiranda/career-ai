@@ -245,7 +245,8 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
     })
     item["attempts"].append({"run": run_id, "outcome": "failed", "error_code": fail.code})
     if not dry_run:
-        q.set(item["candidate_key"], "failed", error_code=fail.code, error_message=fail.message)
+        status = "consent_pending" if fail.code == Code.CONSENT_PENDING else "failed"
+        q.set(item["candidate_key"], status, error_code=fail.code, error_message=fail.message)
 
 
 def cmd_summary(args, root, cfg, auth):

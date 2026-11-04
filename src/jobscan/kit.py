@@ -43,7 +43,7 @@ from .config import ConfigError, data_root, load_config
 from .draftcheck import problems_in
 from .triage import DEFAULT_WORKING_LEVEL, LEVELS
 
-ELIGIBLE = ("queued", "approved", "filled", "failed")     # matches still to be applied to
+ELIGIBLE = ("queued", "approved", "filled", "failed", "consent_pending")     # matches still to be applied to
 KNOWLEDGE = ("01-profile.md", "02-experience.md", "03-positioning.md", "04-direction.md")
 DEFAULT_WAITING_LIMIT = 5
 

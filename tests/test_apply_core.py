@@ -328,3 +328,26 @@ def test_run_exits_nonzero_when_no_approved_job_has_an_applicant(tmp_path, monke
                                "url": "https://jobs.lever.co/x/1", "fit": 90, "status": "approved"})
     q.save()
     assert run_cli(base, "run", "--dry-run") == 2
+
+
+def test_consent_pending_is_handed_to_the_human_with_the_link(tmp_path, monkeypatch, capsys):
+    base = make_data(tmp_path, mode="auto", switch=True)
+    run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
+
+    class Consent:
+        def apply(self, *a, **k):
+            raise ApplyFailure(Code.CONSENT_PENDING, "1 consent field", "fill",
+                               {"consent_fields": ["I agree to the privacy policy"]})
+    monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Consent())
+    assert run_cli(base, "run") == 0
+    item_ = Queue(tmp_path).items["aaaa1111bbbb2222"]
+    assert item_["status"] == "consent_pending" and item_["error_code"] == "consent_pending"
+    assert item_["attempts"][-1]["outcome"] == "failed"
+
+    q = Queue(tmp_path)
+    assert summary.count_failures(q) == 1                    # the daily email still goes out
+    md = summary.render_markdown(q)
+    assert "Apply manually" in md and "https://jobs.lever.co/acme/1" in md and "consent" in md.lower()
+    logged = [json.loads(line) for p in (tmp_path / "logs/apply").glob("*.jsonl")
+              for line in p.read_text(encoding="utf-8").splitlines()]
+    assert logged[-1]["error_code"] == "consent_pending"

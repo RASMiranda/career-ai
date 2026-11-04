@@ -33,6 +33,8 @@ PAGES = {
                                 '<label><input type="radio" name="a" value="n" required> No</label></fieldset>'),
     "/consent": BASE.format(extra='<label><input type="checkbox" name="c" required> '
                                   'I agree to the privacy policy *</label>'),
+    "/consent-text": BASE.format(extra='<div class="field"><label for="dc">Application declaration *</label>'
+                                       '<input id="dc" name="dc" required></div>'),
     "/captcha": BASE.format(extra='<div class="g-recaptcha" style="width:300px;height:80px"></div>'),
     "/questions": BASE.format(extra=(
         '<div class="field"><label for="yj">Years of Java experience *</label><select id="yj" name="yj" required>'
@@ -43,8 +45,7 @@ PAGES = {
         '<input id="sb" name="sb" type="number" required></div>'
         '<fieldset class="field"><legend>Are you comfortable with on-call rotation? *</legend>'
         '<label><input type="radio" name="oc" value="y" required> Yes</label>'
-        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>'
-        '<label><input type="checkbox" name="c" required> I agree to the privacy policy *</label>')),
+        '<label><input type="radio" name="oc" value="n" required> No</label></fieldset>')),
     "/closed": "<html><body><h1>Sorry, this position is no longer accepting applications.</h1></body></html>",
 }
 APPLICANT = {"first_name": "Ana", "last_name": "Silva", "email": "ana@example.test", "phone": ""}
@@ -132,11 +133,48 @@ def test_work_authorisation_radio_needs_explicit_answer(site, cv):
     assert fail is None and posted == 1
 
 
-def test_consent_box_is_never_ticked_unless_you_said_so(site, cv):
+def test_consent_box_stops_the_form_even_with_a_pre_approved_yes(site, cv):
     _, fail, posted = run(site, "/consent", cv=cv, submit=True)
-    assert fail.code == Code.UNKNOWN_REQUIRED_FIELD and posted == 0
-    res, fail, posted = run(site, "/consent", {"privacy policy": "yes"}, cv=cv, submit=True)
-    assert fail is None and posted == 1
+    assert fail.code == Code.CONSENT_PENDING and posted == 0
+    assert fail.details["consent_fields"] == ["I agree to the privacy policy"]
+    _, fail, posted = run(site, "/consent", {"privacy policy": "yes"}, cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0      # a yes you wrote still does not tick it
+
+
+def test_consent_text_field_is_never_filled(site, cv):
+    _, fail, posted = run(site, "/consent-text", {"application declaration": "I confirm"}, cv=cv, submit=True)
+    assert fail.code == Code.CONSENT_PENDING and posted == 0
+    assert fail.details["consent_fields"] == ["Application declaration"]
+
+
+def test_consent_fields_are_not_drafted_as_questions(site, cv):
+    _, fail, _ = run(site, "/consent-text", cv=cv, submit=True)
+    assert "unknown_questions" not in fail.details and "unknown_fields" not in fail.details
+
+
+def test_fake_form_no_answer_is_written_to_a_consent_field(cv):
+    """A local fake form: the consent text box and checkbox must stay empty and unticked."""
+    from playwright.sync_api import sync_playwright
+    html = ('<html><body><form>'
+            '<label for="dc">Application declaration *</label><input id="dc" name="dc" required>'
+            '<label for="ln">Last name *</label><input id="ln" name="ln" required>'
+            '<label><input id="pp" type="checkbox" name="pp" required> I agree to the privacy policy *</label>'
+            '</form></body></html>')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(html)
+            with pytest.raises(ApplyFailure) as exc:
+                FormAdapter("greenhouse")._fill(page, APPLICANT,
+                                                {"application declaration": "I confirm",
+                                                 "privacy policy": "yes"}, None)
+            assert exc.value.code == Code.CONSENT_PENDING
+            assert page.input_value("#dc") == ""           # the declaration was never answered
+            assert page.is_checked("#pp") is False          # the consent box was never ticked
+            assert page.input_value("#ln") == "Silva"       # ordinary fields are still filled
+        finally:
+            browser.close()
 
 
 def test_captcha_is_never_attempted(site, cv):
@@ -172,12 +210,11 @@ def test_unknown_questions_carry_their_shape_so_an_answer_can_be_drafted(site, c
     assert got["How many years of Spring Boot?"]["kind"] == "number"
     assert got["Are you comfortable with on-call rotation?"]["kind"] == "radio"
     assert got["Are you comfortable with on-call rotation?"]["options"] == ["Yes", "No"]
-    assert got["I agree to the privacy policy"]["kind"] == "checkbox"
 
 
 def test_answers_in_the_drafted_shape_fill_the_form(site, cv):
     answers = {"years of java experience": "6+", "why do you want": "I like platform work.",
-               "years of spring boot": "7", "on-call rotation": "Yes", "privacy policy": "yes"}
+               "years of spring boot": "7", "on-call rotation": "Yes"}
     res, fail, posted = run(site, "/questions", answers, cv=cv, submit=True)
     assert fail is None and posted == 1
     assert {"Years of Java experience", "Why do you want to work here?"} <= set(res.filled)
