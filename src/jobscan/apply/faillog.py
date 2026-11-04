@@ -25,6 +25,7 @@ EXPLAIN = {
     "NETWORK": "A network error occurred.",
     "SUBMIT_UNCONFIRMED": "Submit was clicked but no confirmation appeared. It may or may not have gone through — check before retrying.",
     "BLOCKED_BY_POLICY": "Skipped by your own safety rules.",
+    "NOT_FOUND": "No verified application address is known for this job, so none was guessed. Apply from the posting link.",
     "consent_pending": "The form asks you to accept a consent, privacy or declaration box. Only you can answer it; the tool never does.",
     "INTERNAL": "Unexpected error in the tool itself.",
 }

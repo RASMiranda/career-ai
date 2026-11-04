@@ -31,6 +31,7 @@ class Code:
     NETWORK = "NETWORK"
     SUBMIT_UNCONFIRMED = "SUBMIT_UNCONFIRMED"
     BLOCKED_BY_POLICY = "BLOCKED_BY_POLICY"
+    NOT_FOUND = "NOT_FOUND"                  # no verified board address for this job; nothing is guessed
     INTERNAL = "INTERNAL"
 
 
