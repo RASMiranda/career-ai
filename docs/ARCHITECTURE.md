@@ -169,7 +169,12 @@ user B.
   login wall, changed layout → stop, log, hand to the human with the link. The item becomes
   `failed`, and the next scan email lists it first under "Apply by hand" (ADR-020), as it does any
   `approved` job the runner never submitted.
-- **Unchanged by ADR-017:** the model never drives the browser, and the
+- **ADR-042 (accepted 2026-11-04):** `auto` submission is also possible for LinkedIn Easy Apply, on
+  the owner's machine only. It needs `master_switch`, the adapter's `enabled` flag and `mode: auto`, and a
+  dated `linkedin_tos_acknowledgement`; it has its own caps; it draws only on the owner's forwarded
+  alerts; its executor is deterministic code, not a model. A LinkedIn warning or challenge page halts the
+  run and starts a cooldown. Everything in §6 about the cloud and other users stands.
+- **Unchanged by ADR-017 and ADR-042:** the model never drives the browser, and the
   product implication below stands until legal advice says otherwise.
 - **Product implication:** do not run server-side auto-submission for paying
   users. It combines ATS terms-of-service exposure, bot detection that harms the

@@ -80,3 +80,6 @@ white-label, any server-side auto-submission on behalf of paying users (until a
 lawyer has read the ATS terms), a real-time interview copilot.
 Direct access to closed platforms (LinkedIn, Indeed, Glassdoor, Braintrust) for anyone
 but the owner, on the owner's machine (ADR-017).
+LinkedIn Easy Apply in auto mode (ADR-042) is owner-only, runs on the owner's machine in
+`apply run`, needs its own flag and dated acknowledgement, and is deterministic code with no
+model in the browser. It is not product behaviour for other users.

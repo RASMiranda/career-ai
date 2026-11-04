@@ -118,7 +118,7 @@ def test_company_with_a_live_application_is_not_auto_approved_again(tmp_path):
     q.set("k1", "interview")
     acfg = policy.apply_cfg({"apply": {"mode": "auto"}})
     status, notes = policy.initial_status(item(company="Acme"), acfg,
-                                          {"application_submission": {"allow_auto_submit": True,
+                                          {"application_submission": {"master_switch": True,
                                                                       "acknowledged_on": "2026-10-15"}},
                                           q, Blacklist([]))
     assert status == "queued" and any("recently" in n for n in notes)

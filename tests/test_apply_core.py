@@ -19,8 +19,8 @@ from jobscan.blacklist import Blacklist
 from jobscan.config import ConfigError
 
 BL = Blacklist(["Proxify"])
-AUTH_ON = {"application_submission": {"allow_auto_submit": True, "acknowledged_on": "2026-10-15"}}
-AUTH_OFF = {"application_submission": {"allow_auto_submit": False, "acknowledged_on": ""}}
+AUTH_ON = {"application_submission": {"master_switch": True, "acknowledged_on": "2026-10-15"}}
+AUTH_OFF = {"application_submission": {"master_switch": False, "acknowledged_on": ""}}
 
 
 def item(**o):
@@ -39,7 +39,8 @@ def cfg(mode="auto", **auto):
     ("https://job-boards.greenhouse.io/acme/jobs/1", "greenhouse"),
     ("https://jobs.lever.co/acme/1", "lever"),
     ("https://jobs.ashbyhq.com/acme/1", "ashby"),
-    ("https://www.linkedin.com/jobs/view/1", None),
+    ("https://www.linkedin.com/jobs/view/1", "linkedin_easy_apply"),
+    ("https://www.linkedin.com/in/someone", None),       # profiles are never a job to apply to
     ("https://evil.test/jobs.lever.co/x", None),
     ("not a url", None),
 ])
@@ -83,7 +84,7 @@ def test_auto_holds_back_weak_matches(tmp_path, override, why):
 def test_master_switch_must_be_on_and_dated(tmp_path):
     status, notes = policy.initial_status(item(), cfg(), AUTH_OFF, Queue(tmp_path), BL)
     assert status == "queued" and any("master switch" in n for n in notes)
-    half = {"application_submission": {"allow_auto_submit": True, "acknowledged_on": ""}}
+    half = {"application_submission": {"master_switch": True, "acknowledged_on": ""}}
     assert policy.initial_status(item(), cfg(), half, Queue(tmp_path), BL)[0] == "queued"
 
 
@@ -159,7 +160,7 @@ def make_data(tmp_path, mode="manual", switch=False):
     (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
         "active": True,
-        "application_submission": {"allow_auto_submit": switch,
+        "application_submission": {"master_switch": switch,
                                    "acknowledged_on": "2026-10-15" if switch else ""}}))
     cands = {"candidates": [
         {"candidate_key": "aaaa1111bbbb2222", "profile": "p", "source": "s", "title": "Java",
