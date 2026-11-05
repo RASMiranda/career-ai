@@ -3,8 +3,8 @@ from jobscan.validate import validate
 
 
 def test_ids_from_drive_style_names():
-    names = ["Rui Miranda Project Manager", "Rui Miranda Resume Solutions Architect",
-             "Rui Miranda Resume Tech Lead", "Rui Miranda Resume General"]
+    names = ["Jane Example Project Manager", "Jane Example Resume Solutions Architect",
+             "Jane Example Resume Tech Lead", "Jane Example Resume General"]
     assert sorted(variant_ids(names, "Rui").values()) == [
         "general", "project-manager", "solutions-architect", "tech-lead"]
 
