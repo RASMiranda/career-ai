@@ -544,8 +544,30 @@ Consequences: a missing or malformed acknowledgement means the question goes to 
 Context: some sites cannot be submitted by code reliably, and the owner has to finish those in their own browser. Runs also need an auditable record of what was submitted, without the URLs' tokens.
 Decision: where code does not submit, the owner attaches the CV and submits in their own browser. The run then verifies the submission from the confirmation URL or a Gmail confirmation and appends an `ApplyOutcome` line to `logs/apply/<site>-<date>.jsonl` in career-data. Every URL in a line loses its query string and fragment before it is written. A SUBMITTED line must name its verifier (`confirmation_url`, `gmail` or `human`); `human` is used only for a submission the owner confirms in their own words. Code never clicks submit on a site it does not own (ADR-040, ADR-042 unchanged).
 Consequences: outcomes are one JSON line each and append-only; corrections are new lines. The scan routine does not write these files.
+*Amended in part by ADR-047 (2026-11-05): a second verifier, `site_applied_list`.*
 
 ## ADR-046 · 2026-11-05 · career-data is the only source of identity facts; career-ai carries no personal data and a build guard checks that
 Context: the skill bank and career-data disagree on the owner's legal name, phone number and home base. Code cannot decide which is right, and a wrong identity on a form is a false statement.
 Decision: name, phone, address and home base live only in career-data. Where sources disagree, the answer bank holds a `CONFLICT` entry listing each value and its source, and the owner decides (questions in career-data `docs/OPEN-QUESTIONS.md`). career-ai's `tests/test_no_personal_data.py` fails the build when a tracked file has an email address outside reserved domains, or a phone-shaped number outside `tests/`. The owner-specific layer compares every tracked file with literal strings from the file named in `CAREER_PII_PATTERNS_FILE` (a CI secret); without that secret the layer is skipped and reported as skipped, not as passed.
 Consequences: a new identity fact is added to career-data first. Until the CI secret is set, names and numbers are guarded by review only.
+
+## ADR-047 · 2026-11-05 · Arc (arc.dev) is a registered owner-run site; the site's own Applied list is an accepted verifier; a disabled Submit is a stop
+Context: the first Arc run (4-5 Nov 2026) applied through Arc's Fast apply dialog in the owner's browser
+session (ADR-038, ADR-040). Fast apply has no review page and no confirmation URL: success is an
+on-page "Application sent" message plus a row in the site's Applied tab. One job also showed a required
+free-text box the browser could not reach and a disabled Submit button. The expected-rate field is also
+locked to "save as new expected rate", so every submit rewrites the owner's Arc profile rate.
+Decision: (1) Arc is registered as `manual_channel`, status `registered`. Jobs come only from the owner's
+saved searches; applying happens only in the owner-run, human-approved browser session. No adapter, no
+scraping, no code submission. (2) `ApplyOutcome.verified_by` gains `site_applied_list`: the run read the
+site's own Applied list after the submit. It is valid only for sites that give no confirmation URL;
+where one exists, `confirmation_url` stays the verifier (amends ADR-045). (3) A disabled final button, or
+a required field with no reachable input, stops that job as BLOCKED. Neither code nor a run removes a
+`disabled` attribute or bypasses a site's validation. (4) The Rate.xlsx rule stays the default for every
+money figure. An owner override such as "posted max" belongs to one run, is written in that run's state
+doc, and is never copied into the answer bank unless the owner says so. (5) A run states any profile side
+effect a site causes, once, in its close-out.
+Consequences: Arc jobs are de-duplicated from `apply/log.csv`, not from the live site. Arc hides the
+employer on its cards, so the log uses a per-job employer label and the employer-recency check never
+matches across Arc jobs. Untested: whether Arc keeps the Applied list for long; the first dry check of a
+new Arc layout is a manual read.

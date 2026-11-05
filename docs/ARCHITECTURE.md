@@ -84,6 +84,7 @@ is P2 work.
 | hn_hiring | public_api | planned (P2); endpoint answered HTTP 200 on 2026-10-02, terms not reviewed |
 | linkedin, indeed, glassdoor | email_alert | registered, not implemented; alert ingestion waits on the routine-exposure review (ADR-007) |
 | braintrust | email_alert / manual_channel | registered; verify whether any API or alert email exists |
+| arc | manual_channel | registered; owner-run browser session, no adapter (ADR-047) |
 | malt, toptal, shakers, turing | manual_channel | listed in `config.yaml → manual_channels` |
 
 ## 2c. After a match: kit and tracker
