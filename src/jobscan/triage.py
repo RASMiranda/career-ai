@@ -227,3 +227,44 @@ def render_brief(to_score: list[dict], cfg: dict, root, excerpt: int = EXCERPT_C
             out += [f"## {c['candidate_key']} | {c['title']} | {c['company']}",
                     facts, ((text[:excerpt] + more + snippet) if text else "(no description)"), ""]
     return "\n".join(out).rstrip() + "\n"
+
+
+# ------------------------------------------------------------------ bucket
+# Title-level fit for the browser-apply runs. The owner's keywords come from career-data
+# (apply/triage.yaml) and are passed in as ``cfg``; the code ships only the generic off-domain
+# words below, because a title regex passes hotel and facilities roles.
+DEFAULT_OFF_DOMAIN = ("hotel", "hospitality", "facilities", "resort", "construction", "civil",
+                      "mechanical", "electrical", "plant", "maintenance")
+BUCKETS = ("core-fit", "adjacent", "off-domain", "off-target")
+
+
+def _terms_rx(terms) -> re.Pattern | None:
+    words = [str(t).strip() for t in terms or [] if str(t).strip()]
+    if not words:
+        return None
+    alts = "|".join(r"\s+".join(map(re.escape, w.split())) + "s?" for w in words)
+    return re.compile(rf"(?<![a-z0-9])(?:{alts})(?![a-z0-9])", re.I)
+
+
+def _hits(rx: re.Pattern | None, text: str) -> bool:
+    return bool(rx and rx.search(text or ""))
+
+
+def bucket(title: str, company: str = "", snippet: str = "", cfg: dict | None = None) -> str:
+    """Off-domain beats everything (a hotel "Engineering Manager" is not a fit whatever its title).
+
+    Then core-fit: a core keyword in the title. Adjacent: an adjacent keyword in the title, or a
+    core keyword only in the company or snippet. Otherwise off-target.
+    ``cfg`` keys (all optional lists): core_fit, adjacent, off_domain (added to the defaults).
+    """
+    cfg = cfg or {}
+    context = f"{company} {snippet}"
+    off = _terms_rx([*DEFAULT_OFF_DOMAIN, *(cfg.get("off_domain") or [])])
+    if _hits(off, f"{title} {context}"):
+        return "off-domain"
+    core = _terms_rx(cfg.get("core_fit"))
+    if _hits(core, title):
+        return "core-fit"
+    if _hits(_terms_rx(cfg.get("adjacent")), title) or _hits(core, context):
+        return "adjacent"
+    return "off-target"

@@ -34,6 +34,9 @@ CAPTCHA and legal-question rules stand.*
 ## ADR-005 · 2026-10-02 · Blacklist enforced three times
 Decision: filter in `collect`, fail in `validate`, refuse in `apply`.
 Defaults seeded: Micro1, Crossing Hurdles, Proxify, Alignerr.
+Added in career-data `config.yaml` after the seed (2026-11-05): Recruitment Room (alias
+"Recruitment Room - Global"), Pitch N Hire, JobLeads. `tests/test_blacklist_bank.py` pins the
+batch-apply bank's six names.
 Consequences: removing an entry brings jobs back (blocked jobs are not marked
 as seen).
 
