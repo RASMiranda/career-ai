@@ -136,7 +136,7 @@ def test_secrets_and_personal_data_in_added_lines_are_rejected():
     path = "docs/intents/7-add-a-thing/intent.md"
     for text, what in [("key sk-ant-api03-abcdefghijklmnop", "credential"), ("ghp_" + "a" * 30, "credential"),
                        ("-----BEGIN RSA PRIVATE KEY-----", "credential"), ("X-RapidAPI-Key: " + "k" * 20, "credential"),
-                       ("write to rui.real@gmail.com", "email"), ("call +351 912 345 678", "phone")]:
+                       ("write to person.real@corp.example.org", "email"), ("call +351 912 345 678", "phone")]:
         out = problems("intent", [path], {path: text})
         assert out and what in out[0], text
     ok = "mail me@example.com or a@b.test or 34.x@users.noreply.github.com or noreply@anthropic.com; version 3.12"
@@ -225,7 +225,7 @@ def test_cli_issue_and_prompt_and_check_in_a_real_checkout(tmp_path, monkeypatch
     capsys.readouterr()
     assert sdlc.main(["check"]) == 0 and "ok: 1 file(s)" in capsys.readouterr().out
     (tmp_path / "CLAUDE.md").write_text("new rules")
-    (tmp_path / "README.md").write_text("hi\nmail rui.real@gmail.com")
+    (tmp_path / "README.md").write_text("hi\nmail person.real@corp.example.org")
     assert sdlc.main(["check"]) == 1
     err = capsys.readouterr().err
     assert "CLAUDE.md: protected" in err and "README.md: outside this stage" in err and "nothing is committed" in err
@@ -290,10 +290,10 @@ def test_a_token_in_any_posted_file_is_rejected_although_git_does_not_list_it(tm
 def test_personal_data_is_looked_for_in_prose_but_not_in_test_output_or_labels(tmp_path, monkeypatch):
     out = gitignored_sdlc_checkout(tmp_path, monkeypatch)
     for name in ("pytest.txt", "labels.txt"):
-        (out / name).write_text("author rui.real@gmail.com +351 912 345 678")
+        (out / name).write_text("author person.real@corp.example.org +351 912 345 678")
     assert sdlc.main(["check"]) == 0
     for name in ("comment.md", "review.md"):
-        (out / name).write_text("mail rui.real@gmail.com")
+        (out / name).write_text("mail person.real@corp.example.org")
         assert sdlc.main(["check"]) == 1, name
         (out / name).write_text("call +351 912 345 678")
         assert sdlc.main(["check"]) == 1, name

@@ -51,6 +51,12 @@ missing. Prompt: "In jobscan.collect, if a source requires a secret that is not
 set, record `<source>: missing credentials, skipped` in errors and do not call
 budget.spend. Add a test with a fake source. Do not change any other behaviour."
 
+## Apply · wire the executor to the answer bank (ADR-043 to ADR-046)
+Done in code: `jobscan.bank` loads `answer_bank.yaml` (version 2), `lookup` searches bank, profile, then 01-knowledge, and `append_outcome` writes the apply-run record.
+Still to do: the executor calls `lookup` for each form question and stops at NEEDS_ANSWER or CONFLICT; the owner resolves each CONFLICT in career-data; the v1 `apply/answer-bank.yaml` is retired once every answer it holds is in the v2 bank.
+Exit criteria: a dry run against one Greenhouse form fills only ANSWER values, hands every other field to the owner, and writes one outcome line per job.
+Add a `Greenhouse` form test to the executor: fields answered from the bank must match the bank value, and no work-authorisation field is filled unless `authorization.yaml` has `work_auth_standing.acknowledged_on`. Test: CONFLICT and NEEDS_ANSWER leave the field empty and the job goes to the owner's list.
+
 ## P1 · Two more users, separate data
 Do: one **private data repo per person** (never share one repo between people);
 same engine, different `--data`.

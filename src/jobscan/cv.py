@@ -5,14 +5,14 @@ Google Drive folder: one subfolder per variant holding the files, or the files
 directly, e.g.
 
     CV/
-      Rui Miranda Resume Tech Lead/
-        Rui Miranda Resume Tech Lead.pdf
-        Rui Miranda Resume Tech Lead.docx
-      Rui Miranda Project Manager/ ...
+      Jane Example Resume Tech Lead/
+        Jane Example Resume Tech Lead.pdf
+        Jane Example Resume Tech Lead.docx
+      Jane Example Project Manager/ ...
 
 Names vary, so the variant id is derived: the person's name, words every
 variant shares at the start, and "resume"/"cv" are dropped, then slugged
-("Rui Miranda Resume Tech Lead" -> ``tech-lead``). ``cv.files`` can map ids to
+("Jane Example Resume Tech Lead" -> ``tech-lead``). ``cv.files`` can map ids to
 paths explicitly instead.
 
 The scan runs in the cloud, where those files are not reachable, so the AI
