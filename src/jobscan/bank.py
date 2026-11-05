@@ -316,7 +316,7 @@ def lookup(question: str, *, bank: Bank, profile: dict | None = None, knowledge:
 # ---- apply-run record (ADR-045) -------------------------------------------------------------
 
 STATUSES = ("CANDIDATE", "STAGED", "SUBMITTED", "UNCONFIRMED", "SKIPPED", "BLOCKED", "CLOSED")
-VERIFIED_BY = ("confirmation_url", "gmail", "human")
+VERIFIED_BY = ("confirmation_url", "gmail", "human", "site_applied_list")
 _URL = re.compile(r"https?://[^\s\"'<>]+")
 _SITE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
