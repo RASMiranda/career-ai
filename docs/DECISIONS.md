@@ -528,3 +528,8 @@ Consequences: the owner accepts LinkedIn account-restriction risk. Its User Agre
 code or a model writes. Build order: this ADR is accepted, then the schema and adapter with fake-page tests, then
 career-data. Acceptance tests run on fakes with no network. Not verified against live LinkedIn pages: selectors are
 written from recorded fixtures only, and the first real run is a dry run on the owner's machine.
+
+## ADR-043 · 2026-11-05 · Design docs live only in career-ai/docs; Project holds live run state only
+Context: ARCHITECTURE, PRODUCT, DECISIONS and ROADMAP existed both in the Claude Project and in career-ai/docs. The Project copies stopped at ADR-007 and used different numbering from the repo (location is ADR-029 here).
+Decision: git is the single source of truth for the design docs. The Project copies are removed. apply-state-*.md stay in the Project while a run is live and are archived into career-data/apply/log.csv when the run closes. Nothing personal moves into career-ai.
+Consequences: design sessions read the docs from the repo. A run is not closed until its rows are in log.csv. Docs-only change; no code.
