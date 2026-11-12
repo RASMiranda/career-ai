@@ -342,3 +342,25 @@ def test_arc_applied_list_is_an_accepted_verifier(tmp_path):
     line = json.loads(path.read_text(encoding="utf-8"))
     assert set(line) == {"job_id", "employer", "role", "site", "status", "verified_by", "ts"}
     assert line["verified_by"] == "site_applied_list"
+
+
+def test_already_applied_valid_with_site_applied_list_or_human():
+    for v in ("site_applied_list", "human"):
+        o = outcome(status="ALREADY_APPLIED", verified_by=v)
+        assert bank.validate_outcome(o) is o
+    assert "ALREADY_APPLIED" in bank.STATUSES
+
+
+def test_already_applied_rejects_other_or_missing_verifier():
+    for v in ("confirmation_url", "gmail", ""):
+        with pytest.raises(ApplyOutcomeError, match="ALREADY_APPLIED"):
+            bank.validate_outcome(outcome(status="ALREADY_APPLIED", verified_by=v))
+
+
+def test_submitted_without_verifier_unknown_status_and_unknown_verifier_rejected():
+    with pytest.raises(ApplyOutcomeError, match="verified"):
+        bank.validate_outcome(outcome(status="SUBMITTED", verified_by=""))
+    with pytest.raises(ApplyOutcomeError, match="status must be"):
+        bank.validate_outcome(outcome(status="DONE"))
+    with pytest.raises(ApplyOutcomeError, match="verified_by must be"):
+        bank.validate_outcome(outcome(verified_by="trust_me"))

@@ -57,6 +57,11 @@ Still to do: the executor calls `lookup` for each form question and stops at NEE
 Exit criteria: a dry run against one Greenhouse form fills only ANSWER values, hands every other field to the owner, and writes one outcome line per job.
 Add a `Greenhouse` form test to the executor: fields answered from the bank must match the bank value, and no work-authorisation field is filled unless `authorization.yaml` has `work_auth_standing.acknowledged_on`. Test: CONFLICT and NEEDS_ANSWER leave the field empty and the job goes to the owner's list.
 
+Also (ADR-049):
+- unify status vocabulary (done in this PR)
+- ID-number field detector: classify field labels (cpf, documento, passport, tax id, ssn) as HUMAN_ONLY in the executor
+- Applied-list reader per site as a verifier
+
 ## P1 · Two more users, separate data
 Do: one **private data repo per person** (never share one repo between people);
 same engine, different `--data`.
