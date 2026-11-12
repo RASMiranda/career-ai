@@ -113,3 +113,106 @@ def test_already_applied_is_valid_in_the_csv(log):
     for bad in ("STAGED", "CLOSED"):
         with pytest.raises(applylog.ApplyLogError):
             add(log, job_id="2", status=bad)
+
+
+# ---- CLI: upsert / outcome / check (ADR-050) ----
+
+import json
+
+HEADER = "date,site,employer,role,job_id,status"
+
+
+def run(*argv):
+    return applylog.main(list(argv))
+
+
+def up(path, **kw):
+    base = dict(date="2026-11-12", site="example", employer="Example", role="Engineer", job_id="abc",
+                status="SUBMITTED")
+    base.update(kw)
+    args = ["upsert", "--log", str(path)]
+    for k, v in base.items():
+        args += ["--" + k.replace("_", "-"), v]
+    return run(*args)
+
+
+def test_upsert_appends_and_keeps_header_and_comments_byte_identical(tmp_path):
+    p = tmp_path / "log.csv"
+    original = f"# TODO note\n{HEADER}\n# another comment\n2026-11-01,example,Acme,Dev,1,SKIPPED\n"
+    p.write_bytes(original.encode())
+    assert up(p) == 0
+    text = p.read_bytes().decode()
+    assert text.startswith(original)
+    assert text.endswith("2026-11-12,example,Example,Engineer,abc,SUBMITTED\n")
+    assert len(text.splitlines()) == len(original.splitlines()) + 1
+
+
+def test_upsert_replaces_exactly_that_line_and_keeps_crlf(tmp_path):
+    p = tmp_path / "log.csv"
+    lines = [HEADER, "# c", "2026-11-01,example,Acme,Dev,1,CANDIDATE", "2026-11-02,example,Other,Dev,abc,CANDIDATE",
+             "2026-11-03,other,Z,Dev,abc,SKIPPED"]
+    p.write_bytes(("\r\n".join(lines) + "\r\n").encode())
+    assert up(p) == 0
+    out = p.read_bytes().decode().split("\r\n")
+    assert out[:3] == lines[:3] and out[4] == lines[4]
+    assert out[3] == "2026-11-12,example,Example,Engineer,abc,SUBMITTED"
+    assert len(out) == len(lines) + 1  # trailing empty piece
+    assert "\r\n" in p.read_bytes().decode() and "\n" not in p.read_bytes().decode().replace("\r\n", "")
+
+
+def test_upsert_quotes_commas_and_read_returns_them_intact(tmp_path):
+    p = tmp_path / "log.csv"
+    assert up(p, role="Engineer, Java") == 0
+    assert up(p, role="Engineer, Java") == 0
+    assert '"Engineer, Java"' in p.read_text()
+    rows = applylog.read(p)
+    assert len(rows) == 1 and rows[0]["role"] == "Engineer, Java"
+
+
+def test_check_reports_pipe_row_number(tmp_path, capsys):
+    p = tmp_path / "log.csv"
+    p.write_text(f"{HEADER}\n2026-11-01,example,Acme,Dev,1,SKIPPED\n2026-11-12 | example | Acme | Dev | 2 | SUBMITTED\n")
+    assert run("check", "--log", str(p)) == 2
+    assert "row 2" in capsys.readouterr().err
+
+
+def test_check_ok(tmp_path, capsys):
+    p = tmp_path / "log.csv"
+    up(p)
+    capsys.readouterr()
+    assert run("check", "--log", str(p)) == 0
+    assert "ok, 1 rows" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kw", [{"status": "DONE"}, {"date": "12/11/2026"}, {"site": "SmartRecruiters"}])
+def test_upsert_invalid_exits_2_and_leaves_file_unchanged(tmp_path, kw):
+    p = tmp_path / "log.csv"
+    up(p, job_id="keep")
+    before = p.read_bytes()
+    assert up(p, **kw) == 2
+    assert p.read_bytes() == before
+
+
+def test_upsert_invalid_does_not_create_file(tmp_path):
+    p = tmp_path / "log.csv"
+    assert up(p, status="DONE") == 2
+    assert not p.exists()
+
+
+def test_outcome_writes_redacted_jsonl_line(tmp_path):
+    assert run("outcome", "--data", str(tmp_path), "--site", "example", "--job-id", "abc", "--employer", "Example",
+               "--role", "see https://example.com/ok?token=SECRET#f", "--status", "SUBMITTED",
+               "--ts", "2026-11-12", "--verified-by", "confirmation_url") == 0
+    f = tmp_path / "logs" / "apply" / "example-2026-11-12.jsonl"
+    lines = f.read_text().splitlines()
+    assert len(lines) == 1
+    d = json.loads(lines[0])
+    assert d["verified_by"] == "confirmation_url" and "SECRET" not in lines[0] and d["role"].endswith("/ok")
+
+
+def test_outcome_unknown_verifier_exits_2(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        run("outcome", "--data", str(tmp_path), "--site", "example", "--job-id", "abc", "--employer", "E",
+            "--role", "R", "--status", "SUBMITTED", "--ts", "2026-11-12", "--verified-by", "foo")
+    assert e.value.code == 2
+    assert not (tmp_path / "logs").exists()

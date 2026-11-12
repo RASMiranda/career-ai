@@ -201,6 +201,15 @@ picks a variant from the profile's cards, `profiles/<id>/cv/<variant>.md`, and
 python -m jobscan.cv --data ../career-data   # variants found: cards vs files
 ```
 
+### Apply log commands (ADR-050)
+Browser-apply runs write `apply/log.csv` rows and `logs/apply/<site>-<date>.jsonl` outcomes in career-data through the CLI, never by hand:
+```bash
+python -m jobscan.applylog upsert --log apply/log.csv --date 2026-11-12 --site example --employer Example --role "Engineer, Java" --job-id abc --status SUBMITTED
+python -m jobscan.applylog outcome --data . --site example --job-id abc --employer Example --role "Engineer, Java" --status SUBMITTED --ts 2026-11-12 --verified-by confirmation_url
+python -m jobscan.applylog check --log apply/log.csv
+```
+`upsert` replaces the row with the same site and job ID in place, or appends; other lines stay byte-identical. Errors exit 2.
+
 ## Sources
 
 Keys for Adzuna and JSearch: where they come from, and exactly how they are set in
