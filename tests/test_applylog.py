@@ -97,3 +97,19 @@ def test_window_edges_and_bad_dates(log):
     assert applylog.employer_applied_recently(log, "Edge Co", today=date(2026, 11, 5))
     with pytest.raises(applylog.ApplyLogError):
         add(log, employer="Bad Co", when="5 Nov 2026", status="SUBMITTED")
+
+
+def test_csv_and_jsonl_vocabularies_agree_where_they_overlap():
+    from jobscan import bank
+    assert set(applylog.STATUSES) <= set(bank.STATUSES)
+    assert set(bank.STATUSES) == set(applylog.APPLY_STATUSES)
+    assert set(applylog.APPLY_STATUSES) - set(applylog.STATUSES) == {"STAGED", "CLOSED"}
+    assert set(applylog.APPLIED) <= set(applylog.STATUSES)
+
+
+def test_already_applied_is_valid_in_the_csv(log):
+    assert add(log, status="ALREADY_APPLIED")["status"] == "ALREADY_APPLIED"
+    assert applylog.read(log)[0]["status"] == "ALREADY_APPLIED"
+    for bad in ("STAGED", "CLOSED"):
+        with pytest.raises(applylog.ApplyLogError):
+            add(log, job_id="2", status=bad)

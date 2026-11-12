@@ -571,3 +571,13 @@ Consequences: Arc jobs are de-duplicated from `apply/log.csv`, not from the live
 employer on its cards, so the log uses a per-job employer label and the employer-recency check never
 matches across Arc jobs. Untested: whether Arc keeps the Applied list for long; the first dry check of a
 new Arc layout is a manual read.
+
+## ADR-048 · 2026-11-12 · "Relevant experience" and every free-text box is always drafted, shown in full and never left blank
+Context: the batch-job-apply skill already cites this rule (owner statement, 11 Nov 2026); the log had no ADR for it.
+Decision: "Relevant experience" and every other free-text box is always drafted from career-data and the CVs, checked against the answer bank, shown in full in the approval list, never left blank and never put to the owner as a question (Rui, 11 Nov 2026).
+Consequences: the owner reviews the draft in the approval list rather than writing it; a draft that contradicts the bank is a CONFLICT (ADR-043), not a silent override.
+
+## ADR-049 · 2026-11-12 · Apply run hygiene: site Applied list, gate-aware batching, ID numbers by hand, per-run ratings, direct merge of data log rows
+Context: the Glassdoor and Arc runs of 11-12 Nov 2026 showed that Indeed's Applied list verified every Glassdoor submit, that staged forms and tabs were lost overnight, and that nothing covered ID-number fields or the merge path for log rows. The jsonl outcome record also lacked `ALREADY_APPLIED`, which `apply/log.csv` already had.
+Decision: (a) The site's own Applied list is the de-dup and verification source (Indeed: myjobs.indeed.com/applied); site card tags prove nothing. An `ALREADY_APPLIED` outcome is verified by `site_applied_list` or `human`, never `confirmation_url`. (b) Gate-aware batching: staged forms and tabs do not survive idleness, so stage only while the owner is present and request every reCAPTCHA or Cloudflare clearance straight after approval; a smaller list is fine. (c) Government ID numbers (CPF, Documento, passport, tax ID, SSN) are typed by the owner only and are never echoed, logged or written to any file. (d) Per-run self-ratings that bundle skills are flagged and are per-run unless the owner says standing. (e) career-data apply-log rows may be merged directly by the run (owner authorised 12 Nov 2026); career-ai changes stay PR-only with owner merge.
+Consequences: one status vocabulary, `applylog.APPLY_STATUSES`, feeds both records; `apply/log.csv` still accepts the six statuses it did (no STAGED or CLOSED). Amends ADR-045 and ADR-047.

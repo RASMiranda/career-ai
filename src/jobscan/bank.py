@@ -39,6 +39,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
+from .applylog import APPLY_STATUSES
 from .config import data_root
 
 STANDING = "standing"
@@ -315,7 +316,7 @@ def lookup(question: str, *, bank: Bank, profile: dict | None = None, knowledge:
 
 # ---- apply-run record (ADR-045) -------------------------------------------------------------
 
-STATUSES = ("CANDIDATE", "STAGED", "SUBMITTED", "UNCONFIRMED", "SKIPPED", "BLOCKED", "CLOSED")
+STATUSES = APPLY_STATUSES
 VERIFIED_BY = ("confirmation_url", "gmail", "human", "site_applied_list")
 _URL = re.compile(r"https?://[^\s\"'<>]+")
 _SITE = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -350,6 +351,8 @@ def validate_outcome(o: ApplyOutcome) -> ApplyOutcome:
         raise ApplyOutcomeError(f"verified_by must be one of {', '.join(VERIFIED_BY)}")
     if o.status == "SUBMITTED" and not o.verified_by:
         raise ApplyOutcomeError("a SUBMITTED outcome must say how it was verified")
+    if o.status == "ALREADY_APPLIED" and o.verified_by not in ("site_applied_list", "human"):
+        raise ApplyOutcomeError("an ALREADY_APPLIED outcome must be verified by site_applied_list or human")
     if not _SITE.fullmatch(o.site):
         raise ApplyOutcomeError("site must be a lowercase slug such as greenhouse")
     try:

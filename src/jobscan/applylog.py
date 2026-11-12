@@ -17,7 +17,11 @@ from pathlib import Path
 from .blacklist import canon
 
 FIELDS = ("date", "site", "employer", "role", "job_id", "status")
-STATUSES = ("SUBMITTED", "UNCONFIRMED", "SKIPPED", "BLOCKED", "ALREADY_APPLIED", "CANDIDATE")
+# Single source of truth for apply statuses (ADR-049). ``bank.STATUSES`` (the jsonl outcome record)
+# is this whole tuple; ``apply/log.csv`` accepts the same minus the two record-only states.
+APPLY_STATUSES = ("CANDIDATE", "STAGED", "SUBMITTED", "UNCONFIRMED", "SKIPPED", "BLOCKED", "CLOSED",
+                  "ALREADY_APPLIED")
+STATUSES = tuple(s for s in APPLY_STATUSES if s not in ("STAGED", "CLOSED"))  # what log.csv accepts
 APPLIED = ("SUBMITTED", "UNCONFIRMED", "ALREADY_APPLIED")
 
 
