@@ -48,7 +48,7 @@ the only way to reach a closed platform directly, see below and ADR-017):
 | `public_api` | Open JSON API, no key | Remotive, Arbeitnow, Hacker News "Who is hiring" (Algolia) |
 | `keyed_api` | Official API with a key and quota | Adzuna, JSearch (RapidAPI) |
 | `feed` | RSS/Atom | We Work Remotely and similar |
-| `ats_board` | Per-company public job board of an applicant-tracking system; you configure *which companies*, it does not search the market | Greenhouse, Lever, Ashby (Workable, SmartRecruiters, Recruitee: same shape, to verify) |
+| `ats_board` | Per-company public job board of an applicant-tracking system; you configure *which companies*, it does not search the market | Greenhouse, Lever, Ashby (Workable, Recruitee: same shape, to verify; SmartRecruiters' public Posting API answered HTTP 200 for one company on 2026-11-12, terms not reviewed, no adapter) |
 | `email_alert` | Alert emails the user receives or forwards | LinkedIn, Indeed, Glassdoor, Braintrust (if it sends alerts) |
 | `manual_channel` | No machine access; listed as a checklist in the report | Malt, Toptal, Shakers, Turing |
 | `clip` | A page the owner saved from any site; the `JobPosting` JSON-LD in it is read from disk (`jobscan.clip`). No network, login or selectors; `collect` ingests `inbox/clips.json` like a source | LinkedIn, Indeed, Glassdoor, company career pages |
@@ -85,6 +85,7 @@ is P2 work.
 | linkedin, indeed, glassdoor | email_alert | registered, not implemented; alert ingestion waits on the routine-exposure review (ADR-007) |
 | braintrust | email_alert / manual_channel | registered; verify whether any API or alert email exists |
 | arc | manual_channel | registered; owner-run browser session, no adapter (ADR-047) |
+| smartrecruiters | manual_channel | registered; owner-run browser session, no adapter (ADR-050) |
 | malt, toptal, shakers, turing | manual_channel | listed in `config.yaml → manual_channels` |
 
 ## 2c. After a match: kit and tracker

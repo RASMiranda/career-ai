@@ -9,8 +9,10 @@ Duplicate rule: ``is_duplicate`` matches any status, so a job already seen (even
 re-staged. Only the APPLIED statuses count toward ``employer_applied_recently``.
 """
 
+import argparse
 import csv
 import io
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -107,3 +109,98 @@ def employer_applied_recently(path, employer: str, days: int = 180, today: date 
         if when >= cutoff:
             return True
     return False
+
+
+# ---- command line: upsert / outcome / check (ADR-050) ----------------------------------------
+
+
+def _csv_line(row: dict) -> str:
+    buf = io.StringIO()
+    csv.DictWriter(buf, fieldnames=FIELDS, lineterminator="").writerow(row)
+    return buf.getvalue()
+
+
+def _build_row(*, site, employer, role, job_id, status, when) -> dict:
+    from .bank import _SITE  # lazy: bank imports this module
+    if status not in STATUSES:
+        raise ApplyLogError(f"unknown status {status!r}; one of {', '.join(STATUSES)}")
+    if not str(site).strip() or not str(job_id).strip():
+        raise ApplyLogError("site and job_id are required")
+    if not _SITE.fullmatch(str(site).strip()):
+        raise ApplyLogError(f"site {site!r} must be a lowercase slug such as greenhouse")
+    try:
+        date.fromisoformat(when)
+    except ValueError:
+        raise ApplyLogError(f"date {when!r} must be ISO (YYYY-MM-DD)")
+    return {"date": when, "site": str(site).strip(), "employer": str(employer).strip(),
+            "role": str(role).strip(), "job_id": str(job_id).strip(), "status": status}
+
+
+def upsert(path, *, site, employer, role, job_id, status, when) -> str:
+    """Replace the row with this (site, job_id) in place, or append it. Other lines stay byte-identical."""
+    row = _build_row(site=site, employer=employer, role=role, job_id=job_id, status=status, when=when)
+    p = Path(path)
+    raw = p.read_bytes().decode("utf-8") if p.is_file() else ""
+    lines = raw.splitlines(keepends=True)
+    eol = "\r\n" if any(ln.endswith("\r\n") for ln in lines) else "\n"
+    new = _csv_line(row)
+    data_idx = [i for i, ln in enumerate(lines) if ln.strip() and not ln.lstrip().startswith("#")]
+    if data_idx:
+        header = next(csv.reader([lines[data_idx[0]].strip("\r\n")]))
+        if tuple(header) != FIELDS:
+            raise ApplyLogError(f"{p}: header must be {','.join(FIELDS)}")
+        for i in data_idx[1:]:
+            cells = next(csv.reader([lines[i].strip("\r\n")]), [])
+            if (len(cells) == len(FIELDS) and cells[1].strip().lower() == row["site"].lower()
+                    and cells[4].strip() == row["job_id"]):
+                tail = lines[i][len(lines[i].rstrip("\r\n")):]
+                lines[i] = new + tail
+                p.write_bytes("".join(lines).encode("utf-8"))
+                return new
+    if not data_idx:
+        lines.append(",".join(FIELDS) + eol)
+    elif lines and not lines[-1].endswith(("\n", "\r")):
+        lines[-1] += eol
+    lines.append(new + eol)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes("".join(lines).encode("utf-8"))
+    return new
+
+
+def main(argv=None) -> int:
+    from . import bank
+    ap = argparse.ArgumentParser(prog="python -m jobscan.applylog")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("upsert", "outcome"):
+        q = sub.add_parser(name)
+        if name == "upsert":
+            q.add_argument("--log", required=True)
+            q.add_argument("--date", required=True)
+        else:
+            q.add_argument("--data", required=True)
+            q.add_argument("--ts", required=True)
+            q.add_argument("--verified-by", default="", choices=["", *bank.VERIFIED_BY])
+        for f in ("site", "employer", "role", "job-id", "status"):
+            q.add_argument("--" + f, required=True)
+    c = sub.add_parser("check")
+    c.add_argument("--log", required=True)
+    a = ap.parse_args(argv)
+    try:
+        if a.cmd == "upsert":
+            print(upsert(a.log, site=a.site, employer=a.employer, role=a.role, job_id=a.job_id,
+                         status=a.status, when=a.date))
+        elif a.cmd == "outcome":
+            path = bank.append_outcome(bank.ApplyOutcome(
+                job_id=a.job_id, employer=a.employer, role=a.role, site=a.site, status=a.status,
+                verified_by=a.verified_by, ts=a.ts), data=a.data)
+            print(path)
+        else:
+            print(f"ok, {len(read(a.log))} rows")
+    except (ApplyLogError, bank.ApplyOutcomeError, ValueError, RuntimeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
