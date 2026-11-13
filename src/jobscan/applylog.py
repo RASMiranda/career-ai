@@ -246,14 +246,14 @@ def check_log(log, data=None):
 
     Returns (errors, gaps, warnings, rows, legacy). A structural error in the CSV raises ApplyLogError,
     as ``read`` does. ``gaps``: SUBMITTED rows with no outcome and not on the legacy allowlist; these
-    fail --strict. ``legacy``: distinct allowlisted SUBMITTED rows with no outcome. ``warnings``: stale
+    fail --strict. ``legacy``: SUBMITTED log rows with no outcome that the allowlist covers, one per row. ``warnings``: stale
     allowlist entries; they never fail. A job ID is echoed only when it is in the log.
     """
     p = Path(log)
     rows = read(p)
     text = p.read_text(encoding="utf-8") if p.is_file() else ""
     errors = _id_problems(text, str(p))
-    gaps, warnings, legacy_keys = [], [], set()
+    gaps, warnings, legacy = [], [], 0
     if data is not None:
         root = Path(data)
         if not root.is_dir():
@@ -270,7 +270,7 @@ def check_log(log, data=None):
             if r["status"] != "SUBMITTED" or key in keys:
                 continue
             if key in allow:
-                legacy_keys.add(key)
+                legacy += 1  # one per log row: a key can repeat (e.g. several rows with the same ID)
             else:
                 gaps.append(f"no outcome for {r['site']} {r['job_id']}")
         for key, line in allow.items():
@@ -279,7 +279,7 @@ def check_log(log, data=None):
             elif key not in submitted:
                 # no echo: this job ID is not in the log
                 warnings.append(f"legacy entry at line {line} has no SUBMITTED row in the log")
-    return errors, gaps, warnings, len(rows), len(legacy_keys)
+    return errors, gaps, warnings, len(rows), legacy
 
 
 def read_rows(path) -> list[tuple[int, dict]]:

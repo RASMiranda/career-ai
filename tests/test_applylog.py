@@ -500,3 +500,12 @@ def test_allowlist_reason_with_an_id_number_is_refused_without_echo(tmp_path, ca
     assert strict(data, log) == 2
     err = capsys.readouterr().err
     assert "government ID number" in err and fake not in err
+
+
+def test_legacy_count_is_per_row_when_a_key_repeats(tmp_path, capsys):
+    # several log rows can share a site and job ID (the Glassdoor rows with no job ID); each row counts
+    data, log = legacy_setup(tmp_path, [SUB_1, SUB_1.replace("Dev", "Other role")],
+                             allow=["greenhouse,1000001,legacy: test"])
+    capsys.readouterr()
+    assert strict(data, log) == 0
+    assert "legacy: 2" in capsys.readouterr().out
