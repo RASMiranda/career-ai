@@ -37,3 +37,25 @@ def test_url_scheme_gate():
 def test_truncate_strips_html_and_bounds_length():
     out = truncate("<p>hello <b>world</b></p>" + " padding" * 500, limit=50)
     assert "<" not in out and len(out) <= 60
+
+
+def test_truncate_empty():
+    assert truncate("") == ""
+    assert truncate("", limit=0) == ""
+
+
+def test_truncate_exact_limit():
+    assert truncate("a b c", limit=5) == "a b c"
+
+
+def test_truncate_one_over_limit():
+    assert truncate("aaaa bbbb", limit=8) == "aaaa ..."
+
+
+def test_truncate_limit_zero():
+    # Pins current behaviour: nothing is kept, only the marker is returned.
+    assert truncate("hello world", limit=0) == " ..."
+
+
+def test_truncate_limit_counts_cleaned_text():
+    assert truncate("  <b>a</b>   b  ", limit=3) == "a b"
