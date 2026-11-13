@@ -278,8 +278,8 @@ FIXED = "Blocked by the safety check. See the run log."
 
 
 def leaky():
-    return {"comment.md": f"report {FAKE_TOKEN}", "review.md": f"finding {FAKE_TOKEN}", "pytest.txt": f"2 passed {FAKE_TOKEN}",
-            "labels.txt": "needs-info\n"}
+    return {"comment.md": f"report {FAKE_TOKEN}", "build-report.md": f"built {FAKE_TOKEN}",
+            "review.md": f"finding {FAKE_TOKEN}", "pytest.txt": f"2 passed {FAKE_TOKEN}", "labels.txt": "needs-info\n"}
 
 
 def test_a_blocked_run_posts_only_the_fixed_message(tmp_path):
@@ -317,6 +317,65 @@ def test_the_report_names_the_open_pr_near_the_top_and_only_then(tmp_path):
 
 def test_a_blocked_run_has_no_pr_line(tmp_path):
     assert "PR:" not in run_post_step(tmp_path, {"blocked": "true", "FAKE_PR": "12"}, leaky())
+
+
+# ------------------------------------------- the build report survives the reviewers (ADR-052)
+def step_named(prefix):
+    return next(s for s in steps("sdlc") if str(s.get("name", "")).startswith(prefix))
+
+
+def test_the_build_report_is_copied_aside_before_the_review_agents_start():
+    names = [s.get("name", "") for s in steps("sdlc")]
+    assert names.index(step_named("Review the build")["name"]) < names.index("Run the review agents")
+
+
+def test_the_copy_aside_copies_the_build_report_or_writes_a_fixed_line(tmp_path):
+    import os
+    import subprocess
+
+    lines = step_named("Review the build")["run"].splitlines()
+    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if l.startswith("git diff"))])   # before the reviewers
+    (tmp_path / ".sdlc").mkdir()
+    (tmp_path / ".sdlc" / "comment.md").write_text("built it\n")
+    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=os.environ, check=True, capture_output=True)
+    assert (tmp_path / ".sdlc" / "build-report.md").read_text() == "built it\n"
+    (tmp_path / ".sdlc" / "comment.md").unlink()
+    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=os.environ, check=True, capture_output=True)
+    assert (tmp_path / ".sdlc" / "build-report.md").read_text() == "The build agent wrote no report.\n"
+
+
+def test_the_build_stage_posts_the_build_report_not_a_reviewers_comment_then_the_review_then_the_tests_note(tmp_path):
+    body = run_post_step(tmp_path, {}, {"comment.md": "reviewer overwrote this", "build-report.md": "built it",
+                                        "review.md": "Verdict: no Important findings"})
+    assert "built it" in body and "reviewer overwrote this" not in body
+    order = [body.index(p) for p in ("built it", "**Review**", sdlc.tests_note("build"), "**Next gate (yours):**")]
+    assert order == sorted(order)
+
+
+def test_without_a_build_report_the_stage_report_is_posted(tmp_path):
+    body = run_post_step(tmp_path, {}, {"comment.md": "no push, so no review"})
+    assert "no push, so no review" in body
+
+
+def test_the_build_report_is_in_the_secrets_scan_and_a_fake_secret_in_it_is_flagged(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    assert ".sdlc/build-report.md" in sdlc.SDLC_OUTPUT
+    assert sdlc.scan_problems({".sdlc/build-report.md": f"report {FAKE_TOKEN}"})
+    (tmp_path / ".sdlc").mkdir()
+    (tmp_path / ".sdlc" / "build-report.md").write_text(f"report {FAKE_TOKEN}\n")
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    run = subprocess.run([sys.executable, "-P", "-m", "jobscan.sdlc", "scan"], cwd=tmp_path, env=env,
+                         capture_output=True, text=True)
+    assert run.returncode == 1 and "build-report.md" in run.stderr
+
+
+def test_a_blocked_run_removes_the_build_report_so_no_agent_text_is_left_to_post(tmp_path):
+    body = run_post_step(tmp_path, {"blocked": "true"}, {"build-report.md": f"built {FAKE_TOKEN}"})
+    assert FIXED in body and FAKE_TOKEN not in body
+    assert not (tmp_path / ".sdlc" / "build-report.md").exists()
 
 
 def test_the_draft_pr_body_comes_from_the_tested_function_and_only_type_labels_are_copied():
