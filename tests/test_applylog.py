@@ -216,3 +216,189 @@ def test_outcome_unknown_verifier_exits_2(tmp_path):
             "--role", "R", "--status", "SUBMITTED", "--ts", "2026-11-12", "--verified-by", "foo")
     assert e.value.code == 2
     assert not (tmp_path / "logs").exists()
+
+
+# ---- batch / check hardening (ADR-053). Fake employers, fake job IDs; no ID-shaped literals ----
+
+BATCH_HEADER = "date,site,employer,role,job_id,status,verified_by,ts"
+ROW_A = "2026-11-11,greenhouse,Acme Labs,Software Engineer,1000001,SUBMITTED,confirmation_url,2026-11-11"
+ROW_B = "2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,BLOCKED,,2026-11-12"
+# Built at run time so the test file never holds a formatted CPF.
+FAKE_CPF = "-".join([".".join(["111", "222", "333"]), "44"])
+FAKE_DOC_DIGITS = "1" * 11
+
+
+def make_data(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    return data
+
+
+def write_rows(path, *lines):
+    path.write_text("\n".join([BATCH_HEADER, *lines]) + "\n", encoding="utf-8")
+
+
+def batch(data, rows, capsys=None):
+    return run("batch", "--log", str(data / "apply" / "log.csv"), "--data", str(data), "--file", str(rows))
+
+
+def test_batch_writes_log_rows_and_jsonl_outcomes(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A, ROW_B)
+    assert batch(data, rows) == 0
+    out = capsys.readouterr().out
+    assert "2 new, 0 updated, 0 unchanged" in out
+    log = (data / "apply" / "log.csv").read_text(encoding="utf-8").splitlines()
+    assert log[0] == "date,site,employer,role,job_id,status"
+    assert log[1] == "2026-11-11,greenhouse,Acme Labs,Software Engineer,1000001,SUBMITTED"
+    assert log[2] == "2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,BLOCKED"
+    recs = [json.loads(x) for x in (data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").read_text().splitlines()]
+    assert recs == [{"employer": "Acme Labs", "job_id": "1000001", "role": "Software Engineer",
+                     "site": "greenhouse", "status": "SUBMITTED", "ts": "2026-11-11",
+                     "verified_by": "confirmation_url"}]
+    # BLOCKED with no verifier writes no outcome
+    assert not (data / "logs" / "apply" / "greenhouse-2026-11-12.jsonl").exists()
+
+
+def test_batch_is_all_or_nothing_on_one_bad_row(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    bad = "2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,SUBMITTED,,2026-11-12"  # SUBMITTED, no verifier
+    write_rows(rows, ROW_A, bad)
+    assert batch(data, rows) == 2
+    assert "error: row 2:" in capsys.readouterr().err
+    assert not (data / "apply" / "log.csv").exists()
+    assert not (data / "logs").exists()
+
+
+def test_batch_second_run_changes_nothing(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A, ROW_B)
+    assert batch(data, rows) == 0
+    log_before = (data / "apply" / "log.csv").read_bytes()
+    jsonl = data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl"
+    jsonl_before = jsonl.read_bytes()
+    capsys.readouterr()
+    assert batch(data, rows) == 0
+    out = capsys.readouterr().out
+    assert "0 new, 0 updated, 2 unchanged" in out
+    assert "outcomes: 0 written" in out
+    assert (data / "apply" / "log.csv").read_bytes() == log_before
+    assert jsonl.read_bytes() == jsonl_before
+
+
+def test_batch_updates_an_existing_row_in_place(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_B)
+    batch(data, rows)
+    write_rows(rows, ROW_B.replace("BLOCKED,,", "UNCONFIRMED,gmail,"))
+    capsys.readouterr()
+    assert batch(data, rows) == 0
+    assert "0 new, 1 updated, 0 unchanged" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("row, reason", [
+    ("2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,ALREADY_APPLIED,confirmation_url,2026-11-12",
+     "must be verified by site_applied_list or human"),
+    ("2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,ALREADY_APPLIED,,2026-11-12",
+     "must be verified by site_applied_list or human"),
+    ("2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,DONE,,2026-11-12", "unknown status"),
+])
+def test_batch_rejects_already_applied_without_a_site_or_human_verifier(tmp_path, capsys, row, reason):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A, row)
+    assert batch(data, rows) == 2
+    err = capsys.readouterr().err
+    assert "error: row 2:" in err and reason in err
+    assert not (data / "apply" / "log.csv").exists()
+
+
+def test_batch_refuses_a_duplicate_site_and_job_id_inside_the_file(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A, ROW_A)
+    assert batch(data, rows) == 2
+    assert "error: row 2:" in capsys.readouterr().err
+
+
+def test_batch_refuses_an_id_number_in_a_field(tmp_path, capsys):
+    data = make_data(tmp_path)
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A.replace("Software Engineer", f"documento {FAKE_DOC_DIGITS}"))
+    assert batch(data, rows) == 2
+    err = capsys.readouterr().err
+    assert "government ID number" in err
+    assert FAKE_DOC_DIGITS not in err
+    assert not (data / "apply" / "log.csv").exists()
+
+
+def test_check_rejects_a_formatted_cpf_without_echoing_it(tmp_path, capsys):
+    log = tmp_path / "log.csv"
+    log.write_text(f"{HEADER}\n2026-11-11,example,Acme,Dev {FAKE_CPF},1000001,SKIPPED\n", encoding="utf-8")
+    assert run("check", "--log", str(log)) == 2
+    err = capsys.readouterr().err
+    assert f"{log}:2:" in err
+    assert FAKE_CPF not in err and "111" not in err
+
+
+def test_check_rejects_a_documento_label_and_its_jsonl_twin(tmp_path, capsys):
+    log = tmp_path / "log.csv"
+    log.write_text(f"{HEADER}\n2026-11-11,example,Acme,documento {FAKE_DOC_DIGITS},1000001,SKIPPED\n",
+                   encoding="utf-8")
+    assert run("check", "--log", str(log)) == 2
+    assert FAKE_DOC_DIGITS not in capsys.readouterr().err
+
+    data = tmp_path / "data"
+    (data / "logs" / "apply").mkdir(parents=True)
+    jl = data / "logs" / "apply" / "example-2026-11-11.jsonl"
+    jl.write_text(json.dumps({"job_id": "1", "role": f"passport {FAKE_DOC_DIGITS}", "site": "example",
+                              "status": "SKIPPED", "ts": "2026-11-11", "verified_by": "",
+                              "employer": "Acme"}) + "\n", encoding="utf-8")
+    assert run("check", "--log", str(log), "--data", str(data)) == 2
+    err = capsys.readouterr().err
+    assert str(jl) in err and FAKE_DOC_DIGITS not in err
+
+
+def test_check_warns_on_a_submitted_row_without_an_outcome_and_strict_fails(tmp_path, capsys):
+    data = make_data(tmp_path)
+    (data / "apply").mkdir()
+    log = data / "apply" / "log.csv"
+    log.write_text(f"{HEADER}\n2026-11-11,greenhouse,Acme Labs,Dev,1000001,SUBMITTED\n", encoding="utf-8")
+    capsys.readouterr()
+    assert run("check", "--log", str(log), "--data", str(data)) == 0
+    assert "warning: no outcome for greenhouse 1000001" in capsys.readouterr().out
+    assert run("check", "--log", str(log), "--data", str(data), "--strict") == 2
+    # once the outcome exists, the warning goes away
+    assert run("outcome", "--data", str(data), "--site", "greenhouse", "--job-id", "1000001",
+               "--employer", "Acme Labs", "--role", "Dev", "--status", "SUBMITTED",
+               "--ts", "2026-11-11", "--verified-by", "confirmation_url") == 0
+    capsys.readouterr()
+    assert run("check", "--log", str(log), "--data", str(data), "--strict") == 0
+    assert "warning" not in capsys.readouterr().out
+
+
+def test_batch_keeps_comments_and_unrelated_lines_byte_identical(tmp_path, capsys):
+    data = make_data(tmp_path)
+    (data / "apply").mkdir()
+    log = data / "apply" / "log.csv"
+    original = (f"# TODO-RUI: batch 1 rows are elsewhere\n{HEADER}\n# another note\n"
+                "2026-11-01,example,Acme,Dev,1,SKIPPED\n"
+                "2026-11-02,greenhouse,Acme Labs,Dev,1000001,CANDIDATE\n"
+                "# trailing note\n")
+    log.write_bytes(original.encode())
+    rows = tmp_path / "rows.csv"
+    write_rows(rows, ROW_A)  # updates the CANDIDATE line in place
+    assert batch(data, rows) == 0
+    text = log.read_text(encoding="utf-8")
+    assert text.splitlines() == [
+        "# TODO-RUI: batch 1 rows are elsewhere",
+        HEADER,
+        "# another note",
+        "2026-11-01,example,Acme,Dev,1,SKIPPED",
+        "2026-11-11,greenhouse,Acme Labs,Software Engineer,1000001,SUBMITTED",
+        "# trailing note",
+    ]
