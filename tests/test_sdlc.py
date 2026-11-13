@@ -114,6 +114,30 @@ def test_an_agent_can_never_change_its_own_rules_the_workflows_or_secrets(path):
     assert out and "protected" in out[0]
 
 
+@pytest.mark.parametrize("name", sorted(sdlc.STAGES))
+def test_no_stage_may_change_the_sdlc_package_that_runs_the_stages_and_the_check(name):
+    # i.F9: the package that runs every stage and decides what is kept is code a human PR changes, never an agent.
+    for path in ("src/jobscan/sdlc/__init__.py", "src/jobscan/sdlc/budget.py"):
+        out = problems(name, [path])
+        assert out, (name, path)
+        if sdlc.STAGES[name]["repo"]:
+            assert "protected" in out[0], (name, path, out)
+
+
+def test_build_may_change_other_jobscan_code_but_not_the_sdlc_package():
+    assert problems("build", ["src/jobscan/kit.py", "src/jobscan/apply/x.py", "tests/test_kit.py"]) == []
+    out = problems("build", ["src/jobscan/sdlc/__init__.py", "src/jobscan/kit.py"])
+    assert len(out) == 1 and "src/jobscan/sdlc/__init__.py: protected" in out[0]
+
+
+def test_the_only_write_pattern_that_reaches_the_sdlc_package_is_the_builds_src_glob_and_protection_wins():
+    # The build stage's `src/**` still matches the package; the protected check runs first in `check`, so it refuses.
+    for name, spec in sdlc.STAGES.items():
+        overlapping = [w for w in spec["writes"] if sdlc.matches("src/jobscan/sdlc/__init__.py", [w])]
+        assert overlapping == (["src/**"] if name == "build" else []), (name, overlapping)
+        assert sdlc.matches("src/jobscan/sdlc/__init__.py", sdlc.PROTECTED)
+
+
 def test_build_may_change_code_tests_and_docs_but_not_the_rest():
     assert problems("build", ["src/jobscan/kit.py", "tests/test_kit.py", "docs/ARCHITECTURE.md", "README.md"]) == []
     assert problems("build", ["data/x.json"])

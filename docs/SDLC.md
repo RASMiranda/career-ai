@@ -44,9 +44,13 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
 - **What an agent can do.** Edit files in the checkout for its stage and write a report. It cannot push, merge, label,
   close, call GitHub or reach the web. `python -m jobscan.sdlc check` rejects anything outside the stage, any protected
   path (`.github/`, `.claude/`, `CLAUDE.md`, `REVIEW.md`, `routine-prompt.md`, `docs/DECISIONS.md`, dependency files,
-  authorization, config and profiles, scripts), and any credential, email or phone number in an added line. Only then does
+  authorization, config and profiles, scripts, the `src/jobscan/sdlc/` package), and any credential, email or phone number in an added line. Only then does
   the workflow commit, push to `agent/*`, open the draft PR, start the tests and post the report. **No agent and no step of the
   privileged job runs the repository's tests** (ADR-037): see below.
+- **Which code runs.** The steps that decide, skip, frame the issue and write the prompt run `jobscan` from a second
+  checkout of the trigger commit's `src/`, taken before any agent and again after each agent run, never from the issue's
+  branch (ADR-036, ADR-058). The `src/jobscan/sdlc/` package is protected, so only a human PR can change the stage rules or
+  the check. The workflow file itself takes effect only once it is merged to `main`.
 - **Review.** Every build is followed by a reviewer and a security-reviewer pass (`REVIEW.md`), read only; apply
   `agent:review` to run them again after your own pushes. Findings never approve or block by themselves.
   The reviewers write `.sdlc/comment.md` too, so a trusted step copies the build agent's report to
