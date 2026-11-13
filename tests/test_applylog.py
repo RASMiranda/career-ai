@@ -509,3 +509,72 @@ def test_legacy_count_is_per_row_when_a_key_repeats(tmp_path, capsys):
     capsys.readouterr()
     assert strict(data, log) == 0
     assert "legacy: 2" in capsys.readouterr().out
+
+
+# ---- cross-site duplicate check: seen / normalise_role (ADR-056(a)) ---------------------------
+
+def _row(log, **kw):
+    base = {"site": "linkedin", "employer": "Example", "role": "Senior Engineer", "job_id": "1",
+            "status": "SUBMITTED", "when": "2026-11-11"}
+    base.update(kw)
+    return applylog.append(log, **base)
+
+
+@pytest.mark.parametrize("raw, key", [
+    ("Senior Software Engineer (Java) - remote (m/f/n)", "senior software engineer java"),
+    ("Senior Software Engineer (Java)", "senior software engineer java"),
+    ("Engineer (m/w/d) (Remote)", "engineer"),
+    ("Engineer - Remote (f/m/x)", "engineer"),
+    ("Lead Engineer (all genders)", "lead engineer"),
+    ("Engineer, Java / Linux", "engineer java linux"),
+    ("  Engineer   Platform  ", "engineer platform"),
+])
+def test_normalise_role_strips_markers_and_punctuation(raw, key):
+    assert applylog.normalise_role(raw) == key
+
+
+def test_seen_matches_same_role_across_sites_despite_gender_and_remote_tags(log):
+    _row(log, site="linkedin", role="Senior Software Engineer (Java) - remote (m/f/n)")
+    matches = applylog.seen(log, "Example", "Senior Software Engineer (Java)")
+    assert [(r["site"], r["status"]) for r in matches] == [("linkedin", "SUBMITTED")]
+
+
+def test_seen_matches_one_aggregator_role_reposted_under_new_job_ids(log):
+    _row(log, site="linkedin", employer="Fakeco Staffing", role="Java Fullstack Engineer", job_id="111")
+    _row(log, site="linkedin", employer="Fakeco Staffing", role="Java Fullstack Engineer", job_id="222")
+    assert len(applylog.seen(log, "Fakeco Staffing", "Java Fullstack Engineer")) == 2
+
+
+def test_seen_ignores_a_different_role_at_the_same_employer(log):
+    _row(log, role="Senior Engineer")
+    assert applylog.seen(log, "Example", "Staff Engineer") == []
+
+
+def test_seen_ignores_skipped_rows(log):
+    _row(log, role="Senior Engineer", status="SKIPPED")
+    assert applylog.seen(log, "Example", "Senior Engineer") == []
+
+
+def test_seen_matches_employer_through_canon_spacing_and_case(log):
+    _row(log, employer="Acme-Labs", role="Senior Engineer")
+    assert len(applylog.seen(log, "ACME  labs", "Senior Engineer (m/f/n)")) == 1
+
+
+def test_seen_on_missing_log_is_empty(tmp_path):
+    assert applylog.seen(tmp_path / "none.csv", "Example", "Senior Engineer") == []
+
+
+def test_seen_cli_prints_matches_and_exits_1(log, capsys):
+    _row(log, site="smartrecruiters", job_id="abc", role="Senior Engineer (m/f/n) - Remote")
+    code = applylog.main(["seen", "--log", str(log), "--employer", "Example",
+                          "--role", "Senior Engineer (m/f/n) - Remote"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert out == "smartrecruiters,abc,2026-11-11,SUBMITTED\n"
+
+
+def test_seen_cli_no_match_exits_0_and_prints_nothing(log, capsys):
+    _row(log, role="Senior Engineer")
+    code = applylog.main(["seen", "--log", str(log), "--employer", "Example", "--role", "Staff Engineer"])
+    assert code == 0
+    assert capsys.readouterr().out == ""

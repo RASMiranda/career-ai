@@ -207,6 +207,7 @@ Browser-apply runs write `apply/log.csv` rows and `logs/apply/<site>-<date>.json
 python -m jobscan.applylog upsert --log apply/log.csv --date 2026-11-12 --site example --employer Example --role "Engineer, Java" --job-id abc --status SUBMITTED
 python -m jobscan.applylog outcome --data . --site example --job-id abc --employer Example --role "Engineer, Java" --status SUBMITTED --ts 2026-11-12 --verified-by confirmation_url
 python -m jobscan.applylog check --log apply/log.csv
+python -m jobscan.applylog seen --log apply/log.csv --employer Example --role "Senior Engineer (m/f/n) - Remote"   # exit 1 + rows if already applied on any site (ADR-056)
 ```
 `upsert` replaces the row with the same site and job ID in place, or appends; other lines stay byte-identical. Errors exit 2.
 
