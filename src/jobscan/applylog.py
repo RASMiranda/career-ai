@@ -213,27 +213,73 @@ def _outcome_keys(root: Path) -> tuple[set, list[str]]:
     return keys, problems
 
 
-def check_log(log, data=None) -> tuple[list[str], list[str], int]:
-    """Validate apply/log.csv and, given ``data``, the jsonl outcomes. Returns (errors, warnings, rows).
+LEGACY_FIELDS = ("site", "job_id", "reason")
+LEGACY_FILE = Path("apply") / "legacy-outcomes.csv"  # under the data folder (ADR-054)
 
-    A structural error in the CSV raises ApplyLogError, as ``read`` does. A SUBMITTED row with no
-    jsonl outcome is a warning (exit 0 unless --strict).
+
+def _legacy_allowlist(root: Path) -> dict[tuple[str, str], int]:
+    """(site, job_id) -> line number from apply/legacy-outcomes.csv. A missing file is an empty list."""
+    p = root / LEGACY_FILE
+    if not p.is_file():
+        return {}
+    numbered = [(n, ln) for n, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), start=1)
+                if ln.strip() and not ln.lstrip().startswith("#")]
+    if not numbered or tuple(h.strip() for h in next(csv.reader([numbered[0][1]]))) != LEGACY_FIELDS:
+        raise ApplyLogError(f"{p}: header must be {','.join(LEGACY_FIELDS)}")
+    out: dict[tuple[str, str], int] = {}
+    for n, ln in numbered[1:]:
+        cells = next(csv.reader([ln]), [])
+        if len(cells) != len(LEGACY_FIELDS):
+            raise ApplyLogError(f"{p}:{n}: expected {len(LEGACY_FIELDS)} fields")
+        site, job_id, reason = (c.strip() for c in cells)
+        if not site or not job_id or not reason:
+            raise ApplyLogError(f"{p}:{n}: site, job_id and reason are all required")
+        key = (site, job_id)
+        if key in out:
+            raise ApplyLogError(f"{p}:{n}: duplicate entry (first at line {out[key]})")
+        out[key] = n
+    return out
+
+
+def check_log(log, data=None):
+    """Validate apply/log.csv and, given ``data``, the jsonl outcomes.
+
+    Returns (errors, gaps, warnings, rows, legacy). A structural error in the CSV raises ApplyLogError,
+    as ``read`` does. ``gaps``: SUBMITTED rows with no outcome and not on the legacy allowlist; these
+    fail --strict. ``legacy``: distinct allowlisted SUBMITTED rows with no outcome. ``warnings``: stale
+    allowlist entries; they never fail. A job ID is echoed only when it is in the log.
     """
     p = Path(log)
     rows = read(p)
     text = p.read_text(encoding="utf-8") if p.is_file() else ""
     errors = _id_problems(text, str(p))
-    warnings = []
+    gaps, warnings, legacy_keys = [], [], set()
     if data is not None:
         root = Path(data)
         if not root.is_dir():
             raise ApplyLogError(f"data folder not found: {root}")
         keys, outcome_problems = _outcome_keys(root)
         errors += outcome_problems
+        allow = _legacy_allowlist(root)
+        allow_path = root / LEGACY_FILE
+        if allow_path.is_file():
+            errors += _id_problems(allow_path.read_text(encoding="utf-8"), str(allow_path))
+        submitted = {(r["site"], r["job_id"]) for r in rows if r["status"] == "SUBMITTED"}
         for r in rows:
-            if r["status"] == "SUBMITTED" and (r["site"], r["job_id"]) not in keys:
-                warnings.append(f"no outcome for {r['site']} {r['job_id']}")
-    return errors, warnings, len(rows)
+            key = (r["site"], r["job_id"])
+            if r["status"] != "SUBMITTED" or key in keys:
+                continue
+            if key in allow:
+                legacy_keys.add(key)
+            else:
+                gaps.append(f"no outcome for {r['site']} {r['job_id']}")
+        for key, line in allow.items():
+            if key in submitted and key in keys:
+                warnings.append(f"legacy entry has an outcome: {key[0]} {key[1]}")
+            elif key not in submitted:
+                # no echo: this job ID is not in the log
+                warnings.append(f"legacy entry at line {line} has no SUBMITTED row in the log")
+    return errors, gaps, warnings, len(rows), len(legacy_keys)
 
 
 def read_rows(path) -> list[tuple[int, dict]]:
@@ -352,15 +398,19 @@ def batch(log, data, rows_file) -> dict:
 
 
 def _check(log, data, strict: bool) -> int:
-    errors, warnings, rows = check_log(log, data)
+    errors, gaps, warnings, rows, legacy = check_log(log, data)
     if errors:
         for e in errors:
             print(f"error: {e}", file=sys.stderr)
         return 2
+    for g in gaps:
+        print(f"warning: {g}")
     for w in warnings:
         print(f"warning: {w}")
-    if strict and warnings:
-        print(f"error: --strict: {len(warnings)} SUBMITTED row(s) without an outcome", file=sys.stderr)
+    if data is not None:
+        print(f"legacy: {legacy}")
+    if strict and gaps:
+        print(f"error: --strict: {len(gaps)} SUBMITTED row(s) without an outcome", file=sys.stderr)
         return 2
     print(f"ok, {rows} rows")
     return 0

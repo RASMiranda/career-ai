@@ -402,3 +402,101 @@ def test_batch_keeps_comments_and_unrelated_lines_byte_identical(tmp_path, capsy
         "2026-11-11,greenhouse,Acme Labs,Software Engineer,1000001,SUBMITTED",
         "# trailing note",
     ]
+
+
+# ---- legacy allowlist: apply/legacy-outcomes.csv (ADR-054). Fake data only. ----
+
+SUB_1 = "2026-11-11,greenhouse,Acme Labs,Dev,1000001,SUBMITTED"
+SUB_2 = "2026-11-11,greenhouse,Acme Labs,Dev,1000002,SUBMITTED"
+LEGACY_HEADER = "site,job_id,reason"
+
+
+def legacy_setup(tmp_path, log_rows, allow=None, outcome_for=()):
+    data = tmp_path / "data"
+    (data / "apply").mkdir(parents=True)
+    log = data / "apply" / "log.csv"
+    log.write_text(HEADER + "\n" + "".join(r + "\n" for r in log_rows), encoding="utf-8")
+    if allow is not None:
+        (data / "apply" / "legacy-outcomes.csv").write_text(
+            LEGACY_HEADER + "\n" + "".join(a + "\n" for a in allow), encoding="utf-8")
+    for job_id in outcome_for:
+        (data / "logs" / "apply").mkdir(parents=True, exist_ok=True)
+        with (data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"employer": "Acme Labs", "job_id": job_id, "role": "Dev",
+                                 "site": "greenhouse", "status": "SUBMITTED", "ts": "2026-11-11",
+                                 "verified_by": "confirmation_url"}) + "\n")
+    return data, log
+
+
+def strict(data, log):
+    return run("check", "--log", str(log), "--data", str(data), "--strict")
+
+
+def test_legacy_row_passes_strict_and_is_counted(tmp_path, capsys):
+    data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test"])
+    capsys.readouterr()
+    assert strict(data, log) == 0
+    out = capsys.readouterr().out
+    assert "legacy: 1" in out and "warning" not in out
+
+
+def test_unlisted_missing_outcome_still_fails_strict(tmp_path, capsys):
+    data, log = legacy_setup(tmp_path, [SUB_1, SUB_2], allow=["greenhouse,1000001,legacy: test"])
+    capsys.readouterr()
+    assert strict(data, log) == 2
+    captured = capsys.readouterr()
+    assert "warning: no outcome for greenhouse 1000002" in captured.out
+    assert "legacy: 1" in captured.out
+    assert "--strict: 1 SUBMITTED row(s) without an outcome" in captured.err
+
+
+def test_listed_row_that_now_has_an_outcome_warns_and_exits_0(tmp_path, capsys):
+    data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test"],
+                             outcome_for=["1000001"])
+    capsys.readouterr()
+    assert strict(data, log) == 0
+    out = capsys.readouterr().out
+    assert "warning: legacy entry has an outcome: greenhouse 1000001" in out
+    assert "legacy: 0" in out
+
+
+def test_listed_key_without_a_row_warns_and_does_not_echo_the_id(tmp_path, capsys):
+    data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test",
+                                                       "greenhouse,9000009,legacy: stale"])
+    capsys.readouterr()
+    assert strict(data, log) == 0
+    out = capsys.readouterr().out
+    assert "warning: legacy entry at line 3 has no SUBMITTED row in the log" in out
+    assert "9000009" not in out
+
+
+def test_missing_allowlist_file_behaves_as_before(tmp_path, capsys):
+    data, log = legacy_setup(tmp_path, [SUB_1])  # no legacy file
+    capsys.readouterr()
+    assert strict(data, log) == 2
+    out = capsys.readouterr().out
+    assert "warning: no outcome for greenhouse 1000001" in out and "legacy: 0" in out
+    assert run("check", "--log", str(log)) == 0  # without --data nothing is checked for outcomes
+
+
+@pytest.mark.parametrize("content", [
+    "",                                              # empty file
+    "site,job,reason\ngreenhouse,1000001,x\n",       # wrong header
+    "site,job_id,reason\ngreenhouse,1000001\n",      # too few fields
+    "site,job_id,reason\ngreenhouse,1000001,\n",     # blank reason
+    "site,job_id,reason\ngreenhouse,1000001,a\ngreenhouse,1000001,b\n",  # duplicate
+])
+def test_allowlist_header_and_entries_are_validated(tmp_path, capsys, content):
+    data, log = legacy_setup(tmp_path, [SUB_1])
+    (data / "apply" / "legacy-outcomes.csv").write_text(content, encoding="utf-8")
+    assert strict(data, log) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_allowlist_reason_with_an_id_number_is_refused_without_echo(tmp_path, capsys):
+    fake = "-".join([".".join(["111", "222", "333"]), "44"])
+    data, log = legacy_setup(tmp_path, [SUB_1], allow=[f"greenhouse,1000001,legacy {fake}"])
+    capsys.readouterr()
+    assert strict(data, log) == 2
+    err = capsys.readouterr().err
+    assert "government ID number" in err and fake not in err
