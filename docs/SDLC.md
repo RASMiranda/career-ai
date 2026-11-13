@@ -52,6 +52,10 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
   The reviewers write `.sdlc/comment.md` too, so a trusted step copies the build agent's report to
   `.sdlc/build-report.md` before they start, and the build stage's post shows that copy first, then the review, the fixed
   tests line and the next gate (ADR-052).
+- **Diagnostics (ADR-055).** When an agent is refused a tool, the issue comment says which, by name only, for example
+  "Permission denials: stage agent 1 (Bash); reviewers 3 (Write, Read)". The tool's input is never shown. The job summary
+  carries that line on every run, including "none". If the stage agent wrote no report, its final message follows,
+  marked untrusted and shown only when the secrets and personal-data scan finds nothing in it.
 - **Merge.** Only a human merges, after `pytest` is green and a code owner approves (branch protection). The agent that
   wrote the code never approves it. The draft PR body starts with `Closes #N`, so the PR shows in the issue's
   Development sidebar and merging it closes the issue (ADR-034): merge only after the checklist in the PR is done.

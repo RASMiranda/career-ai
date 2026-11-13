@@ -8,6 +8,7 @@ Agents write files; this code decides, checks and frames. The workflows only cal
     python -m jobscan.sdlc check  --decision D               did the agent stay inside its stage?
     python -m jobscan.sdlc scan                              do the texts the workflow posts carry a secret?
     python -m jobscan.sdlc pr-body --number N --workdir W    the draft PR body, which closes issue N when merged
+    python -m jobscan.sdlc agent-notes --stage S --review R  denied tool names and the last message, never tool_input (ADR-055)
 
 The agent never gets git push, gh, the network or a token. It edits files in the checkout; ``check``
 refuses protected paths, paths outside the stage, secrets and personal data in added lines; only then
@@ -318,6 +319,97 @@ def scan_problems(texts: dict[str, str]) -> list[str]:
             for what, found in SDLC_OUTPUT.get(path, _SECRETS) if found(text)]
 
 
+# ------------------------------------------------------- agent notes (ADR-055)
+# The action's execution file is the agent's whole transcript, and it holds tool_input. Only the denied tool NAMES
+# (sanitized) and the stage agent's final text, scanned, ever leave this module. Every reader here returns a neutral
+# value instead of raising: a missing or odd file must never stop the post step.
+EXEC_MAX_BYTES = 20_000_000
+LAST_MESSAGE_MAX = 1500
+_NAME_CHARS = re.compile(r"[^A-Za-z0-9_:().*-]")
+
+
+def _messages(path: str | None) -> list[dict]:
+    """The message objects in an execution file: a JSON array, one object, or one object per line. [] if unreadable."""
+    if not path:
+        return []
+    try:
+        if os.path.getsize(path) > EXEC_MAX_BYTES:
+            return []
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 - a notes reader never stops the workflow
+        return []
+    try:
+        data = json.loads(text)
+    except Exception:  # noqa: BLE001
+        data = []
+        for line in text.splitlines():
+            try:
+                data.append(json.loads(line))
+            except Exception:  # noqa: BLE001
+                continue
+    items = data if isinstance(data, list) else [data]
+    return [m for m in items if isinstance(m, dict)]
+
+
+def _result(path: str | None) -> dict:
+    """The last message of type ``result`` in the file; {} when there is none."""
+    results = [m for m in _messages(path) if m.get("type") == "result"]
+    return results[-1] if results else {}
+
+
+def _denials(result: dict) -> dict:
+    """{"count": denials, "tools": distinct sanitized tool names}. The input of a denial is never read."""
+    entries = result.get("permission_denials")
+    if not isinstance(entries, list):
+        return {"count": 0, "tools": []}
+    names: list[str] = []
+    for entry in entries:
+        raw = entry.get("tool_name") if isinstance(entry, dict) else None
+        name = _NAME_CHARS.sub("", raw)[:40] if isinstance(raw, str) else ""
+        name = name or "(unnamed)"
+        if name not in names:
+            names.append(name)
+    return {"count": len(entries), "tools": names}
+
+
+def agent_notes(stage_file: str | None, review_file: str | None) -> dict:
+    """Denial counts and tool names per agent, and the stage agent's last message (its result text, 1500 characters)."""
+    stage = _result(stage_file)
+    text = stage.get("result")
+    return {"stage": _denials(stage), "review": _denials(_result(review_file)),
+            "last_message": text.strip()[:LAST_MESSAGE_MAX] if isinstance(text, str) else ""}
+
+
+def _part(label: str, agent: dict) -> str:
+    return f"{label} {agent['count']} ({', '.join(agent['tools'])})" if agent["count"] else f"{label} 0"
+
+
+def denial_line(notes: dict) -> str:
+    """The one fixed-format line: "Permission denials: stage agent 1 (Bash); reviewers 3 (Write, Read)" or "none"."""
+    if not notes["stage"]["count"] and not notes["review"]["count"]:
+        return "Permission denials: none"
+    return f"Permission denials: {_part('stage agent', notes['stage'])}; {_part('reviewers', notes['review'])}"
+
+
+def agent_note_outputs(notes: dict, no_report: bool) -> dict[str, str]:
+    """The texts the post step may use. ``summary`` always; ``denials`` only when a denial happened; ``message`` (the
+    stage agent's last text, fenced and labelled untrusted) only when the stage agent wrote no report. Scanned first."""
+    line = denial_line(notes)
+    if scan_problems({"denial line": line}):
+        line = "Permission denials: withheld by the safety check"
+    total = notes["stage"]["count"] + notes["review"]["count"]
+    message = ""
+    text = notes["last_message"]
+    if no_report and text:
+        if scan_problems({"agent message": text}):
+            message = "Agent's last message: withheld by the safety check.\n"
+        else:
+            longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+            fence = "`" * max(3, longest + 1)
+            message = (f"**Agent's last message (untrusted, not reviewed)**\n\n{fence}text\n{text}\n{fence}\n")
+    return {"summary": line + "\n", "denials": line + "\n" if total else "", "message": message}
+
+
 # -------------------------------------------------------------------------- cli
 def pr_body(number: int | str, workdir: str) -> str:
     """The draft PR body. "Closes #N" on the first line links the PR in the issue's Development sidebar (ADR-034)."""
@@ -382,6 +474,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("pr-body")
     p.add_argument("--number", required=True)
     p.add_argument("--workdir", required=True)
+    p = sub.add_parser("agent-notes")
+    p.add_argument("--stage", help="the stage agent's execution file")
+    p.add_argument("--review", help="the review agents' execution file")
+    p.add_argument("--no-report", action="store_true", help="the stage agent wrote no .sdlc/comment.md")
+    p.add_argument("--summary-out", required=True)
+    p.add_argument("--denials-out", required=True)
+    p.add_argument("--message-out", required=True)
     args = ap.parse_args(argv)
 
     load = lambda f: json.loads(Path(f).read_text(encoding="utf-8")) if f and Path(f).is_file() else []  # noqa: E731
@@ -401,6 +500,12 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "pr-body":
         print(pr_body(args.number, args.workdir), end="")
+        return 0
+    if args.cmd == "agent-notes":
+        out = agent_note_outputs(agent_notes(args.stage, args.review), args.no_report)
+        Path(args.summary_out).write_text(out["summary"], encoding="utf-8")
+        Path(args.denials_out).write_text(out["denials"], encoding="utf-8")
+        Path(args.message_out).write_text(out["message"], encoding="utf-8")
         return 0
     if args.cmd == "scan":
         problems = scan_problems(sdlc_output())

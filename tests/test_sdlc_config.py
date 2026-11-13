@@ -266,7 +266,8 @@ def run_post_step(tmp_path, env_extra, files):
     fake.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "POSTED": str(tmp_path / "posted.txt"),
            "NUMBER": "7", "TRIGGER_LABEL": "", "STAGE": "build", "ROLES": "[]",
-           "REJECTED": "success", "BRANCH": "agent/7-x", "FAKE_PR": "", **env_extra}
+           "REJECTED": "success", "BRANCH": "agent/7-x", "FAKE_PR": "",
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"), **env_extra}
     env.pop("blocked", None) if "blocked" not in env_extra else None
     env.pop("PYTHONPATH", None)
     env.setdefault("TRUSTED_SRC", str(tmp_path / "src"))                  # ADR-036: the post step imports jobscan from here
@@ -391,12 +392,125 @@ def test_a_stop_for_another_reason_still_posts_the_workflows_own_message(tmp_pat
 
 
 def test_the_workflow_never_writes_agent_output_to_the_job_summary():
-    # The one writer is the Budget gate, which prints only its own numbers (ADR-032), never agent text.
+    # The Budget gate prints only its own numbers (ADR-032). The post step writes one line, the denial summary built
+    # by trusted code from tool names and counts (ADR-055); nothing else reaches the job summary.
     text = (WF / "sdlc.yml").read_text()
     start = text.index("      - name: Budget gate")
     end = text.index("      - name: Check out the issue's branch")
-    assert "GITHUB_STEP_SUMMARY" not in text[:start] + text[end:]
+    rest = (text[:start] + text[end:]).replace('cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"', "")
+    assert "GITHUB_STEP_SUMMARY" not in rest
     assert ".sdlc/post.md" not in text[start:end]
+
+
+# ------------------------------------------- the agents' execution files and last message (ADR-055)
+def test_each_agent_step_has_an_id_and_its_execution_file_is_copied_right_after_the_step_before_the_post():
+    # The action overwrites its execution file on every run, so each copy must run before the next agent starts.
+    # The token-reset steps must stay straight after each agent (test_sdlc_token_scope), so the copies follow the
+    # check (stage) and reject (review) steps, which only read the checkout.
+    all_steps = steps("sdlc")
+    names = [s.get("name", "") for s in all_steps]
+    stage_agent, review_agent = names.index("Run the stage agents"), names.index("Run the review agents")
+    assert all_steps[stage_agent]["id"] == "agent" and all_steps[review_agent]["id"] == "review"
+    for step_id, keep_name, kept, previous in (
+            ("agent", "Keep the stage agent's execution file (ADR-055)", "exec-stage.json", "Check what the agent changed"),
+            ("review", "Keep the review agents' execution file (ADR-055)", "exec-review.json",
+             "Reject any change the reviewers made")):
+        k = names.index(keep_name)
+        keep = all_steps[k]
+        assert names[k - 1] == previous
+        assert keep["if"] == "always() && steps.d.outputs.run == 'true'"
+        assert keep["env"] == {"SRC": "${{ steps.%s.outputs.execution_file }}" % step_id}
+        assert f".sdlc/{kept}" in keep["run"] and "${{" not in keep["run"]
+    assert names.index("Keep the stage agent's execution file (ADR-055)") < review_agent
+    assert names.index("Keep the review agents' execution file (ADR-055)") < names.index("Post the report, apply the stage label")
+
+
+def test_the_execution_file_copies_run_only_when_the_action_wrote_one(tmp_path):
+    import os
+    import subprocess
+
+    keep = next(s for s in steps("sdlc") if str(s.get("name", "")).startswith("Keep the stage agent"))
+    (tmp_path / ".sdlc").mkdir()
+    (tmp_path / "from-action.json").write_text('[{"type": "result"}]')
+    subprocess.run(["bash", "-e", "-c", keep["run"]], cwd=tmp_path, env={**os.environ, "SRC": "from-action.json"},
+                   check=True, capture_output=True)
+    assert (tmp_path / ".sdlc" / "exec-stage.json").read_text() == '[{"type": "result"}]'
+    for src in ("", "no-such-file.json"):
+        (tmp_path / ".sdlc" / "exec-stage.json").unlink(missing_ok=True)
+        subprocess.run(["bash", "-e", "-c", keep["run"]], cwd=tmp_path, env={**os.environ, "SRC": src},
+                       check=True, capture_output=True)
+        assert not (tmp_path / ".sdlc" / "exec-stage.json").exists()
+
+
+def test_the_report_flag_is_read_from_comment_md_before_the_fallback_is_written(tmp_path):
+    import os
+    import subprocess
+
+    run = step_named("Check what the agent changed")["run"]
+    lines = run.splitlines()
+    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if "PYTHONPATH" in l)])   # before the check
+    (tmp_path / ".sdlc").mkdir()
+    env = {**os.environ, "GITHUB_ENV": str(tmp_path / "env.txt")}
+    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, check=True, capture_output=True)
+    assert (tmp_path / "env.txt").read_text().strip() == "agent_report=false"
+    (tmp_path / ".sdlc" / "comment.md").write_text("built it\n")
+    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, check=True, capture_output=True)
+    assert (tmp_path / "env.txt").read_text().splitlines()[-1] == "agent_report=true"
+
+
+EXEC_OK = [{"type": "assistant", "message": {"content": "work"}},
+           {"type": "result", "result": "I ran out of ideas", "permission_denials": [
+               {"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "echo " + FAKE_TOKEN}}]}]
+
+
+def exec_file(messages):
+    return {"exec-stage.json": json.dumps(messages)}
+
+
+def test_a_denial_line_is_in_the_comment_and_the_summary_only_when_something_was_denied(tmp_path):
+    body = run_post_step(tmp_path, {}, {"comment.md": "built it", **exec_file(EXEC_OK)})
+    line = "Permission denials: stage agent 1 (Bash); reviewers 0"
+    assert line in body and body.index(line) < body.index("built it")
+    assert line in (tmp_path / "summary.md").read_text()
+    (tmp_path / "b").mkdir()
+    quiet = [{"type": "result", "result": "done", "permission_denials": []}]
+    body = run_post_step(tmp_path / "b", {}, {"comment.md": "built it", **exec_file(quiet)})
+    assert "Permission denials" not in body and "Permission denials: none" in (tmp_path / "b" / "summary.md").read_text()
+
+
+def test_with_no_report_the_last_message_is_posted_under_its_untrusted_heading(tmp_path):
+    fallback = "The stage ended without a report from the agent."
+    body = run_post_step(tmp_path, {"AGENT_REPORT": "false"}, {"comment.md": fallback, **exec_file(EXEC_OK)})
+    assert "**Agent's last message (untrusted, not reviewed)**" in body and "I ran out of ideas" in body
+    assert body.index(fallback) < body.index("I ran out of ideas")
+    assert FAKE_TOKEN not in body                                           # the tool input is never shown
+
+
+def test_a_report_is_posted_without_the_last_message(tmp_path):
+    body = run_post_step(tmp_path, {"AGENT_REPORT": "true"}, {"comment.md": "built it", **exec_file(EXEC_OK)})
+    assert "Agent's last message" not in body and "I ran out of ideas" not in body
+
+
+def test_a_fake_token_in_the_last_message_is_withheld_from_the_comment(tmp_path):
+    messages = [{"type": "result", "result": f"I used {FAKE_TOKEN}", "permission_denials": []}]
+    body = run_post_step(tmp_path, {"AGENT_REPORT": "false"}, {"comment.md": "x", **exec_file(messages)})
+    assert "withheld by the safety check" in body and FAKE_TOKEN not in body and "I used" not in body
+
+
+def test_a_blocked_run_posts_neither_the_denial_line_nor_the_last_message_and_removes_the_execution_files(tmp_path):
+    files = {**leaky(), **exec_file(EXEC_OK)}
+    body = run_post_step(tmp_path, {"blocked": "true", "AGENT_REPORT": "false"}, files)
+    assert FIXED in body and "Permission denials" not in body and "Agent's last message" not in body
+    assert FAKE_TOKEN not in body and "I ran out of ideas" not in body
+    assert not (tmp_path / ".sdlc" / "exec-stage.json").exists()
+    assert not (tmp_path / ".sdlc" / "agent-message.md").exists()
+    assert "Permission denials: stage agent 1 (Bash)" in (tmp_path / "summary.md").read_text()   # names only, job summary
+
+
+def test_the_execution_files_themselves_are_never_scanned_or_posted_and_tool_input_never_appears(tmp_path):
+    body = run_post_step(tmp_path, {}, {"comment.md": "built it", **exec_file(EXEC_OK)})
+    summary = (tmp_path / "summary.md").read_text()
+    assert FAKE_TOKEN not in body and FAKE_TOKEN not in summary and "tool_input" not in body + summary
 
 
 # ------------------------------------------------------- the commit step's shell
