@@ -160,6 +160,27 @@ def as_stage(decision: dict, stage: str) -> dict:
             "turns": spec["turns"]}
 
 
+# ------------------------------------------------------------------- skip (ADR-057)
+SKIPPABLE = ("intent", "spec", "plan")     # stages whose one output is a file the owner may delete to redo them
+
+
+def done_file(decision: dict, root: str = ".") -> str | None:
+    """The stage's own output file when it is already on the checked-out branch, else None (ADR-057).
+
+    Only intent, spec and plan are skipped; build, review, release and the support stages always run. The file is
+    the stage's single entry in ``writes`` (the same list the check uses), never a name typed here."""
+    if decision.get("stage") not in SKIPPABLE or len(decision.get("writes") or []) != 1:
+        return None
+    path = decision["writes"][0]
+    return path if (Path(root) / path).is_file() else None
+
+
+def skip_line(stage: str, path: str) -> str:
+    """The one line a skipped run posts (ADR-057). It names the file and the way to redo the stage."""
+    return (f"Stage `{stage}` skipped: `{path}` is already on the branch. "
+            "To redo it, delete that file on the branch and apply the label again.")
+
+
 # ------------------------------------------------------------------------ issue
 def render_issue(event: dict, comments: list[dict], pr_comments: list[dict] | None = None) -> str:
     issue = event["issue"]
@@ -471,6 +492,9 @@ def main(argv=None) -> int:
     p.add_argument("--decision", default=".sdlc/decision.json")
     p.add_argument("--as", dest="as_stage", choices=sorted(STAGES))
     sub.add_parser("scan")
+    p = sub.add_parser("skipped")
+    p.add_argument("--decision", default=".sdlc/decision.json")
+    p.add_argument("--comment", default=".sdlc/comment.md", help="where the one skip line is written")
     p = sub.add_parser("pr-body")
     p.add_argument("--number", required=True)
     p.add_argument("--workdir", required=True)
@@ -506,6 +530,16 @@ def main(argv=None) -> int:
         Path(args.summary_out).write_text(out["summary"], encoding="utf-8")
         Path(args.denials_out).write_text(out["denials"], encoding="utf-8")
         Path(args.message_out).write_text(out["message"], encoding="utf-8")
+        return 0
+    if args.cmd == "skipped":
+        decision = json.loads(Path(args.decision).read_text(encoding="utf-8"))
+        path = done_file(decision)
+        if path:
+            Path(args.comment).write_text(skip_line(decision["stage"], path) + "\n", encoding="utf-8")
+        flag = os.environ.get("GITHUB_OUTPUT")
+        if flag:
+            with open(flag, "a", encoding="utf-8") as fh:
+                fh.write(f"skip={'true' if path else 'false'}\n")
         return 0
     if args.cmd == "scan":
         problems = scan_problems(sdlc_output())

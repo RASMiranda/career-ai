@@ -77,6 +77,47 @@ Two real events for the same issue still share `sdlc-issue-N` and queue as befor
 Actions list (the trigger cannot filter by label) but finishes at once and takes no group a real run needs.
 `decide` stays the authority inside the job; `tests/test_sdlc_concurrency.py` keeps the YAML condition equal to it.
 
+### A stage whose output is already on the branch does not run (ADR-057)
+`intent`, `spec` and `plan` each write one file (`intent.md`, `spec.md`, `plan.md`). When that file is already on the
+checked-out branch, the run starts no agent, posts one line naming the file and how to redo the stage, and removes only
+the trigger label. It adds no `stage:*` label and no next gate. To redo a stage, delete the file on the branch and apply
+the label again. `build`, `review`, `release` and the support stages are never skipped. The check is trusted code
+(`jobscan.sdlc skipped`), tested in `tests/test_sdlc_skip.py`.
+
+### Label sets and concurrency (i.F4, ADR-039)
+One agent label starts one stage. Two agent labels added together in the same second run one after the other, not as a
+cancellation: they share the issue's group, and `cancel-in-progress` is false. GitHub keeps one pending run per group
+and replaces an older pending run with a newer one, so with three or more queued events the middle one can be dropped;
+that is documented GitHub behaviour and was not seen in a real run here. `needs-info`, `type:*`, `stage:*` and
+`support:*` labels start nothing and never take the issue's group (`tests/test_sdlc_concurrency.py`).
+
+### Workflow hygiene (i.F5)
+- **Concurrency wording** (ADR-039 comment in `sdlc.yml`): checked against GitHub's replacement rule and left as written.
+- **Checkout of the branch** now also waits for `stop`. Before, a budget stop still ran the checkout, which overwrote the
+  budget message with "No branch for this issue yet" when no branch existed.
+- **"The stage ended without a report from the agent."** now says to open the run log, where the agent's last message is
+  shown when it could be read (ADR-055).
+- **Next gate** is no longer printed on a stopped run (missing input, no branch, budget stop), so a reader is never told
+  to apply the next label when nothing ran. A safety-check block already printed none.
+- **Node 24:** `actions/checkout@v7` and `actions/setup-python@v7` (both run on Node 24, per their `action.yml` at the
+  tag). The inputs used here are unchanged in those releases. Pinned by major tag, as before.
+- **Runner image:** every workflow pins `runs-on: ubuntu-24.04`. GitHub's runner-images issue #14748 says `ubuntu-latest`
+  moves to Ubuntu 26.04 with the migration to finish by 19 Nov 2026, and `ubuntu-24.04` stays available as a label.
+  Python comes from `setup-python`, so the Python in use does not change with the image. Tools the workflows use
+  (`git`, `gh`, `jq`, GNU `date`) are on the 24.04 image.
+
+### Check `pytest` on agent PRs (i.F6, i.F7, no code change)
+`sdlc.yml` dispatches `tests.yml` on the agent branch after the push. That run creates a check run named `pytest`
+on the head commit (app `github-actions`). Read on 13 Nov 2026 for PRs #77 and #71: the dispatched run concluded
+`success`, the `pull_request` run for the same SHA concluded `failure` with no jobs, and the check runs listed only the
+dispatched `pytest`. The commit has no statuses. Ruleset `protect-main` (active) has no required status check.
+The `pull_request` run can be ignored or cancelled; it creates no check. Not verified here: GitHub's docs on why the
+bot-triggered run needs approval, and whether a required check is satisfied by a same-named check run from any event.
+docs.github.com and github.blog did not resolve from this session. Before step k, check both in the docs and in a
+throwaway chain. To make `pytest` required, a human adds a required status check named `pytest` to ruleset
+`protect-main` (Settings, Rules, Rulesets, protect-main, Require status checks). Pin the source to the GitHub Actions
+app only if the docs confirm the matching rule. No change to the fork-PR approval setting.
+
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
 |---|---|---|---|

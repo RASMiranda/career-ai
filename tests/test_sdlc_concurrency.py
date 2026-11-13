@@ -235,3 +235,21 @@ def test_the_noop_event_table_matches_decides_reasons():
                  "labeled something unknown"):
         assert reasons[name] == "not an agent:* label", name
     assert all(not reasons[f"labeled {n}"] for n in sdlc.LABEL_TO_STAGE)
+
+
+# ----------------------------------------------------------- i.F4: one stage per set of labels (checked, no code change)
+def test_two_agent_labels_added_together_share_one_group_and_both_start_and_never_cancel_each_other():
+    """Two agent:* labels on one issue within a second: the same group, both pass the job filter, cancel-in-progress
+    false. GitHub then runs them one after the other (the second waits as the pending run), not as a cancellation."""
+    first, second = event(label="agent:intent"), event(label="agent:spec")
+    assert group_for(first, 1) == group_for(second, 2) == "sdlc-issue-50"
+    assert job_runs(first) is True and job_runs(second) is True
+    assert WORKFLOW["concurrency"]["cancel-in-progress"] is False
+
+
+@pytest.mark.parametrize("label", ["needs-info", "stage:build", "stage:intake", "type:feature", "support:L3"])
+def test_non_agent_labels_start_nothing_and_never_take_the_issues_group(label):
+    ev = event(label=label)
+    assert job_runs(ev) is False
+    assert group_for(ev, 9).startswith("sdlc-noop-9")
+    assert sdlc.decide(ev, [])["reason"] == "not an agent:* label"

@@ -20,7 +20,7 @@ permissions: {}
 jobs:
   stage:
     if: ${{ github.event.issue.pull_request == null && github.event.issue.state == 'open' && github.event.issue.locked != true && ((github.event.action == 'opened' && contains(fromJSON('["COLLABORATOR","MEMBER","OWNER"]'), github.event.issue.author_association)) || (github.event.action == 'labeled' && github.event.sender.type == 'User' && !endsWith(github.event.sender.login, '[bot]') && contains(fromJSON('["agent:intent","agent:spec","agent:plan","agent:build","agent:review","agent:release","agent:support","agent:l2","agent:l3"]'), github.event.label.name))) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write        # push agent/* branches
@@ -40,11 +40,11 @@ jobs:
       ISSUE_TITLE: ${{ github.event.issue.title }}
       TRIGGER_LABEL: ${{ github.event.label.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false     # no token in .git/config for the agent to read
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -81,7 +81,7 @@ jobs:
           fi
 
       - name: Check out the issue's branch
-        if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true'
+        if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true' && env.stop != 'true'
         env:
           BRANCH: ${{ steps.d.outputs.branch }}
           EXISTS: ${{ steps.d.outputs.branch_exists }}
@@ -106,6 +106,18 @@ jobs:
           if [ ! -f "$WORKDIR/$NEEDS" ]; then
             echo "Stage \`$STAGE\` needs \`$WORKDIR/$NEEDS\` on the branch, and it is not there. Run the earlier stages first, in order." > .sdlc/comment.md
             echo "stop=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Skip a stage whose output is already on the branch (ADR-057)
+        if: steps.d.outputs.run == 'true' && env.stop != 'true'
+        run: |
+          # ADR-057: intent, spec and plan write one file each. When it is already on the checked-out branch the agent
+          # does not run; the post step posts one line and removes only the trigger label. The check is trusted code.
+          rm -f .sdlc/comment.md
+          PYTHONPATH=src python -m jobscan.sdlc skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
+          if [ -s .sdlc/comment.md ]; then
+            echo "stop=true" >> "$GITHUB_ENV"
+            echo "skipped=true" >> "$GITHUB_ENV"
           fi
 
       - name: Fetch the issue and PR comments (gh)
@@ -201,7 +213,7 @@ jobs:
           grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
       - name: Trusted jobscan code (2 of 3) check out the trigger commit (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: trusted
@@ -349,7 +361,7 @@ jobs:
           grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
       - name: Trusted jobscan code, again after the reviewers (2 of 3) check out the trigger commit (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: trusted
@@ -384,7 +396,16 @@ jobs:
           REJECTED: ${{ steps.reject.outcome }}
           BRANCH: ${{ steps.d.outputs.branch }}
           AGENT_REPORT: ${{ env.agent_report }}
+          SKIPPED: ${{ env.skipped }}
+          STOP: ${{ env.stop }}
         run: |
+          # ADR-057: a skipped run posts its one line and removes only the trigger label. It adds no stage label, no
+          # report and no next gate, and runs none of the code below.
+          if [ "$SKIPPED" = "true" ]; then
+            gh issue comment "$NUMBER" --body-file .sdlc/comment.md
+            if [ -n "$TRIGGER_LABEL" ]; then gh issue edit "$NUMBER" --remove-label "$TRIGGER_LABEL" || true; fi
+            exit 0
+          fi
           # A blocked run posts one fixed sentence and nothing the agent wrote. The agent's text is scanned once
           # more here, because the reviewers write after the first check.
           if [ "$blocked" != "true" ] && [ "$REJECTED" != "failure" ]; then
@@ -406,7 +427,7 @@ jobs:
             rm -f .sdlc/exec-stage.json .sdlc/exec-review.json .sdlc/denial-comment.md .sdlc/agent-message.md
             echo "Blocked by the safety check. See the run log." > .sdlc/comment.md
           fi
-          [ -f .sdlc/comment.md ] || echo "The stage ended without a report from the agent." > .sdlc/comment.md
+          [ -f .sdlc/comment.md ] || echo "The stage ended without a report from the agent. Open this run's log: the agent's last message is shown below when it could be read (ADR-055)." > .sdlc/comment.md
           case "$STAGE" in
             intent) NEXT='Read the PR. To accept the intent and start the spec: apply the `agent:spec` label.';;
             spec)   NEXT='Resolve every flagged concern, then apply `agent:plan`.';;
@@ -437,7 +458,8 @@ jobs:
               if [ -f .sdlc/review.md ]; then echo; echo "---"; echo "**Review**"; echo; head -c 4000 .sdlc/review.md; fi
               NOTE=$(PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from jobscan.sdlc import tests_note; print(tests_note(sys.argv[1]))' "$STAGE")
               if [ -n "$NOTE" ]; then echo; echo "$NOTE"; fi
-              echo; echo "**Next gate (yours):** $NEXT"
+              # A stopped run (a missing input, no branch, a budget stop) never names the next label: nothing ran to approve.
+              if [ "$STOP" != "true" ]; then echo; echo "**Next gate (yours):** $NEXT"; fi
               echo; echo "---"; echo "_Generated by [Claude Code](https://claude.ai/code)_"
             } > .sdlc/post.md
           fi

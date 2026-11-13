@@ -51,7 +51,7 @@ def test_the_trusted_code_is_a_second_checkout_pinned_to_the_trigger_commit_and_
     checkouts = [s for s in steps() if s["name"].startswith(LOAD) and "uses" in s]
     assert len(checkouts) == 2
     for s in checkouts:
-        assert s["uses"] == "actions/checkout@v4"
+        assert s["uses"] == "actions/checkout@v7"   # bumped to Node 24 (ADR-057 item i.F5e)
         assert s["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src",
                              "persist-credentials": False}
         assert "always()" in s["if"] and not s.get("env")
