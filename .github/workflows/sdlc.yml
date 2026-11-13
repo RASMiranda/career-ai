@@ -96,6 +96,28 @@ jobs:
             echo "stop=true" >> "$GITHUB_ENV"
           fi
 
+      - name: Trusted jobscan code, before the agent (1 of 3) clear the folder (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # The branch may hold code an agent wrote in an earlier run. Hide the folder from git status and git add.
+          rm -rf trusted
+          mkdir -p .git/info
+          grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
+      - name: Trusted jobscan code, before the agent (2 of 3) check out the trigger commit (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          sparse-checkout: src
+          persist-credentials: false
+      - name: Trusted jobscan code, before the agent (3 of 3) use it (ADR-036)
+        if: always() && steps.d.outputs.run == 'true'
+        run: |
+          # Taken before the agent runs, so every helper that runs before it (skip, frame, prompt) is trusted code.
+          test -f trusted/src/jobscan/sdlc/__init__.py
+          echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
+
       - name: Check the stage's input exists (the gate before it)
         if: steps.d.outputs.run == 'true' && steps.d.outputs.needs != '' && env.stop != 'true'
         env:
@@ -112,9 +134,10 @@ jobs:
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         run: |
           # ADR-057: intent, spec and plan write one file each. When it is already on the checked-out branch the agent
-          # does not run; the post step posts one line and removes only the trigger label. The check is trusted code.
+          # does not run; the post step posts one line and removes only the trigger label. The check is trusted code:
+          # it imports the trigger commit's src, never the branch's (the pre-agent trusted load above).
           rm -f .sdlc/comment.md
-          PYTHONPATH=src python -m jobscan.sdlc skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
           if [ -s .sdlc/comment.md ]; then
             echo "stop=true" >> "$GITHUB_ENV"
             echo "skipped=true" >> "$GITHUB_ENV"
@@ -141,8 +164,8 @@ jobs:
       - name: Frame the issue as untrusted input and write the stage prompt
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         run: |
-          PYTHONPATH=src python -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
-          PYTHONPATH=src python -m jobscan.sdlc prompt
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc prompt
 
       - name: Read the check results of the current commit (for a review or release stage, ADR-037)
         if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true' && steps.d.outputs.repo != 'true' && env.stop != 'true'
