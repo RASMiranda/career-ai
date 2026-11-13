@@ -113,6 +113,38 @@ def employer_applied_recently(path, employer: str, days: int = 180, today: date 
     return False
 
 
+# Gender markers in job titles, e.g. "(m/f/n)". Matched after lowercasing.
+_GENDER = re.compile(r"\((?:m/f/n|m/w/d|f/m/x|m/f/d|w/m/x|all genders)\)")
+# A trailing work-mode tag: "- remote", "(remote)" or " remote".
+_REMOTE_TAIL = re.compile(r"(?:\s*[-–—]\s*remote|\s*\(remote\)|\s+remote)\s*$")
+_PUNCT_RUN = re.compile(r"[^\w]+")
+
+
+def normalise_role(role: str) -> str:
+    """Compare-key for a job title: lowercase, no gender marker, no trailing remote tag, words only.
+
+    Pure, so the duplicate check and its tests share one rule. "Senior Engineer (Java) - remote (m/f/n)"
+    and "Senior Engineer (Java)" give the same key.
+    """
+    s = _GENDER.sub(" ", str(role or "").lower()).strip()
+    s = _REMOTE_TAIL.sub("", s).strip()
+    return _PUNCT_RUN.sub(" ", s).strip()
+
+
+def seen(path, employer: str, role: str) -> list[dict]:
+    """Every APPLIED row on ANY site for this employer and normalised role (ADR-056(a)).
+
+    Site and job ID are ignored on purpose: an aggregator that reposts one role under new IDs is
+    still one application. SKIPPED and other non-applied rows never match.
+    """
+    name, key = canon(employer), normalise_role(role)
+    if not name or not key:
+        return []
+    return [r for r in read(path)
+            if r["status"] in APPLIED and canon(r["employer"]) == name
+            and normalise_role(r["role"]) == key]
+
+
 # ---- command line: upsert / outcome / check / batch (ADR-050, ADR-053) ------------------------
 
 # Rows file for ``batch``: the log columns plus the outcome fields (ADR-053).
@@ -435,6 +467,10 @@ def main(argv=None) -> int:
     b.add_argument("--log", required=True)
     b.add_argument("--data", required=True)
     b.add_argument("--file", required=True)
+    s = sub.add_parser("seen", help="list APPLIED rows for this employer and role on any site; exit 1 if any")
+    s.add_argument("--log", required=True)
+    s.add_argument("--employer", required=True)
+    s.add_argument("--role", required=True)
     c = sub.add_parser("check")
     c.add_argument("--log", required=True)
     c.add_argument("--data", help="also check that every SUBMITTED row has a jsonl outcome")
@@ -454,6 +490,11 @@ def main(argv=None) -> int:
             print(f"{counts['new']} new, {counts['updated']} updated, {counts['unchanged']} unchanged")
             print(f"outcomes: {counts['outcomes']} written")
             return _check(a.log, a.data, strict=False)
+        elif a.cmd == "seen":
+            matches = seen(a.log, a.employer, a.role)
+            for r in matches:
+                print(",".join((r["site"], r["job_id"], r["date"], r["status"])))
+            return 1 if matches else 0
         else:
             return _check(a.log, a.data, a.strict)
     except (ApplyLogError, bank.ApplyOutcomeError, ValueError, RuntimeError) as e:
