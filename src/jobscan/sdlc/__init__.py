@@ -87,7 +87,7 @@ MAX_FILES, MAX_ADDED_BYTES = 60, 400_000
 
 # Agent-written text the workflow posts to the issue. ``.sdlc/`` is gitignored, so ``git status`` never lists these:
 # they are read from disk. Credentials are looked for everywhere; personal data only in prose the agent wrote.
-SDLC_OUTPUT = {".sdlc/comment.md": _SECRETS, ".sdlc/review.md": _SECRETS,
+SDLC_OUTPUT = {".sdlc/comment.md": _SECRETS, ".sdlc/build-report.md": _SECRETS, ".sdlc/review.md": _SECRETS,
                ".sdlc/pytest.txt": _SECRETS[:1], ".sdlc/labels.txt": _SECRETS[:1]}
 
 

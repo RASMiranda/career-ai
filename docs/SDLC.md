@@ -49,6 +49,9 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
   privileged job runs the repository's tests** (ADR-037): see below.
 - **Review.** Every build is followed by a reviewer and a security-reviewer pass (`REVIEW.md`), read only; apply
   `agent:review` to run them again after your own pushes. Findings never approve or block by themselves.
+  The reviewers write `.sdlc/comment.md` too, so a trusted step copies the build agent's report to
+  `.sdlc/build-report.md` before they start, and the build stage's post shows that copy first, then the review, the fixed
+  tests line and the next gate (ADR-052).
 - **Merge.** Only a human merges, after `pytest` is green and a code owner approves (branch protection). The agent that
   wrote the code never approves it. The draft PR body starts with `Closes #N`, so the PR shows in the issue's
   Development sidebar and merging it closes the issue (ADR-034): merge only after the checklist in the PR is done.
