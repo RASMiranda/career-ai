@@ -14,11 +14,13 @@
       "Bash(python -m jobscan.apply questions set:*)",
       "Bash(git push --force:*)",
       "Read(//proc/**)",
+      "Read(**/.git/**)",
       "Read(//home/runner/.ssh/**)",
       "Read(//home/runner/.config/**)",
       "Bash(git diff --no-index:*)",
       "Bash(git diff *--no-index*)"
-    ]
+    ],
+    "blockReadsOutsideWorkingDirectories": true
   },
   "hooks": {
     "PreToolUse": [

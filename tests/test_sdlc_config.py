@@ -114,6 +114,18 @@ def test_the_proc_read_deny_is_in_the_project_settings_and_on_both_agent_steps()
         assert "Read(//proc/**)" in re.search(r'--disallowedTools "([^"]*)"', s["with"]["claude_args"]).group(1)
 
 
+def test_the_agent_cannot_read_the_checkout_git_dir_and_file_reads_stay_in_the_workspace():
+    """ADR-051: the action writes its token into .git/config before the agent starts, and a bare Read, Grep or Glob could
+    read it. The deny is in the project settings and, because a later stage checks out the issue branch, also on both
+    agent steps. Verified on 11 Nov 2026 with a before/after probe that used a fake token."""
+    permissions = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]
+    assert "Read(**/.git/**)" in permissions["deny"]
+    assert permissions.get("blockReadsOutsideWorkingDirectories") is True    # file tools stay inside the checkout
+    assert not any(".git" in r for r in permissions.get("allow", []))        # nothing re-opens it
+    for s in agent_steps():
+        assert "Read(**/.git/**)" in re.search(r'--disallowedTools "([^"]*)"', s["with"]["claude_args"]).group(1)
+
+
 def test_the_build_and_review_prompts_say_tests_are_written_but_not_run():
     build = sdlc.render_prompt(sdlc.decide(json.loads(json.dumps(EVENT_FOR_PROMPTS)), ["agent/7-x"]))
     assert "cannot run tests" in build and "NOT run" in build and "pytest -q" not in build

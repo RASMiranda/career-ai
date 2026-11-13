@@ -170,7 +170,7 @@ jobs:
             --max-turns ${{ steps.d.outputs.turns }}
             --model claude-sonnet-5-5
             --allowedTools "${{ steps.d.outputs.tools }}"
-            --disallowedTools "WebFetch,WebSearch,Read(//proc/**)"
+            --disallowedTools "WebFetch,WebSearch,Read(//proc/**),Read(**/.git/**)"
 
       - name: Remove the token the action wrote into .git/config (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
@@ -305,7 +305,7 @@ jobs:
             --max-turns 15
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
-            --disallowedTools "WebFetch,WebSearch,Read(//proc/**)"
+            --disallowedTools "WebFetch,WebSearch,Read(//proc/**),Read(**/.git/**)"
       - name: Remove the token the action wrote into .git/config again after the reviewers (ADR-035, ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
