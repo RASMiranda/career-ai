@@ -2,6 +2,7 @@
 
 You are running as an autonomous Claude Code routine. There is no human to ask
 mid-run. If a step fails, **stop and report** — never improvise a workaround.
+Career AI SDLC Setup i.F7 Make a tiny change on a throwaway branch and open a PR. A one-line change to a comment is enough.
 
 ## Repositories
 
