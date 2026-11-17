@@ -38,10 +38,12 @@ DOC_TOOLS = "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(
 BUILD_TOOLS = DOC_TOOLS
 READ_TOOLS = "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
 
-# Never writable by an agent: its own rules, the workflows, secrets, the owner's decisions.
+# Never writable by an agent: its own rules, the workflows, secrets, the owner's decisions. The sdlc package is the
+# code that runs the stages and the safety check (i.F9): an agent may not change it, only a human PR may.
 PROTECTED = [".github/**", ".claude/**", "CLAUDE.md", "REVIEW.md", "routine-prompt.md", "docs/DECISIONS.md",
              "docs/SDLC.md", "docs/managed-settings.example.json", "pyproject.toml", "requirements*.txt",
-             "**/profile.yaml", "**/config.yaml", "**/authorization*.yaml", "**/.env*", "scripts/**", ".gitignore"]
+             "**/profile.yaml", "**/config.yaml", "**/authorization*.yaml", "**/.env*", "scripts/**", ".gitignore",
+             "src/jobscan/sdlc/**"]
 
 STAGES = {
     "intent": {"roles": ["stakeholder", "product-owner"], "needs": None, "writes": [WORK + "/intent.md"],
