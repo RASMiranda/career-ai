@@ -26,7 +26,7 @@ Four steps. Only step 2 uses AI, and only for candidates the code cannot settle.
 
 Claude never sees credentials, never calls a job API, never sends the email
 itself from inside the Python steps. Delivery is a separate, explicitly
-authorised action.
+authorized action.
 
 ## Running it with few model turns
 
