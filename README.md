@@ -240,3 +240,4 @@ first block signal, no evasion (`docs/ARCHITECTURE.md` §2b). No adapter is writ
 ## Licence
 
 MIT. Do not commit anything from `career-data` here.
+
