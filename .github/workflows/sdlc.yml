@@ -53,7 +53,7 @@ jobs:
         run: |
           mkdir -p .sdlc
           git for-each-ref --format='%(refname:short)' refs/remotes/origin/agent/ | sed 's#^origin/##' > .sdlc/branches.txt
-          PYTHONPATH=src python -m jobscan.sdlc decide --event "$GITHUB_EVENT_PATH" --branches .sdlc/branches.txt
+          PYTHONPATH=src python -m jobscan.sdlc --config .github/sdlc-config.json decide --event "$GITHUB_EVENT_PATH" --branches .sdlc/branches.txt
 
       - name: Budget gate (agent minutes per rolling window, ADR-032)
         if: steps.d.outputs.run == 'true'
@@ -69,7 +69,7 @@ jobs:
           # Unset or non-numeric caps become 60 and 240 inside budget.py; a cap of 0 blocks everything. An
           # unreadable run history also blocks (fail closed). The job stays green either way.
           rc=0
-          PYTHONPATH=src python -m jobscan.sdlc.budget --run-id "$RUN_ID" --stage "$STAGE" --max-24h "$MAX_24H" --max-7d "$MAX_7D" \
+          PYTHONPATH=src python -m jobscan.sdlc.budget --config .github/sdlc-config.json --run-id "$RUN_ID" --stage "$STAGE" --max-24h "$MAX_24H" --max-7d "$MAX_7D" \
             --summary "$GITHUB_STEP_SUMMARY" --comment .sdlc/comment.md || rc=$?
           if [ "$rc" -ne 0 ]; then
             if [ "$rc" -ne 3 ]; then
@@ -109,7 +109,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: trusted
-          sparse-checkout: src
+          sparse-checkout: |
+            src
+            .github
           persist-credentials: false
       - name: Trusted jobscan code, before the agent (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
@@ -137,7 +139,7 @@ jobs:
           # does not run; the post step posts one line and removes only the trigger label. The check is trusted code:
           # it imports the trigger commit's src, never the branch's (the pre-agent trusted load above).
           rm -f .sdlc/comment.md
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
           if [ -s .sdlc/comment.md ]; then
             echo "stop=true" >> "$GITHUB_ENV"
             echo "skipped=true" >> "$GITHUB_ENV"
@@ -164,8 +166,8 @@ jobs:
       - name: Frame the issue as untrusted input and write the stage prompt
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         run: |
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc prompt
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt
 
       - name: Read the check results of the current commit (for a review or release stage, ADR-037)
         if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true' && steps.d.outputs.repo != 'true' && env.stop != 'true'
@@ -240,7 +242,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: trusted
-          sparse-checkout: src
+          sparse-checkout: |
+            src
+            .github
           persist-credentials: false
       - name: Trusted jobscan code (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
@@ -254,7 +258,7 @@ jobs:
         run: |
           # ADR-055: whether the stage agent wrote a report, read before the post step adds its fallback text to comment.md.
           if [ -f .sdlc/comment.md ]; then echo "agent_report=true" >> "$GITHUB_ENV"; else echo "agent_report=false" >> "$GITHUB_ENV"; fi
-          if ! PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc check 2> .sdlc/check.txt; then
+          if ! PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" check 2> .sdlc/check.txt; then
             cat .sdlc/check.txt >&2
             echo "Blocked by the safety check. See the run log." > .sdlc/comment.md
             echo "stop=true" >> "$GITHUB_ENV"
@@ -291,7 +295,7 @@ jobs:
             git commit -q -m "[#$NUMBER] sdlc: $STAGE" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
             git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
             if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')" ]; then
-              PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
+              PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
               gh pr create --draft --base main --head "$BRANCH" --title "[#$NUMBER] $ISSUE_TITLE" --body-file .sdlc/pr-body.md \
                 || echo "The branch was pushed but the PR could not be opened: enable 'Allow GitHub Actions to create and approve pull requests' in Settings, Actions, General." >> .sdlc/comment.md
               # Best effort: copy the issue's type:* labels onto the PR (never agent:* or stage:*); never fails the step.
@@ -342,7 +346,7 @@ jobs:
           # post step must not read it for the build stage. Plain shell; no agent text is interpreted here.
           if [ -f .sdlc/comment.md ]; then cp .sdlc/comment.md .sdlc/build-report.md; else echo "The build agent wrote no report." > .sdlc/build-report.md; fi
           git diff origin/main...HEAD > .sdlc/diff.patch
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc prompt --as review --out .sdlc/review-prompt.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt --as review --out .sdlc/review-prompt.md
       - name: Run the review agents
         id: review
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
@@ -388,7 +392,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: trusted
-          sparse-checkout: src
+          sparse-checkout: |
+            src
+            .github
           persist-credentials: false
       - name: Trusted jobscan code, again after the reviewers (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
@@ -399,7 +405,7 @@ jobs:
       - name: Reject any change the reviewers made
         id: reject
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
-        run: PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc check --as review
+        run: PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" check --as review
       - name: Keep the review agents' execution file (ADR-055)
         if: always() && steps.d.outputs.run == 'true'
         env:
@@ -432,7 +438,7 @@ jobs:
           # A blocked run posts one fixed sentence and nothing the agent wrote. The agent's text is scanned once
           # more here, because the reviewers write after the first check.
           if [ "$blocked" != "true" ] && [ "$REJECTED" != "failure" ]; then
-            PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc scan || blocked=true
+            PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" scan || blocked=true
           else
             blocked=true
           fi
@@ -442,7 +448,7 @@ jobs:
           ARGS=(--stage .sdlc/exec-stage.json --review .sdlc/exec-review.json --summary-out .sdlc/denial-summary.txt
                 --denials-out .sdlc/denial-comment.md --message-out .sdlc/agent-message.md)
           if [ "$AGENT_REPORT" = "false" ]; then ARGS+=(--no-report); fi
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc agent-notes "${ARGS[@]}" \
+          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" agent-notes "${ARGS[@]}" \
             || echo "Permission denials: unavailable (the execution file could not be read)" > .sdlc/denial-summary.txt
           cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"
           if [ "$blocked" = "true" ]; then

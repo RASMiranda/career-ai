@@ -20,6 +20,9 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
+from . import config
+
+# The built-in values; ``configure`` replaces them from .github/sdlc-config.json (ADR-060).
 MIN_RUN_SECONDS = 30
 DEFAULT_CAP_24H = 60
 DEFAULT_CAP_7D = 240
@@ -136,9 +139,20 @@ def _gh_page(page, per_page, created_since):
     return json.loads(out).get("workflow_runs", [])
 
 
+def configure(cfg):
+    """Use the budget values in ``cfg`` (ADR-060). ``None`` (no file) keeps the built-in ones."""
+    global MIN_RUN_SECONDS, DEFAULT_CAP_24H, DEFAULT_CAP_7D
+    if cfg is None:
+        return
+    MIN_RUN_SECONDS = cfg["budget"]["min_run_seconds"]
+    DEFAULT_CAP_24H = cfg["budget"]["cap_24h"]
+    DEFAULT_CAP_7D = cfg["budget"]["cap_7d"]
+
+
 def main(argv=None):
     """Exit 0 allowed, 3 blocked. Any other exit (history unreadable) is treated as blocked by the workflow."""
     ap = argparse.ArgumentParser(prog="jobscan.sdlc.budget")
+    ap.add_argument("--config", help="the project values, .github/sdlc-config.json (ADR-060); absent: built-in")
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--stage", default="")
     ap.add_argument("--max-24h", default="")
@@ -146,6 +160,7 @@ def main(argv=None):
     ap.add_argument("--summary", help="file to append the summary to (GITHUB_STEP_SUMMARY)")
     ap.add_argument("--comment", help="file to write the issue comment to when blocked")
     a = ap.parse_args(argv)
+    configure(config.load(a.config))
     now = datetime.now(timezone.utc)
     result = evaluate(collect_runs(_gh_page, now), a.run_id, now, parse_cap(a.max_24h, DEFAULT_CAP_24H),
                       parse_cap(a.max_7d, DEFAULT_CAP_7D))

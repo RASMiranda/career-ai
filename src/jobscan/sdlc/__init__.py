@@ -10,6 +10,9 @@ Agents write files; this code decides, checks and frames. The workflows only cal
     python -m jobscan.sdlc pr-body --number N --workdir W    the draft PR body, which closes issue N when merged
     python -m jobscan.sdlc agent-notes --stage S --review R  denied tool names and the last message, never tool_input (ADR-055)
 
+Every command takes ``--config PATH`` before the command name (ADR-060): the project values in that JSON file. When
+the file is absent, the built-in values below apply; when it is malformed, the command fails.
+
 The agent never gets git push, gh, the network or a token. It edits files in the checkout; ``check``
 refuses protected paths, paths outside the stage, secrets and personal data in added lines; only then
 does the workflow commit, push and post. A stage starts only when the owner opens the issue, or applies
@@ -24,6 +27,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import config
+
+# The built-in values. ``configure`` replaces them with .github/sdlc-config.json when the file is given (ADR-060);
+# tests/test_sdlc_config_file.py keeps the file equal to these.
+AGENT_BRANCH_PREFIX = "agent/"
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 WORK = "docs/intents/{n}-{slug}"     # same home as docs/SDLC.md; the issue number keeps it traceable
 LABEL_TO_STAGE = {"agent:intent": "intent", "agent:spec": "spec", "agent:plan": "plan", "agent:build": "build",
@@ -67,8 +75,17 @@ STAGES = {
                    "tools": DOC_TOOLS, "turns": 20},
 }
 
-_CREDENTIAL = re.compile(r"sk-ant-[\w-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|AKIA[0-9A-Z]{12,}|"
-                         r"-----BEGIN [A-Z ]*PRIVATE KEY-----|x-rapidapi-key\s*[:=]\s*\w{16,}", re.I)
+_CREDENTIAL_BASE = (r"sk-ant-[\w-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|AKIA[0-9A-Z]{12,}|"
+                    r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+SECRET_PATTERNS_EXTRA = [r"x-rapidapi-key\s*[:=]\s*\w{16,}"]
+
+
+def _credential(extra):
+    """One regex for every credential shape: the built-in list, then the config's extra patterns (ADR-060)."""
+    return re.compile("|".join([_CREDENTIAL_BASE, *extra]), re.I)
+
+
+_CREDENTIAL = _credential(SECRET_PATTERNS_EXTRA)
 _EMAIL = re.compile(r"[\w.+-]{1,64}@[\w-]{1,63}\.[\w.-]{1,80}")          # bounded: no quadratic backtracking
 _PHONE = re.compile(r"(?<![\w])\+\d[\d\s().-]{8,}\d(?![\w])")
 
@@ -142,7 +159,7 @@ def decide(event: dict, branches: list[str] | None = None) -> dict:
         return no(f"event {action!r} does not start a stage")
 
     n, spec = issue["number"], STAGES[stage]
-    prefix = f"agent/{n}-"
+    prefix = f"{AGENT_BRANCH_PREFIX}{n}-"
     existing = sorted(b for b in branches or [] if b.startswith(prefix))
     name = existing[0] if existing else prefix + slug(issue.get("title", ""))
     workdir = WORK.format(n=n, slug=name[len(prefix):])
@@ -473,9 +490,31 @@ def _outputs(decision: dict) -> None:
                 fh.write(f"{key}={value}\n")
 
 
+def configure(cfg) -> None:
+    """Use the values in ``cfg`` (ADR-060). ``None`` (no file) keeps the built-in constants."""
+    global AGENT_BRANCH_PREFIX, TRUSTED, WORK, LABEL_TO_STAGE, REQUESTABLE_LABELS, STAGES, PROTECTED
+    global MAX_FILES, MAX_ADDED_BYTES, _CREDENTIAL
+    if cfg is None:
+        return
+    AGENT_BRANCH_PREFIX = cfg["agent_branch_prefix"]
+    TRUSTED = set(cfg["trusted_associations"])
+    WORK = cfg["artifact_dir"]
+    LABEL_TO_STAGE = dict(cfg["label_to_stage"])
+    REQUESTABLE_LABELS = set(cfg["requestable_labels"])
+    STAGES = cfg["stages"]
+    PROTECTED = list(cfg["protected_paths"])
+    MAX_FILES, MAX_ADDED_BYTES = cfg["limits"]["max_files"], cfg["limits"]["max_added_bytes"]
+    _CREDENTIAL = _credential(cfg["secret_patterns_extra"])
+
+
 def main(argv=None) -> int:
+    # --config is read before the parser is built, so the stage names the parser offers come from the same file.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config")
+    configure(config.load(pre.parse_known_args(argv)[0].config))
     ap = argparse.ArgumentParser(prog="jobscan.sdlc", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", help="the project values, .github/sdlc-config.json (ADR-060); absent: built-in")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("decide")
     p.add_argument("--event", required=True)

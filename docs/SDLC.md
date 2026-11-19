@@ -122,6 +122,9 @@ throwaway chain. To make `pytest` required, a human adds a required status check
 `protect-main` (Settings, Rules, Rulesets, protect-main, Require status checks). Pin the source to the GitHub Actions
 app only if the docs confirm the matching rule. No change to the fork-PR approval setting.
 
+### Project values in one file (ADR-060)
+The values the engine uses, such as the trusted author associations, the label-to-stage map, each stage's roles, outputs and turn limit, the protected paths, the size limits, the budget caps, the agent branch prefix and the model, live in `.github/sdlc-config.json`. The engine reads it with `--config` from the trigger commit (ADR-036), so a change takes effect only once a human merges it to main; it is a protected path, so no agent can write it. The built-in values in `src/jobscan/sdlc/` apply only when the file is absent, and a malformed file stops the run. `tests/test_sdlc_config_file.py` keeps the file equal to the built-in values and to the workflow text.
+
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
 |---|---|---|---|
