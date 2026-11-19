@@ -1,11 +1,14 @@
 """ADR-060: the sdlc engine's project values live in .github/sdlc-config.json.
 
-These tests keep the file equal to the built-in values (a typo fails), show that an absent file changes nothing, that a
-malformed file stops the run instead of falling back, and that every trusted checkout fetches the file. They parse the
+These tests keep the file equal to the built-in values (a typo fails), show that no --config means the built-in values, that a
+missing or malformed file stops the run instead of falling back, and that every trusted checkout fetches the file. They parse the
 workflow file; no network, no git.
 """
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -118,24 +121,38 @@ def test_the_values_the_yaml_holds_match_the_file(cfg):
     assert (ROOT / ".github" / "workflows" / test["workflow"]).is_file()
 
 
-# ------------------------------------------------------- (b) an absent file gives the built-in values
-def test_an_absent_file_loads_as_none_and_the_built_in_values_stay(engine, tmp_path):
+# ------------------------------------------------------- (b) no --config gives the built-in values; a missing path fails
+def test_no_config_argument_loads_as_none_and_the_built_in_values_stay(engine, tmp_path):
     before = {name: getattr(engine, name) for name in ENGINE_NAMES}
-    assert config.load(tmp_path / "missing.json") is None
     assert config.load(None) is None
-    engine.configure(config.load(tmp_path / "missing.json"))
+    engine.configure(config.load(None))
     assert {name: getattr(engine, name) for name in ENGINE_NAMES} == before
 
 
-def test_the_cli_with_an_absent_file_decides_exactly_as_without_one(engine, tmp_path):
-    absent = decide_with(tmp_path / "absent", "--config", str(tmp_path / "missing.json"))
+def test_a_config_path_naming_no_file_raises_and_never_falls_back(tmp_path):
+    with pytest.raises(ConfigError):
+        config.load(tmp_path / "missing.json")
+
+
+def test_a_missing_config_file_exits_non_zero_and_writes_no_output(tmp_path):
+    out = tmp_path / "decision.json"
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(EVENT), encoding="utf-8")
+    run = subprocess.run([sys.executable, "-m", "jobscan.sdlc", "--config", str(tmp_path / "missing.json"), "decide",
+                          "--event", str(event), "--out", str(out)],
+                         cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT / "src")}, capture_output=True, text=True)
+    assert run.returncode != 0
+    assert "config file is missing" in run.stderr
+    assert not out.exists()
+
+
+def test_the_cli_with_no_config_argument_decides_with_the_built_in_values(engine, tmp_path):
     bare = decide_with(tmp_path / "bare")
-    assert absent == bare
     assert bare["stage"] == "intent" and bare["branch"] == "agent/7-add-a-thing"
 
 
-def test_an_absent_budget_file_keeps_the_built_in_caps(engine, tmp_path):
-    budget.configure(config.load(tmp_path / "missing.json"))
+def test_no_config_argument_keeps_the_built_in_budget_caps(engine):
+    budget.configure(config.load(None))
     assert (budget.MIN_RUN_SECONDS, budget.DEFAULT_CAP_24H, budget.DEFAULT_CAP_7D) == (30, 60, 240)
 
 

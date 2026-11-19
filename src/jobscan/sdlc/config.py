@@ -28,9 +28,12 @@ class ConfigError(ValueError):
 
 
 def load(path):
-    """The parsed config, or None when ``path`` is unset or names no file. Raises ``ConfigError`` when it is malformed."""
-    if path is None or not Path(path).is_file():
+    """The parsed config, or None when no path was given at all. Raises ``ConfigError`` when a path is given but names
+    no file (fail closed, ADR-060) or when the file is malformed."""
+    if path is None:
         return None
+    if not Path(path).is_file():
+        raise ConfigError(f"{path}: the config file is missing; pass no --config to use the built-in values")
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
