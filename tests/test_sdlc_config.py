@@ -389,7 +389,7 @@ def test_a_blocked_run_removes_the_build_report_so_no_agent_text_is_left_to_post
 
 def test_the_draft_pr_body_comes_from_the_tested_function_and_only_type_labels_are_copied():
     text = (WF / "sdlc.yml").read_text()
-    assert "Refs #" not in text and "jobscan.sdlc pr-body" in text
+    assert "Refs #" not in text and '-m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body' in text
     assert 'type:*) gh pr edit "$PR_NEW" --add-label "$l"' in text
     assert "agent:*) gh pr edit" not in text and "stage:*) gh pr edit" not in text
 

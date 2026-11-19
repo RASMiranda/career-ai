@@ -83,7 +83,7 @@ def test_the_pre_agent_checkout_has_the_same_parameters_as_the_post_agent_one():
     pre = next(s for s in steps() if s["name"].startswith("Trusted jobscan code, before the agent (2 of 3)"))
     post = next(s for s in steps() if s["name"].startswith("Trusted jobscan code (2 of 3)"))
     assert pre["uses"] == post["uses"] == "actions/checkout@v7"
-    assert pre["with"] == post["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src",
+    assert pre["with"] == post["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src\n.github\n",
                                            "persist-credentials": False}
     assert pre["if"] == post["if"] == "always() && steps.d.outputs.run == 'true'"
 
@@ -104,7 +104,7 @@ def test_the_trusted_code_is_a_second_checkout_pinned_to_the_trigger_commit_and_
     assert len(checkouts) == 3              # ADR-036 (i.F9): one before the agent, one after each of the two agent runs
     for s in checkouts:
         assert s["uses"] == "actions/checkout@v7"   # bumped to Node 24 (ADR-057 item i.F5e)
-        assert s["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src",
+        assert s["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src\n.github\n",
                              "persist-credentials": False}
         assert "always()" in s["if"] and not s.get("env")
 

@@ -1,0 +1,187 @@
+{
+  "default_branch": "main",
+  "agent_branch_prefix": "agent/",
+  "artifact_dir": "docs/intents/{n}-{slug}",
+  "trusted_associations": [
+    "OWNER",
+    "MEMBER",
+    "COLLABORATOR"
+  ],
+  "label_to_stage": {
+    "agent:intent": "intent",
+    "agent:spec": "spec",
+    "agent:plan": "plan",
+    "agent:build": "build",
+    "agent:review": "review",
+    "agent:release": "release",
+    "agent:support": "support-l1",
+    "agent:l2": "support-l2",
+    "agent:l3": "support-l3"
+  },
+  "requestable_labels": [
+    "needs-info",
+    "support:L2",
+    "support:L3",
+    "type:bug",
+    "type:feature"
+  ],
+  "stages": {
+    "intent": {
+      "roles": [
+        "stakeholder",
+        "product-owner"
+      ],
+      "needs": null,
+      "writes": [
+        "docs/intents/{n}-{slug}/intent.md"
+      ],
+      "repo": true,
+      "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 12
+    },
+    "spec": {
+      "roles": [
+        "product-owner",
+        "stakeholder"
+      ],
+      "needs": "intent.md",
+      "writes": [
+        "docs/intents/{n}-{slug}/spec.md"
+      ],
+      "repo": true,
+      "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 12
+    },
+    "plan": {
+      "roles": [
+        "tech-lead",
+        "scrum-master"
+      ],
+      "needs": "spec.md",
+      "writes": [
+        "docs/intents/{n}-{slug}/plan.md"
+      ],
+      "repo": true,
+      "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 15
+    },
+    "build": {
+      "roles": [
+        "tester",
+        "developer"
+      ],
+      "needs": "plan.md",
+      "writes": [
+        "src/**",
+        "tests/**",
+        "docs/**",
+        "README.md"
+      ],
+      "repo": true,
+      "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 40
+    },
+    "review": {
+      "roles": [
+        "reviewer",
+        "security-reviewer"
+      ],
+      "needs": null,
+      "writes": [],
+      "repo": false,
+      "checkout": true,
+      "tools": "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 15
+    },
+    "release": {
+      "roles": [
+        "release-manager"
+      ],
+      "needs": null,
+      "writes": [],
+      "repo": false,
+      "checkout": true,
+      "tools": "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 10
+    },
+    "support-l1": {
+      "roles": [
+        "l1-support"
+      ],
+      "needs": null,
+      "writes": [],
+      "repo": false,
+      "tools": "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 10
+    },
+    "support-l2": {
+      "roles": [
+        "l2-support"
+      ],
+      "needs": null,
+      "writes": [],
+      "repo": false,
+      "tools": "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 15
+    },
+    "support-l3": {
+      "roles": [
+        "l3-support",
+        "tech-lead"
+      ],
+      "needs": null,
+      "writes": [
+        "docs/intents/{n}-{slug}/intent.md",
+        "docs/incidents/*.md"
+      ],
+      "repo": true,
+      "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
+      "turns": 20
+    }
+  },
+  "protected_paths": [
+    ".github/**",
+    ".claude/**",
+    "CLAUDE.md",
+    "REVIEW.md",
+    "routine-prompt.md",
+    "docs/DECISIONS.md",
+    "docs/SDLC.md",
+    "docs/managed-settings.example.json",
+    "pyproject.toml",
+    "requirements*.txt",
+    "**/profile.yaml",
+    "**/config.yaml",
+    "**/authorization*.yaml",
+    "**/.env*",
+    "scripts/**",
+    ".gitignore",
+    "src/jobscan/sdlc/**"
+  ],
+  "limits": {
+    "max_files": 60,
+    "max_added_bytes": 400000
+  },
+  "secret_patterns_extra": [
+    "x-rapidapi-key\\s*[:=]\\s*\\w{16,}"
+  ],
+  "budget": {
+    "cap_24h": 60,
+    "cap_7d": 240,
+    "min_run_seconds": 30
+  },
+  "model": "claude-sonnet-5-5",
+  "test": {
+    "command": "pytest -q",
+    "check_name": "pytest",
+    "workflow": "tests.yml",
+    "python": "3.12"
+  },
+  "git_identity": {
+    "name": "career-ai-sdlc",
+    "email": "41898282+github-actions[bot]@users.noreply.github.com"
+  },
+  "commit_title": "[#$NUMBER] sdlc: $STAGE",
+  "pr_title": "[#$NUMBER] $ISSUE_TITLE",
+  "runner": "ubuntu-24.04"
+}
