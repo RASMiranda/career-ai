@@ -153,6 +153,14 @@ def test_every_label_the_workflow_and_forms_use_exists():
         assert set(d.get("labels", [])) <= LABELS, form.name
 
 
+def test_every_stage_the_workflow_applies_has_a_label():
+    """The stage label is applied as ``stage:$STAGE`` for every stage in sdlc.STAGES; each must exist."""
+    apply = next(s for s in steps("sdlc") if "--add-label \"stage:$STAGE\"" in s.get("run", ""))
+    assert "--add-label \"stage:$STAGE\"" in apply["run"]
+    missing = sorted(f"stage:{stage}" for stage in sdlc.STAGES if f"stage:{stage}" not in LABELS)
+    assert not missing, missing
+
+
 def test_the_workflow_only_applies_labels_agents_are_allowed_to_ask_for():
     post = next(s for s in steps("sdlc") if s.get("name", "").startswith("Post the report"))["run"]
     allowed = set(re.search(r"case \"\$l\" in ([^)]*)\)", post).group(1).split("|"))
