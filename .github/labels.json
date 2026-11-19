@@ -50,6 +50,21 @@
     "description": "SDLC stage: release"
   },
   {
+    "name": "stage:support-l1",
+    "color": "5319e7",
+    "description": "SDLC stage: first-line support (L1)"
+  },
+  {
+    "name": "stage:support-l2",
+    "color": "5319e7",
+    "description": "SDLC stage: second-line support (L2)"
+  },
+  {
+    "name": "stage:support-l3",
+    "color": "5319e7",
+    "description": "SDLC stage: third-line support (L3)"
+  },
+  {
     "name": "agent:intent",
     "color": "d93f0b",
     "description": "Owner gate: start intent (stakeholder + product owner). Applying this label starts the stage."
