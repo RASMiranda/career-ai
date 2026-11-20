@@ -285,6 +285,12 @@ def check_log(log, data=None):
     rows = read(p)
     text = p.read_text(encoding="utf-8") if p.is_file() else ""
     errors = _id_problems(text, str(p))
+    raw = p.read_bytes() if p.is_file() else b""
+    if b"\r" in raw:
+        errors.append(f"{p}: contains CR line endings; the log is LF only")
+    for n, line in enumerate(text.splitlines(), start=1):
+        if line.startswith(("<<<<<<<", "=======", ">>>>>>>")):
+            errors.append(f"{p}:{n}: merge conflict marker")
     gaps, warnings, legacy = [], [], 0
     if data is not None:
         root = Path(data)
@@ -305,6 +311,9 @@ def check_log(log, data=None):
                 legacy += 1  # one per log row: a key can repeat (e.g. several rows with the same ID)
             else:
                 gaps.append(f"no outcome for {r['site']} {r['job_id']}")
+        for key in sorted(keys - {(r["site"], r["job_id"]) for r in rows}):
+            # jsonl outcome with no log row at all: the reverse of a gap (ADR-061)
+            warnings.append(f"outcome without a log row: {key[0]} {key[1]}")
         for key, line in allow.items():
             if key in submitted and key in keys:
                 warnings.append(f"legacy entry has an outcome: {key[0]} {key[1]}")

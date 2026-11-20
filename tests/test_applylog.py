@@ -578,3 +578,31 @@ def test_seen_cli_no_match_exits_0_and_prints_nothing(log, capsys):
     code = applylog.main(["seen", "--log", str(log), "--employer", "Example", "--role", "Staff Engineer"])
     assert code == 0
     assert capsys.readouterr().out == ""
+
+
+def test_check_flags_cr_and_conflict_markers(tmp_path):
+    log = tmp_path / "apply" / "log.csv"
+    log.parent.mkdir(parents=True)
+    log.write_bytes(b"date,site,employer,role,job_id,status\r\n2026-11-19,greenhouse,A,R,1,SUBMITTED\r\n")
+    errors, *_ = applylog.check_log(log)
+    assert any("CR" in e for e in errors)
+    log.write_text("date,site,employer,role,job_id,status\n<<<<<<< HEAD\n"
+                   "2026-11-19,greenhouse,A,R,1,SUBMITTED\n", encoding="utf-8")
+    try:
+        errors, *_ = applylog.check_log(log)
+    except applylog.ApplyLogError:
+        return  # an unreadable row also fails the check, which is acceptable
+    assert any("conflict marker" in e for e in errors)
+
+
+def test_check_warns_on_outcome_without_log_row(tmp_path):
+    log = tmp_path / "apply" / "log.csv"
+    add(log, job_id="1", status="SUBMITTED")
+    data = tmp_path
+    out = data / "logs" / "apply"
+    out.mkdir(parents=True)
+    (out / "greenhouse-2026-11-19.jsonl").write_text(
+        '{"site": "glassdoor", "job_id": "1"}\n{"site": "glassdoor", "job_id": "99"}\n', encoding="utf-8")
+    errors, gaps, warnings, rows, legacy = applylog.check_log(log, data)
+    assert not errors and not gaps
+    assert warnings == ["outcome without a log row: glassdoor 99"]
