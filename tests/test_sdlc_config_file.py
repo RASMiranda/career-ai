@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jobscan import sdlc
-from jobscan.sdlc import budget, config
-from jobscan.sdlc.config import ConfigError
+import sdlc_engine as sdlc
+from sdlc_engine import budget, config
+from sdlc_engine.config import ConfigError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".github" / "sdlc-config.json"
@@ -138,7 +138,7 @@ def test_a_missing_config_file_exits_non_zero_and_writes_no_output(tmp_path):
     out = tmp_path / "decision.json"
     event = tmp_path / "event.json"
     event.write_text(json.dumps(EVENT), encoding="utf-8")
-    run = subprocess.run([sys.executable, "-m", "jobscan.sdlc", "--config", str(tmp_path / "missing.json"), "decide",
+    run = subprocess.run([sys.executable, "-m", "sdlc_engine", "--config", str(tmp_path / "missing.json"), "decide",
                           "--event", str(event), "--out", str(out)],
                          cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT / "src")}, capture_output=True, text=True)
     assert run.returncode != 0
@@ -225,7 +225,7 @@ def test_every_trusted_checkout_fetches_the_config_file_and_the_src():
 
 def test_every_engine_call_passes_the_config_it_reads():
     """Before the trusted copy exists, decide and budget read the trigger commit's file; after it, the trusted copy's."""
-    calls = [(name, line) for name, script in run_steps() for line in script.splitlines() if "-m jobscan.sdlc" in line]
+    calls = [(name, line) for name, script in run_steps() for line in script.splitlines() if "-m sdlc_engine" in line]
     assert calls
     for name, line in calls:
         if "$TRUSTED_SRC" in line:

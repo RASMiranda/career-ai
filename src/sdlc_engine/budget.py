@@ -151,7 +151,7 @@ def configure(cfg):
 
 def main(argv=None):
     """Exit 0 allowed, 3 blocked. Any other exit (history unreadable) is treated as blocked by the workflow."""
-    ap = argparse.ArgumentParser(prog="jobscan.sdlc.budget")
+    ap = argparse.ArgumentParser(prog="sdlc_engine.budget")
     ap.add_argument("--config", help="the project values, .github/sdlc-config.json (ADR-060); absent: built-in")
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--stage", default="")

@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from jobscan import sdlc
+import sdlc_engine as sdlc
 
 FAKE_TOKEN = "sk-ant-oat01-" + "FAKE" * 8                 # obviously fake; shaped like an OAuth token
 SECRET_INPUT = "echo " + FAKE_TOKEN + " > /tmp/x"
@@ -151,8 +151,8 @@ def test_the_cli_writes_the_three_outputs_from_the_files(tmp_path):
 
     stage = result_file(tmp_path, "stage.json", denials=[denial("Bash")], result="last")
     outs = {k: str(tmp_path / f"{k}.txt") for k in ("summary", "denials", "message")}
-    env = {**os.environ, "PYTHONPATH": str(sdlc.__file__).rsplit("/jobscan/", 1)[0]}
-    run = subprocess.run([sys.executable, "-P", "-m", "jobscan.sdlc", "agent-notes", "--stage", stage,
+    env = {**os.environ, "PYTHONPATH": str(sdlc.__file__).rsplit("/sdlc_engine/", 1)[0]}
+    run = subprocess.run([sys.executable, "-P", "-m", "sdlc_engine", "agent-notes", "--stage", stage,
                           "--no-report", "--summary-out", outs["summary"], "--denials-out", outs["denials"],
                           "--message-out", outs["message"]], capture_output=True, text=True, env=env, cwd=tmp_path)
     assert run.returncode == 0, run.stderr

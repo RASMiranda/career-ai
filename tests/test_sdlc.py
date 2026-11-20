@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from jobscan import sdlc
+import sdlc_engine as sdlc
 
 
 def event(action="opened", assoc="OWNER", labels=(), label=None, title="Add a thing!", number=7, sender="owner",
@@ -106,7 +106,7 @@ def test_a_stage_may_write_only_its_own_artifact():
 
 @pytest.mark.parametrize("path", [".github/workflows/sdlc.yml", ".claude/agents/developer.md", "CLAUDE.md", "REVIEW.md",
                                   "docs/DECISIONS.md", "docs/SDLC.md", "pyproject.toml", "requirements.txt",
-                                  "requirements-apply.txt", "profiles/rui/profile.yaml", "x/authorization.yaml", "x/config.yaml", "routine-prompt.md",
+                                  "requirements-apply.txt", "x/authorization.yaml", "x/config.yaml", "routine-prompt.md",
                                   "docs/managed-settings.example.json", "scripts/hooks/guard.py", ".claude/settings.json",
                                   "scripts/local-apply.sh", ".gitignore", "a/b/.env", ".env.local"])
 def test_an_agent_can_never_change_its_own_rules_the_workflows_or_secrets(path):
@@ -114,10 +114,16 @@ def test_an_agent_can_never_change_its_own_rules_the_workflows_or_secrets(path):
     assert out and "protected" in out[0]
 
 
+def test_a_profile_file_is_protected_wherever_it_sits(tmp_path):
+    rel = (tmp_path / "profiles" / tmp_path.name / "profile.yaml").relative_to(tmp_path).as_posix()
+    out = problems("build", [rel])
+    assert out and "protected" in out[0]
+
+
 @pytest.mark.parametrize("name", sorted(sdlc.STAGES))
 def test_no_stage_may_change_the_sdlc_package_that_runs_the_stages_and_the_check(name):
     # i.F9: the package that runs every stage and decides what is kept is code a human PR changes, never an agent.
-    for path in ("src/jobscan/sdlc/__init__.py", "src/jobscan/sdlc/budget.py"):
+    for path in ("src/sdlc_engine/__init__.py", "src/sdlc_engine/budget.py"):
         out = problems(name, [path])
         assert out, (name, path)
         if sdlc.STAGES[name]["repo"]:
@@ -126,16 +132,16 @@ def test_no_stage_may_change_the_sdlc_package_that_runs_the_stages_and_the_check
 
 def test_build_may_change_other_jobscan_code_but_not_the_sdlc_package():
     assert problems("build", ["src/jobscan/kit.py", "src/jobscan/apply/x.py", "tests/test_kit.py"]) == []
-    out = problems("build", ["src/jobscan/sdlc/__init__.py", "src/jobscan/kit.py"])
-    assert len(out) == 1 and "src/jobscan/sdlc/__init__.py: protected" in out[0]
+    out = problems("build", ["src/sdlc_engine/__init__.py", "src/jobscan/kit.py"])
+    assert len(out) == 1 and "src/sdlc_engine/__init__.py: protected" in out[0]
 
 
 def test_the_only_write_pattern_that_reaches_the_sdlc_package_is_the_builds_src_glob_and_protection_wins():
     # The build stage's `src/**` still matches the package; the protected check runs first in `check`, so it refuses.
     for name, spec in sdlc.STAGES.items():
-        overlapping = [w for w in spec["writes"] if sdlc.matches("src/jobscan/sdlc/__init__.py", [w])]
+        overlapping = [w for w in spec["writes"] if sdlc.matches("src/sdlc_engine/__init__.py", [w])]
         assert overlapping == (["src/**"] if name == "build" else []), (name, overlapping)
-        assert sdlc.matches("src/jobscan/sdlc/__init__.py", sdlc.PROTECTED)
+        assert sdlc.matches("src/sdlc_engine/__init__.py", sdlc.PROTECTED)
 
 
 def test_build_may_change_code_tests_and_docs_but_not_the_rest():

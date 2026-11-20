@@ -1,4 +1,4 @@
-"""ADR-036: jobscan steps that run after an agent use the code from the trigger commit, not the agent's branch.
+"""ADR-036: sdlc_engine steps that run after an agent use the code from the trigger commit, not the agent's branch.
 Parses the workflow file; no network, no git."""
 import json
 from pathlib import Path
@@ -32,8 +32,8 @@ def after(agent_name):
     return steps()[names().index(agent_name) + 1:]
 
 
-def test_every_jobscan_call_after_the_stage_agents_uses_the_trusted_copy_without_the_cwd():
-    calls = [s for s in after(STAGE_AGENTS) if "jobscan" in s.get("run", "") and "python" in s["run"]]
+def test_every_sdlc_engine_call_after_the_stage_agents_uses_the_trusted_copy_without_the_cwd():
+    calls = [s for s in after(STAGE_AGENTS) if "sdlc_engine" in s.get("run", "") and "python" in s["run"]]
     assert calls
     for s in calls:
         assert 'PYTHONPATH="$TRUSTED_SRC"' in s["run"] and "python -P" in s["run"], s["name"]
@@ -76,7 +76,7 @@ def test_the_pre_agent_trusted_load_sits_right_after_the_branch_checkout_and_bef
     assert n[c - 1] == BRANCH_CHECKOUT and n[u + 1] == "Check the stage's input exists (the gate before it)"
     assert n.index(SKIP_STEP) < n.index(FRAME_STEP) < n.index(STAGE_AGENTS)
     assert "rm -rf trusted" in steps()[c]["run"] and ".git/info/exclude" in steps()[c]["run"]
-    assert "TRUSTED_SRC" in steps()[u]["run"] and "test -f trusted/src/jobscan/sdlc/__init__.py" in steps()[u]["run"]
+    assert "TRUSTED_SRC" in steps()[u]["run"] and "test -f trusted/src/sdlc_engine/__init__.py" in steps()[u]["run"]
 
 
 def test_the_pre_agent_checkout_has_the_same_parameters_as_the_post_agent_one():
@@ -93,8 +93,8 @@ def test_the_helpers_before_the_agent_use_the_trusted_src_with_python_dash_p():
     # planted in the workspace cannot shadow the package.
     for s in steps()[names().index(BRANCH_CHECKOUT) + 1:names().index(STAGE_AGENTS)]:
         for line in s.get("run", "").splitlines():
-            if "-m jobscan.sdlc" in line:
-                assert 'PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc' in line, (s["name"], line)
+            if "-m sdlc_engine" in line:
+                assert 'PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine' in line, (s["name"], line)
 
 
 def test_the_trusted_code_is_a_second_checkout_pinned_to_the_trigger_commit_and_never_git_archive():
@@ -109,7 +109,7 @@ def test_the_trusted_code_is_a_second_checkout_pinned_to_the_trigger_commit_and_
         assert "always()" in s["if"] and not s.get("env")
 
 
-def test_each_trusted_load_follows_its_agent_run_and_precedes_the_steps_that_import_jobscan():
+def test_each_trusted_load_follows_its_agent_run_and_precedes_the_steps_that_import_sdlc_engine():
     n = names()
     clear = idx("Trusted jobscan code (1 of 3)"), idx("Trusted jobscan code, again after the reviewers (1 of 3)")
     use = idx("Trusted jobscan code (3 of 3)"), idx("Trusted jobscan code, again after the reviewers (3 of 3)")
@@ -136,13 +136,13 @@ def test_the_use_step_exports_the_src_of_the_trusted_checkout():
     for s in steps():
         if s["name"].startswith(LOAD) and "(3 of 3)" in s["name"]:
             assert 'echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"' in s["run"]
-            assert "test -f trusted/src/jobscan/sdlc/__init__.py" in s["run"]
+            assert "test -f trusted/src/sdlc_engine/__init__.py" in s["run"]
 
 
-def test_every_token_step_after_the_stage_agents_that_imports_jobscan_runs_after_a_trusted_load():
+def test_every_token_step_after_the_stage_agents_that_imports_sdlc_engine_runs_after_a_trusted_load():
     start = names().index(STAGE_AGENTS)
     for i, s in enumerate(steps()):
-        if i > start and "GH_TOKEN" in (s.get("env") or {}) and "jobscan" in s.get("run", ""):
+        if i > start and "GH_TOKEN" in (s.get("env") or {}) and "sdlc_engine" in s.get("run", ""):
             assert any(n.startswith(LOAD) for n in names()[:i]), s["name"]
             assert 'PYTHONPATH="$TRUSTED_SRC"' in s["run"], s["name"]
 
@@ -163,7 +163,7 @@ def _shell(step_run, cwd, extra):
 
 
 def _decision_and_branch(cwd, stage_file=None):
-    from jobscan import sdlc
+    import sdlc_engine as sdlc
     event = {"action": "labeled", "sender": {"type": "User", "login": "o"}, "label": {"name": "agent:spec"},
              "issue": {"number": 7, "title": "Add a thing", "body": "", "state": "open", "locked": False,
                        "author_association": "OWNER", "labels": []}}
@@ -176,7 +176,7 @@ def _decision_and_branch(cwd, stage_file=None):
 
 
 def test_the_skip_step_runs_for_real_from_the_trusted_src_and_stops_only_when_the_file_is_on_the_branch(tmp_path):
-    from jobscan import sdlc
+    import sdlc_engine as sdlc
     skip = next(s for s in steps() if s["name"] == SKIP_STEP)
     _decision_and_branch(tmp_path, stage_file="spec.md")
     run = _shell(skip["run"], tmp_path, {})
@@ -202,11 +202,11 @@ def test_the_frame_step_writes_the_issue_and_the_prompt_for_real_from_the_truste
     assert (tmp_path / ".sdlc" / "issue.md").is_file() and (tmp_path / ".sdlc" / "prompt.md").is_file()
 
 
-def test_a_planted_jobscan_package_in_the_workspace_is_not_imported_by_the_pre_agent_helpers(tmp_path):
+def test_a_planted_sdlc_engine_package_in_the_workspace_is_not_imported_by_the_pre_agent_helpers(tmp_path):
     # `python -P` keeps the working directory off sys.path. Without it, this file would shadow the trusted package.
     skip = next(s for s in steps() if s["name"] == SKIP_STEP)
-    (tmp_path / "jobscan").mkdir()
-    (tmp_path / "jobscan" / "__init__.py").write_text("raise SystemExit('the workspace copy was imported')\n")
+    (tmp_path / "sdlc_engine").mkdir()
+    (tmp_path / "sdlc_engine" / "__init__.py").write_text("raise SystemExit('the workspace copy was imported')\n")
     _decision_and_branch(tmp_path, stage_file="spec.md")
     run = _shell(skip["run"], tmp_path, {})
     assert run.returncode == 0, run.stderr

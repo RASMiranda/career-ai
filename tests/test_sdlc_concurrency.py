@@ -1,7 +1,7 @@
 """ADR-039: a no-op `issues` event must never share a concurrency group with a real stage run.
 
 The workflow's group key and job `if` are GitHub expressions. A tiny evaluator for the subset they use runs them
-against fixture events and compares with `jobscan.sdlc.decide`, the single authority. Fixtures only, no network."""
+against fixture events and compares with `sdlc_engine.decide`, the single authority. Fixtures only, no network."""
 import json
 import re
 from pathlib import Path
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jobscan import sdlc
+import sdlc_engine as sdlc
 
 WF = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "sdlc.yml"
 WORKFLOW = yaml.safe_load(WF.read_text())

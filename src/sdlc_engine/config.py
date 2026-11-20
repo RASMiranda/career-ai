@@ -1,6 +1,6 @@
 """The project values the sdlc engine uses, read from ``.github/sdlc-config.json`` (ADR-060). Stdlib only.
 
-``load`` returns ``None`` when the file is absent: the built-in constants in ``jobscan.sdlc`` then apply, which is how
+``load`` returns ``None`` when the file is absent: the built-in constants in ``sdlc_engine`` then apply, which is how
 the engine behaved before this file existed. A file that is present but malformed raises ``ConfigError``. Nothing
 falls back silently: a wrong value could let a stage write where it must not, so the run stops instead.
 
