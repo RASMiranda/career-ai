@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / ".github" / "workflows" / "sdlc.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "sdlc-stage.yml"  # S2: the stage job lives here
 SECRETS = ("GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC", "CLAUDE_CODE_OAUTH_TOKEN")
 STAGE_AGENTS = "Run the stage agents"
 REVIEW_AGENTS = "Run the review agents"

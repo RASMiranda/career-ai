@@ -82,6 +82,7 @@ def write_golden():
 def test_the_golden_files_are_exactly_the_engine_output(configured):
     expected = render_all()
     present = {p.name for p in GOLDEN.iterdir() if p.is_file()}
+    present.discard("sdlc-steps.txt")         # S2: the stage's step list, pinned by tests/test_sdlc_steps_golden.py
     assert present == set(expected), "golden files missing or stray: " + ", ".join(sorted(present ^ set(expected)))
     for name, text in expected.items():
         assert (GOLDEN / name).read_bytes() == text.encode("utf-8"), f"tests/golden/{name} differs from the engine"

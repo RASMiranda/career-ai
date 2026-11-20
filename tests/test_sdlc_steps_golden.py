@@ -12,7 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 GOLDEN = ROOT / "tests" / "golden" / "sdlc-steps.txt"
-WORKFLOWS = [ROOT / ".github" / "workflows" / "sdlc.yml"]
+WORKFLOWS = [ROOT / ".github" / "workflows" / "sdlc.yml", ROOT / ".github" / "workflows" / "sdlc-stage.yml"]
 
 
 def steps_in_order():
