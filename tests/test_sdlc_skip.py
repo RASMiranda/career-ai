@@ -13,7 +13,7 @@ import yaml
 import sdlc_engine as sdlc
 
 ROOT = Path(__file__).resolve().parents[1]
-WF = yaml.safe_load((ROOT / ".github" / "workflows" / "sdlc.yml").read_text())
+WF = yaml.safe_load((ROOT / ".github" / "workflows" / "sdlc-stage.yml").read_text())  # S2: the stage job lives here
 STEPS = WF["jobs"]["stage"]["steps"]
 for _s in STEPS:
     _s.setdefault("name", _s.get("uses", ""))

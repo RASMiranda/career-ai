@@ -554,3 +554,42 @@ def test_the_push_step_stages_and_commits_with_an_ignored_sdlc_dir(tmp_path):
     assert git("show", "--name-only", "--format=", "HEAD").split() == ["tracked.txt"]
     assert not [l for l in git("ls-files").splitlines() if l.startswith(".sdlc")]
     assert git("diff", "--cached", "--name-only").strip() == ""
+
+
+# ------------------------------------------------- S2: the thin caller (sdlc.yml) and the stage workflow (sdlc-stage.yml)
+STAGE_CALL = "./.github/workflows/sdlc-stage.yml"
+CALLED_SECRETS = {"CLAUDE_CODE_OAUTH_TOKEN"}
+
+
+def test_the_caller_has_exactly_the_triggers_it_had_on_main():
+    assert on("sdlc") == {"issues": {"types": ["opened", "labeled"]}}
+
+
+def test_the_caller_keeps_the_name_the_budget_gate_queries():
+    assert workflow("sdlc")["name"] == "sdlc"                        # actions/workflows/sdlc.yml/runs in budget.py
+
+
+def test_the_caller_has_no_steps_and_one_job_that_calls_the_stage_workflow():
+    wf = workflow("sdlc")
+    assert all("steps" not in job for job in wf["jobs"].values())
+    assert list(wf["jobs"]) == ["stage"]
+    assert wf["jobs"]["stage"]["uses"] == STAGE_CALL
+
+
+def test_the_caller_passes_only_the_named_secrets_and_never_inherits():
+    job = workflow("sdlc")["jobs"]["stage"]
+    assert job["secrets"] == {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}
+    assert "inherit" not in json.dumps(job)
+
+
+def test_the_stage_workflow_declares_workflow_call_with_each_secret_it_uses():
+    declared = on("sdlc-stage")["workflow_call"]["secrets"]
+    assert set(declared) == CALLED_SECRETS
+    assert all(s["required"] is True for s in declared.values())
+    used = {m for s in steps("sdlc-stage") for m in re.findall(r"secrets\.([A-Z_]+)", json.dumps(s))}
+    assert used == CALLED_SECRETS                                    # every secret the steps read is declared
+
+
+def test_the_stage_job_asks_for_no_more_than_the_caller_grants():
+    assert workflow("sdlc-stage")["jobs"]["stage"]["permissions"] == workflow("sdlc")["jobs"]["stage"]["permissions"]
+    assert workflow("sdlc")["permissions"] == {}                    # top level stays empty; the grants are per job
