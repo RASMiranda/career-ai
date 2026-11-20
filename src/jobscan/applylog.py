@@ -145,6 +145,28 @@ def seen(path, employer: str, role: str) -> list[dict]:
             and normalise_role(r["role"]) == key]
 
 
+def unlogged(path, entries) -> list[dict]:
+    """Entries from a site's own Applied list that no APPLIED row in the log covers (ADR-062).
+
+    ``entries`` are dicts with ``employer`` and ``role``. Matching is ``seen``: employer and
+    normalised role on any site, so a reworded title or a repost does not show as a gap. The result
+    is what the run has not logged and may not have submitted itself.
+    """
+    return [e for e in entries if not seen(path, e.get("employer", ""), e.get("role", ""))]
+
+
+def read_entries(path) -> list[dict]:
+    """Rows of an Applied-list file: CSV with header ``employer,role`` (extra columns are ignored)."""
+    p = Path(path)
+    if not p.is_file():
+        raise ApplyLogError(f"{p}: entries file not found")
+    reader = csv.DictReader(io.StringIO(p.read_text(encoding="utf-8")))
+    if not {"employer", "role"} <= set(reader.fieldnames or ()):
+        raise ApplyLogError(f"{p}: header must include employer,role")
+    return [{"employer": (r.get("employer") or "").strip(), "role": (r.get("role") or "").strip()}
+            for r in reader if (r.get("employer") or "").strip() or (r.get("role") or "").strip()]
+
+
 # ---- command line: upsert / outcome / check / batch (ADR-050, ADR-053) ------------------------
 
 # Rows file for ``batch``: the log columns plus the outcome fields (ADR-053).
@@ -480,6 +502,9 @@ def main(argv=None) -> int:
     s.add_argument("--log", required=True)
     s.add_argument("--employer", required=True)
     s.add_argument("--role", required=True)
+    r = sub.add_parser("reconcile", help="list Applied-list entries that no APPLIED log row covers; exit 1 if any")
+    r.add_argument("--log", required=True)
+    r.add_argument("--file", required=True, help="CSV of the site's Applied list, header employer,role")
     c = sub.add_parser("check")
     c.add_argument("--log", required=True)
     c.add_argument("--data", help="also check that every SUBMITTED row has a jsonl outcome")
@@ -504,6 +529,11 @@ def main(argv=None) -> int:
             for r in matches:
                 print(",".join((r["site"], r["job_id"], r["date"], r["status"])))
             return 1 if matches else 0
+        elif a.cmd == "reconcile":
+            missing = unlogged(a.log, read_entries(a.file))
+            for e in missing:
+                print(",".join(f'"{v}"' if "," in v else v for v in (e["employer"], e["role"])))
+            return 1 if missing else 0
         else:
             return _check(a.log, a.data, a.strict)
     except (ApplyLogError, bank.ApplyOutcomeError, ValueError, RuntimeError) as e:
