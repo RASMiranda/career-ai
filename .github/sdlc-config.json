@@ -165,10 +165,23 @@
   "secret_patterns_extra": [
     "x-rapidapi-key\\s*[:=]\\s*\\w{16,}"
   ],
+  "prompt": {
+    "never_touch": "`authorization.yaml`, any `profile.yaml`, or `career-data`",
+    "read_first": [
+      "CLAUDE.md",
+      "docs/SDLC.md",
+      "docs/PRODUCT.md",
+      "docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022)",
+      "docs/REFERENCE-AIAPPLY.md"
+    ],
+    "support_sources": "README.md, docs/ and the failure explanations in src/jobscan/apply/faillog.py",
+    "support_bundle": "`python -m jobscan.apply bundle` output is safe"
+  },
   "budget": {
     "cap_24h": 60,
     "cap_7d": 240,
-    "min_run_seconds": 30
+    "min_run_seconds": 30,
+    "mention": "@RASMiranda"
   },
   "model": "claude-sonnet-5-5",
   "test": {

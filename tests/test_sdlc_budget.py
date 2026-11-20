@@ -1,8 +1,12 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from sdlc_engine import budget
+import pytest
+
+from sdlc_engine import budget, config
 
 NOW = datetime(2026, 10, 26, 12, 0, 0, tzinfo=timezone.utc)
+CONFIG = Path(__file__).resolve().parents[1] / ".github" / "sdlc-config.json"
 
 
 def iso(t):
@@ -113,7 +117,16 @@ def test_pagination_stops_on_a_short_page():
     assert len(budget.collect_runs(fetch, NOW)) == 1 and calls == [1]
 
 
-def test_comment_and_summary_wording():
+@pytest.fixture
+def budget_from_career_ai_config(monkeypatch):
+    """The budget module with career-ai's .github/sdlc-config.json applied (ADR-065: the handle is the project's)."""
+    for name in ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D", "MENTION"):
+        monkeypatch.setattr(budget, name, getattr(budget, name))
+    budget.configure(config.load(CONFIG))
+    return budget
+
+
+def test_comment_and_summary_wording(budget_from_career_ai_config):
     r = budget.evaluate([run(1, timedelta(hours=3), 61)], 0, NOW, 60, 240)
     text = budget.render_comment(r)
     assert text.startswith("@RASMiranda: Budget gate: used 61.0 of 60 agent-minutes in the last 24h (61.0 of 240 in 7d). "
@@ -121,3 +134,10 @@ def test_comment_and_summary_wording():
     s = budget.render_summary("build", r)
     assert "`build`" in s and "61.0 of 60" in s and "blocked" in s
     assert "the cap is raised" in budget.render_comment(budget.evaluate([], 0, NOW, 0, 240))
+
+
+def test_the_built_in_comment_names_no_one():
+    """ADR-065: with no config, the blocked comment has no handle; the project's handle comes from its config."""
+    assert budget.MENTION == ""
+    text = budget.render_comment(budget.evaluate([run(1, timedelta(hours=3), 61)], 0, NOW, 60, 240))
+    assert text.startswith("Budget gate: used 61.0 of 60 agent-minutes") and "@" not in text

@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 from . import config
@@ -77,7 +78,15 @@ STAGES = {
 
 _CREDENTIAL_BASE = (r"sk-ant-[\w-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|AKIA[0-9A-Z]{12,}|"
                     r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
-SECRET_PATTERNS_EXTRA = [r"x-rapidapi-key\s*[:=]\s*\w{16,}"]
+# A project's own credential shapes come from its config's secret_patterns_extra (ADR-065); none are built in.
+SECRET_PATTERNS_EXTRA = []
+
+# The project's own prompt text (ADR-065). These built-in values are generic: the "prompt" object of
+# .github/sdlc-config.json supplies the project's, and a key it leaves out keeps the value here. "" leaves a sentence
+# or clause out of the prompt.
+PROMPT_DEFAULTS = {"never_touch": "", "read_first": ["CLAUDE.md", "docs/SDLC.md"],
+                   "support_sources": "README.md and docs/", "support_bundle": ""}
+PROMPT = dict(PROMPT_DEFAULTS)
 
 
 def _credential(extra):
@@ -233,10 +242,9 @@ Rules that cannot be relaxed:
   needs-info, type:bug, type:feature, support:L2, support:L3 per line).
 - Write only to: {writes}. A check after you finish rejects anything else, and these are never writable: \
 {protected}.
-- Never read or write personal data. Never touch `authorization.yaml`, any `profile.yaml`, or `career-data`.
+- Never read or write personal data.{never}
 - Do not weaken a test, a hook, a guard or a rule to make something pass. If the plan seems to need that, stop and say so.
-- Read first: CLAUDE.md, docs/SDLC.md, docs/PRODUCT.md, docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022),
-  docs/REFERENCE-AIAPPLY.md. A conflict with an ADR is a concern to flag, not something to resolve yourself.
+{read_first}
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: {roles}.
 """
 
@@ -275,9 +283,9 @@ Important findings` or `Verdict: N Important findings`. You never approve and ne
 it to `.sdlc/comment.md`. Confirm the gates were met: intent, spec and plan approved, the required pytest check green on the head commit, review findings \
 resolved. You cannot merge or release; say plainly if a gate is missing.""",
     "support-l1": """First-line support. Classify the issue (bug, feature request, how-to, environment, account or \
-site problem). Answer from README.md, docs/ and the failure explanations in src/jobscan/apply/faillog.py if the answer \
-is already documented, quoting where. If information is missing, ask for it (redacted: no names, emails, companies; \
-`python -m jobscan.apply bundle` output is safe) and request the `needs-info` label. If it is a defect or needs code, request \
+site problem). Answer from {support_sources} if the answer \
+is already documented, quoting where. If information is missing, ask for it (redacted: no names, emails, companies{bundle_clause}) and request \
+the `needs-info` label. If it is a defect or needs code, request \
 `support:L2`. Never ask for passwords or tokens.""",
     "support-l2": """Second-line support. Diagnose from the evidence in the issue and the code: reproduce with a \
 failing test idea or a command, name the likely cause and the file, say what the owner can fix in configuration. You \
@@ -289,11 +297,23 @@ time). Do not fix it here: the fix goes through spec, plan and build.""",
 }
 
 
+def _read_first_line() -> str:
+    """The "Read first" bullet, wrapped at 120 columns with a two-space continuation (the wrap the prompts always had)."""
+    text = (f"- Read first: {', '.join(PROMPT['read_first'])}. A conflict with an ADR is a concern to flag, not "
+            "something to resolve yourself.")
+    return textwrap.fill(text, width=120, subsequent_indent="  ", break_long_words=False, break_on_hyphens=False)
+
+
 def render_prompt(decision: dict) -> str:
     writes = ", ".join(decision["writes"]) or "nothing in the repository (`.sdlc/` only)"
+    never = f" Never touch {PROMPT['never_touch']}." if PROMPT["never_touch"] else ""
+    bundle = f"; {PROMPT['support_bundle']}" if PROMPT["support_bundle"] else ""
     head = _COMMON.format(stage=decision["stage"], issue=decision["issue"], title=decision["title"], writes=writes,
-                          protected=", ".join(PROTECTED), roles=", ".join(decision["roles"]))
-    return head + "\n" + _TASKS[decision["stage"]].format(workdir=decision["workdir"]) + "\n"
+                          protected=", ".join(PROTECTED), roles=", ".join(decision["roles"]),
+                          never=never, read_first=_read_first_line())
+    task = _TASKS[decision["stage"]].format(workdir=decision["workdir"], support_sources=PROMPT["support_sources"],
+                                            bundle_clause=bundle)
+    return head + "\n" + task + "\n"
 
 
 # ------------------------------------------------------------------------ check
@@ -491,9 +511,9 @@ def _outputs(decision: dict) -> None:
 
 
 def configure(cfg) -> None:
-    """Use the values in ``cfg`` (ADR-060). ``None`` (no file) keeps the built-in constants."""
+    """Use the values in ``cfg`` (ADR-060, ADR-065). ``None`` (no file) keeps the built-in, generic constants."""
     global AGENT_BRANCH_PREFIX, TRUSTED, WORK, LABEL_TO_STAGE, REQUESTABLE_LABELS, STAGES, PROTECTED
-    global MAX_FILES, MAX_ADDED_BYTES, _CREDENTIAL
+    global MAX_FILES, MAX_ADDED_BYTES, _CREDENTIAL, SECRET_PATTERNS_EXTRA, PROMPT
     if cfg is None:
         return
     AGENT_BRANCH_PREFIX = cfg["agent_branch_prefix"]
@@ -504,7 +524,9 @@ def configure(cfg) -> None:
     STAGES = cfg["stages"]
     PROTECTED = list(cfg["protected_paths"])
     MAX_FILES, MAX_ADDED_BYTES = cfg["limits"]["max_files"], cfg["limits"]["max_added_bytes"]
-    _CREDENTIAL = _credential(cfg["secret_patterns_extra"])
+    SECRET_PATTERNS_EXTRA = list(cfg["secret_patterns_extra"])
+    _CREDENTIAL = _credential(SECRET_PATTERNS_EXTRA)
+    PROMPT = {**PROMPT_DEFAULTS, **cfg.get("prompt", {})}
 
 
 def main(argv=None) -> int:

@@ -10,7 +10,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sdlc.yml"
 SECRETS = ("GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC", "CLAUDE_CODE_OAUTH_TOKEN")
 STAGE_AGENTS = "Run the stage agents"
 REVIEW_AGENTS = "Run the review agents"
-LOAD = "Trusted jobscan code"
+LOAD = "Trusted engine code"
 
 
 def steps():
@@ -67,9 +67,9 @@ def test_no_helper_between_the_branch_checkout_and_the_agent_imports_the_branch_
 
 def test_the_pre_agent_trusted_load_sits_right_after_the_branch_checkout_and_before_the_skip_step():
     n = names()
-    clear = idx("Trusted jobscan code, before the agent (1 of 3)")
-    fetch = idx("Trusted jobscan code, before the agent (2 of 3)")
-    use = idx("Trusted jobscan code, before the agent (3 of 3)")
+    clear = idx("Trusted engine code, before the agent (1 of 3)")
+    fetch = idx("Trusted engine code, before the agent (2 of 3)")
+    use = idx("Trusted engine code, before the agent (3 of 3)")
     assert len(clear) == len(fetch) == len(use) == 1
     c, f, u = clear[0], fetch[0], use[0]
     assert n.index(BRANCH_CHECKOUT) < c < f < u < n.index(SKIP_STEP)
@@ -80,8 +80,8 @@ def test_the_pre_agent_trusted_load_sits_right_after_the_branch_checkout_and_bef
 
 
 def test_the_pre_agent_checkout_has_the_same_parameters_as_the_post_agent_one():
-    pre = next(s for s in steps() if s["name"].startswith("Trusted jobscan code, before the agent (2 of 3)"))
-    post = next(s for s in steps() if s["name"].startswith("Trusted jobscan code (2 of 3)"))
+    pre = next(s for s in steps() if s["name"].startswith("Trusted engine code, before the agent (2 of 3)"))
+    post = next(s for s in steps() if s["name"].startswith("Trusted engine code (2 of 3)"))
     assert pre["uses"] == post["uses"] == "actions/checkout@v7"
     assert pre["with"] == post["with"] == {"ref": "${{ github.sha }}", "path": "trusted", "sparse-checkout": "src\n.github\n",
                                            "persist-credentials": False}
@@ -111,8 +111,8 @@ def test_the_trusted_code_is_a_second_checkout_pinned_to_the_trigger_commit_and_
 
 def test_each_trusted_load_follows_its_agent_run_and_precedes_the_steps_that_import_sdlc_engine():
     n = names()
-    clear = idx("Trusted jobscan code (1 of 3)"), idx("Trusted jobscan code, again after the reviewers (1 of 3)")
-    use = idx("Trusted jobscan code (3 of 3)"), idx("Trusted jobscan code, again after the reviewers (3 of 3)")
+    clear = idx("Trusted engine code (1 of 3)"), idx("Trusted engine code, again after the reviewers (1 of 3)")
+    use = idx("Trusted engine code (3 of 3)"), idx("Trusted engine code, again after the reviewers (3 of 3)")
     assert len(clear[0]) == len(clear[1]) == len(use[0]) == len(use[1]) == 1
     c1, c2, u1, u2 = clear[0][0], clear[1][0], use[0][0], use[1][0]
     assert n.index(STAGE_AGENTS) < c1 < u1 < n.index("Check what the agent changed")
@@ -120,7 +120,7 @@ def test_each_trusted_load_follows_its_agent_run_and_precedes_the_steps_that_imp
     # the second load comes after both agent runs, before the reviewer check and the post step
     assert n.index(REVIEW_AGENTS) < c2 < u2 < n.index("Reject any change the reviewers made") < idx("Post the report")[0]
     # a clear step runs right before its checkout, and the folder is hidden from git status
-    assert n[c1 + 1].startswith("Trusted jobscan code (2 of 3)") and n[c2 + 1].startswith("Trusted jobscan code, again")
+    assert n[c1 + 1].startswith("Trusted engine code (2 of 3)") and n[c2 + 1].startswith("Trusted engine code, again")
     for i in (c1, c2):
         assert "rm -rf trusted" in steps()[i]["run"] and ".git/info/exclude" in steps()[i]["run"]
 
