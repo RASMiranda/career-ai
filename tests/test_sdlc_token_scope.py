@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "sdlc.yml"
+WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "sdlc-stage.yml"  # S2: the stage job lives here
 
 # The only steps allowed to carry GH_TOKEN. Each one calls gh or pushes.
 TOKEN_STEPS = {

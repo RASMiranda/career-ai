@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "sdlc.yml"
+WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "sdlc-stage.yml"  # S2: the stage job lives here
 WRAPPER = 'git() { command git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }'
 GIT_CALL = re.compile(r"(?<![\w./$:-])git\s+[a-z]")                  # a git command, not a path or a URL
 

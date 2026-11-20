@@ -20,7 +20,7 @@ from sdlc_engine.config import ConfigError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".github" / "sdlc-config.json"
-WORKFLOW = ROOT / ".github" / "workflows" / "sdlc.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "sdlc-stage.yml"  # S2: the stage job lives here
 TESTS_WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
 TRUSTED_CONFIG = '--config "$TRUSTED_SRC/../.github/sdlc-config.json"'   # after the trusted copy exists
 WORKSPACE_CONFIG = "--config .github/sdlc-config.json"                   # decide and budget: the trigger commit

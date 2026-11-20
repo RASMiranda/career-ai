@@ -125,6 +125,9 @@ app only if the docs confirm the matching rule. No change to the fork-PR approva
 ### Project values in one file (ADR-060)
 The values the engine uses, such as the trusted author associations, the label-to-stage map, each stage's roles, outputs and turn limit, the protected paths, the size limits, the budget caps, the agent branch prefix and the model, live in `.github/sdlc-config.json`. The engine reads it with `--config` from the trigger commit (ADR-036), so a change takes effect only once a human merges it to main; it is a protected path, so no agent can write it. The built-in values in `src/sdlc_engine/` apply only when the file is absent, and a malformed file stops the run. `tests/test_sdlc_config_file.py` keeps the file equal to the built-in values and to the workflow text. The project's prompt text (the files a stage must never touch, the docs it reads first, the support sources, the bundle command), the owner's handle in the budget comment and the project's own credential shape are the optional `prompt` object and `budget.mention` of the same file (ADR-065): the built-in values are generic, and a second project supplies its own block in its own config. `tests/golden/` holds the rendered stage prompts and the blocked comment, compared byte for byte.
 
+### A thin caller around the stage workflow (ADR-066)
+`sdlc.yml` is the caller: it owns the name, the triggers, the concurrency group, the permissions each job is granted and the call. Its one job `stage` calls `sdlc-stage.yml`, a reusable workflow that holds every step and receives `CLAUDE_CODE_OAUTH_TOKEN` by name. The budget gate still counts the caller's runs. The steps are pinned byte for byte by `tests/golden/sdlc-steps.txt`. The job-level keys a caller may set, and how `github.*` resolves in a called workflow, are not yet checked against the GitHub docs (ADR-066).
+
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
 |---|---|---|---|
