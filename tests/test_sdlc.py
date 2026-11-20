@@ -165,7 +165,7 @@ def test_l3_may_write_an_intent_and_an_incident_record_only():
 def test_secrets_and_personal_data_in_added_lines_are_rejected():
     path = "docs/intents/7-add-a-thing/intent.md"
     for text, what in [("key sk-ant-api03-abcdefghijklmnop", "credential"), ("ghp_" + "a" * 30, "credential"),
-                       ("-----BEGIN RSA PRIVATE KEY-----", "credential"), ("X-RapidAPI-Key: " + "k" * 20, "credential"),
+                       ("-----BEGIN RSA PRIVATE KEY-----", "credential"),
                        ("write to person.real@corp.example.org", "email"), ("call +351 912 345 678", "phone")]:
         out = problems("intent", [path], {path: text})
         assert out and what in out[0], text

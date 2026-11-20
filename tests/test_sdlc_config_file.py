@@ -26,8 +26,9 @@ TRUSTED_CONFIG = '--config "$TRUSTED_SRC/../.github/sdlc-config.json"'   # after
 WORKSPACE_CONFIG = "--config .github/sdlc-config.json"                   # decide and budget: the trigger commit
 LOAD = "Trusted jobscan code"
 ENGINE_NAMES = ("AGENT_BRANCH_PREFIX", "TRUSTED", "WORK", "LABEL_TO_STAGE", "REQUESTABLE_LABELS", "STAGES", "PROTECTED",
-                "MAX_FILES", "MAX_ADDED_BYTES", "_CREDENTIAL")
-BUDGET_NAMES = ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D")
+                "MAX_FILES", "MAX_ADDED_BYTES", "_CREDENTIAL", "SECRET_PATTERNS_EXTRA", "PROMPT")
+BUDGET_NAMES = ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D", "MENTION")
+RAPIDAPI_PATTERN = r"x-rapidapi-key\s*[:=]\s*\w{16,}"      # the project's own credential shape (ADR-065)
 # The regex the engine used before the file existed, written out in full: the built-in list plus the x-rapidapi key.
 PINNED_CREDENTIAL = (r"sk-ant-[\w-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|AKIA[0-9A-Z]{12,}|"
                      r"-----BEGIN [A-Z ]*PRIVATE KEY-----|x-rapidapi-key\s*[:=]\s*\w{16,}")
@@ -77,7 +78,10 @@ def covers(entry, path):
 
 
 # ------------------------------------------------------- (a) the file holds the built-in values
-def test_the_file_holds_exactly_the_built_in_engine_values(cfg):
+def test_the_file_holds_the_built_in_engine_values_and_the_project_text_the_built_ins_leave_out(cfg):
+    """The file holds the values the engine's constants also hold, so a typo fails here (ADR-060). The project text,
+    the owner's handle and the project's credential shape (ADR-065) are supplied only by the file: the built-ins are
+    generic, so the config must carry them."""
     assert cfg["agent_branch_prefix"] == sdlc.AGENT_BRANCH_PREFIX
     assert cfg["artifact_dir"] == sdlc.WORK
     assert set(cfg["trusted_associations"]) == sdlc.TRUSTED and len(cfg["trusted_associations"]) == 3
@@ -87,14 +91,27 @@ def test_the_file_holds_exactly_the_built_in_engine_values(cfg):
     assert cfg["stages"] == sdlc.STAGES
     assert cfg["protected_paths"] == sdlc.PROTECTED
     assert cfg["limits"] == {"max_files": sdlc.MAX_FILES, "max_added_bytes": sdlc.MAX_ADDED_BYTES}
-    assert cfg["secret_patterns_extra"] == sdlc.SECRET_PATTERNS_EXTRA
     assert cfg["budget"] == {"cap_24h": budget.DEFAULT_CAP_24H, "cap_7d": budget.DEFAULT_CAP_7D,
-                             "min_run_seconds": budget.MIN_RUN_SECONDS}
+                             "min_run_seconds": budget.MIN_RUN_SECONDS, "mention": "@RASMiranda"}
+    assert cfg["secret_patterns_extra"] == [RAPIDAPI_PATTERN]           # supplied by the file ...
+    assert sdlc.SECRET_PATTERNS_EXTRA == [] and budget.MENTION == ""     # ... the built-ins are generic
+    assert cfg["prompt"] == {
+        "never_touch": "`authorization.yaml`, any `profile.yaml`, or `career-data`",
+        "read_first": ["CLAUDE.md", "docs/SDLC.md", "docs/PRODUCT.md",
+                       "docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022)", "docs/REFERENCE-AIAPPLY.md"],
+        "support_sources": "README.md, docs/ and the failure explanations in src/jobscan/apply/faillog.py",
+        "support_bundle": "`python -m jobscan.apply bundle` output is safe"}
+    assert sdlc.PROMPT == sdlc.PROMPT_DEFAULTS                          # the built-in prompt text is the generic one
 
 
-def test_the_credential_regex_built_from_the_file_is_the_pinned_one(cfg):
+def test_the_credential_regex_the_file_builds_is_the_pinned_one(cfg, engine):
     assert "|".join([sdlc._CREDENTIAL_BASE, *cfg["secret_patterns_extra"]]) == PINNED_CREDENTIAL
+    engine.configure(config.load(CONFIG))
     assert sdlc._CREDENTIAL.pattern == PINNED_CREDENTIAL
+
+
+def test_without_a_config_the_credential_regex_is_the_generic_base(engine):
+    assert sdlc._CREDENTIAL.pattern == sdlc._CREDENTIAL_BASE
 
 
 def test_every_stage_output_under_the_artifact_dir_starts_with_it(cfg):
@@ -177,6 +194,13 @@ MALFORMED = {
     "artifact_dir uses an unknown placeholder": lambda d: d.__setitem__("artifact_dir", "docs/{x}"),
     "a secret pattern does not compile": lambda d: d.__setitem__("secret_patterns_extra", ["(unclosed"]),
     "trusted_associations is text": lambda d: d.__setitem__("trusted_associations", "OWNER"),
+    "prompt is a list": lambda d: d.__setitem__("prompt", ["x"]),
+    "prompt has an unknown key": lambda d: d.__setitem__("prompt", {"never": "x"}),
+    "prompt.never_touch is a list": lambda d: d.__setitem__("prompt", {"never_touch": ["x"]}),
+    "prompt.read_first is empty": lambda d: d.__setitem__("prompt", {"read_first": []}),
+    "prompt.read_first is text": lambda d: d.__setitem__("prompt", {"read_first": "CLAUDE.md"}),
+    "prompt.support_sources is empty": lambda d: d.__setitem__("prompt", {"support_sources": ""}),
+    "budget.mention is a number": lambda d: d["budget"].__setitem__("mention", 5),
     "the branch prefix is empty": lambda d: d.__setitem__("agent_branch_prefix", ""),
     "a budget section has an unknown key": lambda d: d["budget"].__setitem__("cap_1d", 5),
     "a test value is empty": lambda d: d["test"].__setitem__("command", ""),

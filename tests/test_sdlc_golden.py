@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".github" / "sdlc-config.json"
 GOLDEN = ROOT / "tests" / "golden"
 ENGINE_NAMES = ("AGENT_BRANCH_PREFIX", "TRUSTED", "WORK", "LABEL_TO_STAGE", "REQUESTABLE_LABELS", "STAGES", "PROTECTED",
-                "MAX_FILES", "MAX_ADDED_BYTES", "_CREDENTIAL")
-BUDGET_NAMES = ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D")
+                "MAX_FILES", "MAX_ADDED_BYTES", "_CREDENTIAL", "SECRET_PATTERNS_EXTRA", "PROMPT")
+BUDGET_NAMES = ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D", "MENTION")
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
 
 

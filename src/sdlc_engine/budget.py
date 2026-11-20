@@ -26,6 +26,7 @@ from . import config
 MIN_RUN_SECONDS = 30
 DEFAULT_CAP_24H = 60
 DEFAULT_CAP_7D = 240
+MENTION = ""          # the handle the blocked comment starts with (ADR-065); "" means none, the config supplies it
 PER_PAGE = 100
 MAX_PAGES = 30
 DAY = timedelta(hours=24)
@@ -127,7 +128,8 @@ def render_comment(result):
     r = result
     when = (r["retry_after"].strftime("%Y-%m-%d %H:%M UTC") if r["retry_after"]
             else "the cap is raised (SDLC_MAX_AGENT_MIN_24H / SDLC_MAX_AGENT_MIN_7D)")
-    return (f"@RASMiranda: Budget gate: used {r['used_24h']} of {r['cap_24h']} agent-minutes in the last 24h "
+    prefix = f"{MENTION}: " if MENTION else ""
+    return (f"{prefix}Budget gate: used {r['used_24h']} of {r['cap_24h']} agent-minutes in the last 24h "
             f"({r['used_7d']} of {r['cap_7d']} in 7d). Nothing ran. Try again after {when}.")
 
 
@@ -141,12 +143,13 @@ def _gh_page(page, per_page, created_since):
 
 def configure(cfg):
     """Use the budget values in ``cfg`` (ADR-060). ``None`` (no file) keeps the built-in ones."""
-    global MIN_RUN_SECONDS, DEFAULT_CAP_24H, DEFAULT_CAP_7D
+    global MIN_RUN_SECONDS, DEFAULT_CAP_24H, DEFAULT_CAP_7D, MENTION
     if cfg is None:
         return
     MIN_RUN_SECONDS = cfg["budget"]["min_run_seconds"]
     DEFAULT_CAP_24H = cfg["budget"]["cap_24h"]
     DEFAULT_CAP_7D = cfg["budget"]["cap_7d"]
+    MENTION = cfg["budget"].get("mention", "")
 
 
 def main(argv=None):
