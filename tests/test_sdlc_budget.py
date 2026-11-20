@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from jobscan.sdlc import budget
+from sdlc_engine import budget
 
 NOW = datetime(2026, 10, 26, 12, 0, 0, tzinfo=timezone.utc)
 

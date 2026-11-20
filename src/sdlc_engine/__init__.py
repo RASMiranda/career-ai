@@ -2,13 +2,13 @@
 
 Agents write files; this code decides, checks and frames. The workflows only call it:
 
-    python -m jobscan.sdlc decide --event E [--branches B]   what to run for this GitHub event, as JSON
-    python -m jobscan.sdlc issue  --event E --comments C --out F   the issue as untrusted, fenced text
-    python -m jobscan.sdlc prompt --decision D --out F       the stage prompt the agent is told to follow
-    python -m jobscan.sdlc check  --decision D               did the agent stay inside its stage?
-    python -m jobscan.sdlc scan                              do the texts the workflow posts carry a secret?
-    python -m jobscan.sdlc pr-body --number N --workdir W    the draft PR body, which closes issue N when merged
-    python -m jobscan.sdlc agent-notes --stage S --review R  denied tool names and the last message, never tool_input (ADR-055)
+    python -m sdlc_engine decide --event E [--branches B]   what to run for this GitHub event, as JSON
+    python -m sdlc_engine issue  --event E --comments C --out F   the issue as untrusted, fenced text
+    python -m sdlc_engine prompt --decision D --out F       the stage prompt the agent is told to follow
+    python -m sdlc_engine check  --decision D               did the agent stay inside its stage?
+    python -m sdlc_engine scan                              do the texts the workflow posts carry a secret?
+    python -m sdlc_engine pr-body --number N --workdir W    the draft PR body, which closes issue N when merged
+    python -m sdlc_engine agent-notes --stage S --review R  denied tool names and the last message, never tool_input (ADR-055)
 
 Every command takes ``--config PATH`` before the command name (ADR-060): the project values in that JSON file. When
 the file is absent, the built-in values below apply; when it is malformed, the command fails.
@@ -51,7 +51,7 @@ READ_TOOLS = "Read,Grep,Glob,Write,Bash(git status:*),Bash(git diff:*),Bash(git 
 PROTECTED = [".github/**", ".claude/**", "CLAUDE.md", "REVIEW.md", "routine-prompt.md", "docs/DECISIONS.md",
              "docs/SDLC.md", "docs/managed-settings.example.json", "pyproject.toml", "requirements*.txt",
              "**/profile.yaml", "**/config.yaml", "**/authorization*.yaml", "**/.env*", "scripts/**", ".gitignore",
-             "src/jobscan/sdlc/**"]
+             "src/sdlc_engine/**"]
 
 STAGES = {
     "intent": {"roles": ["stakeholder", "product-owner"], "needs": None, "writes": [WORK + "/intent.md"],
@@ -512,7 +512,7 @@ def main(argv=None) -> int:
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--config")
     configure(config.load(pre.parse_known_args(argv)[0].config))
-    ap = argparse.ArgumentParser(prog="jobscan.sdlc", description=__doc__,
+    ap = argparse.ArgumentParser(prog="sdlc_engine", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", help="the project values, .github/sdlc-config.json (ADR-060); absent: built-in")
     sub = ap.add_subparsers(dest="cmd", required=True)

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jobscan import sdlc
+import sdlc_engine as sdlc
 
 ROOT = Path(__file__).resolve().parents[1]
 WF = yaml.safe_load((ROOT / ".github" / "workflows" / "sdlc.yml").read_text())

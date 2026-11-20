@@ -42,7 +42,7 @@ def test_every_step_that_uses_gh_or_pushes_has_the_token():
     _, st = steps()
     for s in st:
         run = s.get("run", "")
-        if re.search(r"\bgh (api|pr|issue|workflow)\b|git push|\bjobscan\.sdlc\.budget\b", run):
+        if re.search(r"\bgh (api|pr|issue|workflow)\b|git push|\bsdlc_engine\.budget\b", run):
             assert "GH_TOKEN" in (s.get("env") or {}), s["name"]
 
 
@@ -64,7 +64,7 @@ def test_the_dispatch_of_the_tests_workflow_stays_in_the_push_step_after_the_pus
 
 
 def test_the_report_says_the_tests_were_not_run_and_names_the_check_without_naming_it_in_the_workflow():
-    from jobscan import sdlc
+    import sdlc_engine as sdlc
     note = sdlc.tests_note("build")
     assert "NOT run" in note and "`pytest` check" in note and "evidence" in note
     assert sdlc.tests_note("review") == "" and sdlc.tests_note("intent") == ""

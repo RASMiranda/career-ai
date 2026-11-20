@@ -1,7 +1,7 @@
 name: sdlc
 # The agentic SDLC (docs/SDLC.md, ADR-025). A stage runs only when the owner opens an issue, or applies an
 # agent:* label (GitHub lets only people with write access label). Agents write files; they cannot push,
-# merge, label or call GitHub. `python -m jobscan.sdlc check` decides what is kept; this workflow commits,
+# merge, label or call GitHub. `python -m sdlc_engine check` decides what is kept; this workflow commits,
 # pushes to agent/* and posts. Nothing here can reach main: a human merges the PR.
 on:
   issues:
@@ -10,7 +10,7 @@ on:
 # ADR-039: an event `decide` would ignore gets its own group, so it can never replace a real run that is pending in
 # the issue's group. The issue form fires `opened` plus one `labeled` per form label within a second; with
 # cancel-in-progress false a newer pending run replaces an older pending one. The condition below is the same text as the
-# job `if` and is kept equal to `jobscan.sdlc.decide` by tests/test_sdlc_concurrency.py.
+# job `if` and is kept equal to `sdlc_engine.decide` by tests/test_sdlc_concurrency.py.
 concurrency:
   group: ${{ github.event.issue.pull_request == null && github.event.issue.state == 'open' && github.event.issue.locked != true && ((github.event.action == 'opened' && contains(fromJSON('["COLLABORATOR","MEMBER","OWNER"]'), github.event.issue.author_association)) || (github.event.action == 'labeled' && github.event.sender.type == 'User' && !endsWith(github.event.sender.login, '[bot]') && contains(fromJSON('["agent:intent","agent:spec","agent:plan","agent:build","agent:review","agent:release","agent:support","agent:l2","agent:l3"]'), github.event.label.name))) && format('sdlc-issue-{0}', github.event.issue.number) || format('sdlc-noop-{0}', github.run_id) }}
   cancel-in-progress: false
@@ -53,7 +53,7 @@ jobs:
         run: |
           mkdir -p .sdlc
           git for-each-ref --format='%(refname:short)' refs/remotes/origin/agent/ | sed 's#^origin/##' > .sdlc/branches.txt
-          PYTHONPATH=src python -m jobscan.sdlc --config .github/sdlc-config.json decide --event "$GITHUB_EVENT_PATH" --branches .sdlc/branches.txt
+          PYTHONPATH=src python -m sdlc_engine --config .github/sdlc-config.json decide --event "$GITHUB_EVENT_PATH" --branches .sdlc/branches.txt
 
       - name: Budget gate (agent minutes per rolling window, ADR-032)
         if: steps.d.outputs.run == 'true'
@@ -69,7 +69,7 @@ jobs:
           # Unset or non-numeric caps become 60 and 240 inside budget.py; a cap of 0 blocks everything. An
           # unreadable run history also blocks (fail closed). The job stays green either way.
           rc=0
-          PYTHONPATH=src python -m jobscan.sdlc.budget --config .github/sdlc-config.json --run-id "$RUN_ID" --stage "$STAGE" --max-24h "$MAX_24H" --max-7d "$MAX_7D" \
+          PYTHONPATH=src python -m sdlc_engine.budget --config .github/sdlc-config.json --run-id "$RUN_ID" --stage "$STAGE" --max-24h "$MAX_24H" --max-7d "$MAX_7D" \
             --summary "$GITHUB_STEP_SUMMARY" --comment .sdlc/comment.md || rc=$?
           if [ "$rc" -ne 0 ]; then
             if [ "$rc" -ne 3 ]; then
@@ -117,7 +117,7 @@ jobs:
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken before the agent runs, so every helper that runs before it (skip, frame, prompt) is trusted code.
-          test -f trusted/src/jobscan/sdlc/__init__.py
+          test -f trusted/src/sdlc_engine/__init__.py
           echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
 
       - name: Check the stage's input exists (the gate before it)
@@ -139,7 +139,7 @@ jobs:
           # does not run; the post step posts one line and removes only the trigger label. The check is trusted code:
           # it imports the trigger commit's src, never the branch's (the pre-agent trusted load above).
           rm -f .sdlc/comment.md
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" skipped --decision .sdlc/decision.json --comment .sdlc/comment.md
           if [ -s .sdlc/comment.md ]; then
             echo "stop=true" >> "$GITHUB_ENV"
             echo "skipped=true" >> "$GITHUB_ENV"
@@ -166,8 +166,8 @@ jobs:
       - name: Frame the issue as untrusted input and write the stage prompt
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         run: |
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt
+          PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" issue --event "$GITHUB_EVENT_PATH" --comments .sdlc/comments.json --pr-comments .sdlc/pr-comments.json
+          PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt
 
       - name: Read the check results of the current commit (for a review or release stage, ADR-037)
         if: steps.d.outputs.run == 'true' && steps.d.outputs.checkout == 'true' && steps.d.outputs.repo != 'true' && env.stop != 'true'
@@ -250,7 +250,7 @@ jobs:
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken after each agent run: the review agents may Write anywhere in the workspace too.
-          test -f trusted/src/jobscan/sdlc/__init__.py
+          test -f trusted/src/sdlc_engine/__init__.py
           echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
       - name: Check what the agent changed
         id: check
@@ -258,7 +258,7 @@ jobs:
         run: |
           # ADR-055: whether the stage agent wrote a report, read before the post step adds its fallback text to comment.md.
           if [ -f .sdlc/comment.md ]; then echo "agent_report=true" >> "$GITHUB_ENV"; else echo "agent_report=false" >> "$GITHUB_ENV"; fi
-          if ! PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" check 2> .sdlc/check.txt; then
+          if ! PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" check 2> .sdlc/check.txt; then
             cat .sdlc/check.txt >&2
             echo "Blocked by the safety check. See the run log." > .sdlc/comment.md
             echo "stop=true" >> "$GITHUB_ENV"
@@ -295,7 +295,7 @@ jobs:
             git commit -q -m "[#$NUMBER] sdlc: $STAGE" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
             git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
             if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')" ]; then
-              PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
+              PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body --number "$NUMBER" --workdir "$WORKDIR" > .sdlc/pr-body.md
               gh pr create --draft --base main --head "$BRANCH" --title "[#$NUMBER] $ISSUE_TITLE" --body-file .sdlc/pr-body.md \
                 || echo "The branch was pushed but the PR could not be opened: enable 'Allow GitHub Actions to create and approve pull requests' in Settings, Actions, General." >> .sdlc/comment.md
               # Best effort: copy the issue's type:* labels onto the PR (never agent:* or stage:*); never fails the step.
@@ -346,7 +346,7 @@ jobs:
           # post step must not read it for the build stage. Plain shell; no agent text is interpreted here.
           if [ -f .sdlc/comment.md ]; then cp .sdlc/comment.md .sdlc/build-report.md; else echo "The build agent wrote no report." > .sdlc/build-report.md; fi
           git diff origin/main...HEAD > .sdlc/diff.patch
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt --as review --out .sdlc/review-prompt.md
+          PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" prompt --as review --out .sdlc/review-prompt.md
       - name: Run the review agents
         id: review
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
@@ -400,12 +400,12 @@ jobs:
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken after each agent run: the review agents may Write anywhere in the workspace too.
-          test -f trusted/src/jobscan/sdlc/__init__.py
+          test -f trusted/src/sdlc_engine/__init__.py
           echo "TRUSTED_SRC=$GITHUB_WORKSPACE/trusted/src" >> "$GITHUB_ENV"
       - name: Reject any change the reviewers made
         id: reject
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true'
-        run: PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" check --as review
+        run: PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" check --as review
       - name: Keep the review agents' execution file (ADR-055)
         if: always() && steps.d.outputs.run == 'true'
         env:
@@ -438,7 +438,7 @@ jobs:
           # A blocked run posts one fixed sentence and nothing the agent wrote. The agent's text is scanned once
           # more here, because the reviewers write after the first check.
           if [ "$blocked" != "true" ] && [ "$REJECTED" != "failure" ]; then
-            PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" scan || blocked=true
+            PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" scan || blocked=true
           else
             blocked=true
           fi
@@ -448,7 +448,7 @@ jobs:
           ARGS=(--stage .sdlc/exec-stage.json --review .sdlc/exec-review.json --summary-out .sdlc/denial-summary.txt
                 --denials-out .sdlc/denial-comment.md --message-out .sdlc/agent-message.md)
           if [ "$AGENT_REPORT" = "false" ]; then ARGS+=(--no-report); fi
-          PYTHONPATH="$TRUSTED_SRC" python -P -m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" agent-notes "${ARGS[@]}" \
+          PYTHONPATH="$TRUSTED_SRC" python -P -m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" agent-notes "${ARGS[@]}" \
             || echo "Permission denials: unavailable (the execution file could not be read)" > .sdlc/denial-summary.txt
           cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"
           if [ "$blocked" = "true" ]; then
@@ -479,13 +479,13 @@ jobs:
             {
               PR_OPEN=""
               [ -n "${BRANCH:-}" ] && PR_OPEN=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
-              PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from jobscan.sdlc import report_header; print(report_header(*sys.argv[1:]))' "$STAGE" "$ROLES" "$PR_OPEN"
+              PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from sdlc_engine import report_header; print(report_header(*sys.argv[1:]))' "$STAGE" "$ROLES" "$PR_OPEN"
               echo
               if [ -s .sdlc/denial-comment.md ]; then cat .sdlc/denial-comment.md; echo; fi
               head -c 2500 "$REPORT"
               if [ -s .sdlc/agent-message.md ]; then echo; cat .sdlc/agent-message.md; fi
               if [ -f .sdlc/review.md ]; then echo; echo "---"; echo "**Review**"; echo; head -c 4000 .sdlc/review.md; fi
-              NOTE=$(PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from jobscan.sdlc import tests_note; print(tests_note(sys.argv[1]))' "$STAGE")
+              NOTE=$(PYTHONPATH="$TRUSTED_SRC" python -P -c 'import sys; from sdlc_engine import tests_note; print(tests_note(sys.argv[1]))' "$STAGE")
               if [ -n "$NOTE" ]; then echo; echo "$NOTE"; fi
               # A stopped run (a missing input, no branch, a budget stop) never names the next label: nothing ran to approve.
               if [ "$STOP" != "true" ]; then echo; echo "**Next gate (yours):** $NEXT"; fi

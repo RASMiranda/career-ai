@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jobscan import sdlc
+import sdlc_engine as sdlc
 
 ROOT = Path(__file__).resolve().parents[1]
 WF = ROOT / ".github" / "workflows"
@@ -278,7 +278,7 @@ def run_post_step(tmp_path, env_extra, files):
            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"), **env_extra}
     env.pop("blocked", None) if "blocked" not in env_extra else None
     env.pop("PYTHONPATH", None)
-    env.setdefault("TRUSTED_SRC", str(tmp_path / "src"))                  # ADR-036: the post step imports jobscan from here
+    env.setdefault("TRUSTED_SRC", str(tmp_path / "src"))                  # ADR-036: the post step imports sdlc_engine from here
     subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
     return (tmp_path / "posted.txt").read_text()
 
@@ -376,7 +376,7 @@ def test_the_build_report_is_in_the_secrets_scan_and_a_fake_secret_in_it_is_flag
     (tmp_path / ".sdlc").mkdir()
     (tmp_path / ".sdlc" / "build-report.md").write_text(f"report {FAKE_TOKEN}\n")
     env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    run = subprocess.run([sys.executable, "-P", "-m", "jobscan.sdlc", "scan"], cwd=tmp_path, env=env,
+    run = subprocess.run([sys.executable, "-P", "-m", "sdlc_engine", "scan"], cwd=tmp_path, env=env,
                          capture_output=True, text=True)
     assert run.returncode == 1 and "build-report.md" in run.stderr
 
@@ -389,7 +389,7 @@ def test_a_blocked_run_removes_the_build_report_so_no_agent_text_is_left_to_post
 
 def test_the_draft_pr_body_comes_from_the_tested_function_and_only_type_labels_are_copied():
     text = (WF / "sdlc.yml").read_text()
-    assert "Refs #" not in text and '-m jobscan.sdlc --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body' in text
+    assert "Refs #" not in text and '-m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body' in text
     assert 'type:*) gh pr edit "$PR_NEW" --add-label "$l"' in text
     assert "agent:*) gh pr edit" not in text and "stage:*) gh pr edit" not in text
 
