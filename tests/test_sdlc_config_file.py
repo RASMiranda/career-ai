@@ -24,7 +24,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sdlc.yml"
 TESTS_WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
 TRUSTED_CONFIG = '--config "$TRUSTED_SRC/../.github/sdlc-config.json"'   # after the trusted copy exists
 WORKSPACE_CONFIG = "--config .github/sdlc-config.json"                   # decide and budget: the trigger commit
-LOAD = "Trusted jobscan code"
+LOAD = "Trusted engine code"
 ENGINE_NAMES = ("AGENT_BRANCH_PREFIX", "TRUSTED", "WORK", "LABEL_TO_STAGE", "REQUESTABLE_LABELS", "STAGES", "PROTECTED",
                 "MAX_FILES", "MAX_ADDED_BYTES", "_CREDENTIAL", "SECRET_PATTERNS_EXTRA", "PROMPT")
 BUDGET_NAMES = ("MIN_RUN_SECONDS", "DEFAULT_CAP_24H", "DEFAULT_CAP_7D", "MENTION")

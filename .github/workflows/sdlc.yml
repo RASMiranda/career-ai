@@ -96,14 +96,14 @@ jobs:
             echo "stop=true" >> "$GITHUB_ENV"
           fi
 
-      - name: Trusted jobscan code, before the agent (1 of 3) clear the folder (ADR-036)
+      - name: Trusted engine code, before the agent (1 of 3) clear the folder (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # The branch may hold code an agent wrote in an earlier run. Hide the folder from git status and git add.
           rm -rf trusted
           mkdir -p .git/info
           grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
-      - name: Trusted jobscan code, before the agent (2 of 3) check out the trigger commit (ADR-036)
+      - name: Trusted engine code, before the agent (2 of 3) check out the trigger commit (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
@@ -113,7 +113,7 @@ jobs:
             src
             .github
           persist-credentials: false
-      - name: Trusted jobscan code, before the agent (3 of 3) use it (ADR-036)
+      - name: Trusted engine code, before the agent (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken before the agent runs, so every helper that runs before it (skip, frame, prompt) is trusted code.
@@ -229,14 +229,14 @@ jobs:
           git config --local remote.origin.url "https://github.com/${GITHUB_REPOSITORY}.git"
           rm -f .git/config.worktree
           rm -rf .git/hooks && mkdir .git/hooks
-      - name: Trusted jobscan code (1 of 3) clear the folder (ADR-036)
+      - name: Trusted engine code (1 of 3) clear the folder (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # The folder may hold anything an agent wrote. Hide it from git status and git add.
           rm -rf trusted
           mkdir -p .git/info
           grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
-      - name: Trusted jobscan code (2 of 3) check out the trigger commit (ADR-036)
+      - name: Trusted engine code (2 of 3) check out the trigger commit (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
@@ -246,7 +246,7 @@ jobs:
             src
             .github
           persist-credentials: false
-      - name: Trusted jobscan code (3 of 3) use it (ADR-036)
+      - name: Trusted engine code (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken after each agent run: the review agents may Write anywhere in the workspace too.
@@ -379,14 +379,14 @@ jobs:
           git config --local remote.origin.url "https://github.com/${GITHUB_REPOSITORY}.git"
           rm -f .git/config.worktree
           rm -rf .git/hooks && mkdir .git/hooks
-      - name: Trusted jobscan code, again after the reviewers (1 of 3) clear the folder (ADR-036)
+      - name: Trusted engine code, again after the reviewers (1 of 3) clear the folder (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # The folder may hold anything an agent wrote. Hide it from git status and git add.
           rm -rf trusted
           mkdir -p .git/info
           grep -qxF '/trusted/' .git/info/exclude 2>/dev/null || echo '/trusted/' >> .git/info/exclude
-      - name: Trusted jobscan code, again after the reviewers (2 of 3) check out the trigger commit (ADR-036)
+      - name: Trusted engine code, again after the reviewers (2 of 3) check out the trigger commit (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
@@ -396,7 +396,7 @@ jobs:
             src
             .github
           persist-credentials: false
-      - name: Trusted jobscan code, again after the reviewers (3 of 3) use it (ADR-036)
+      - name: Trusted engine code, again after the reviewers (3 of 3) use it (ADR-036)
         if: always() && steps.d.outputs.run == 'true'
         run: |
           # Taken after each agent run: the review agents may Write anywhere in the workspace too.

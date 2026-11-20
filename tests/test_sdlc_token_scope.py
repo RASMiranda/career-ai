@@ -93,7 +93,7 @@ def test_checkout_does_not_persist_credentials_and_origin_is_reset_after_each_ac
         assert clean["name"].startswith("Remove the token the action wrote")
         # ADR-036 adds a trusted-load step between the reset and the next step; nothing else may sit there
         between = names[i + 2:names.index(next_name)]
-        assert all(n.startswith("Trusted jobscan code") for n in between)
+        assert all(n.startswith("Trusted engine code") for n in between)
         assert ("set-url origin" in clean["run"] or "remote.origin.url" in clean["run"]) and "always()" in clean["if"]
 
 
