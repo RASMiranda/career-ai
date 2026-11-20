@@ -606,3 +606,42 @@ def test_check_warns_on_outcome_without_log_row(tmp_path):
     errors, gaps, warnings, rows, legacy = applylog.check_log(log, data)
     assert not errors and not gaps
     assert warnings == ["outcome without a log row: glassdoor 99"]
+
+
+# ---- reconcile: Applied-list entries the log does not cover (ADR-062) --------------------------
+
+def test_unlogged_lists_entries_with_no_applied_row(log):
+    _row(log, employer="Example", role="Senior Engineer")
+    _row(log, employer="Skipped Co", role="Dev", status="SKIPPED")
+    entries = [{"employer": "Example", "role": "Senior Engineer (m/f/n)"},
+               {"employer": "KLx", "role": "Tech Lead"},
+               {"employer": "Skipped Co", "role": "Dev"}]
+    assert [e["employer"] for e in applylog.unlogged(log, entries)] == ["KLx", "Skipped Co"]
+
+
+def test_unlogged_matches_across_sites(log):
+    _row(log, site="smartrecruiters", employer="InPost", role="Senior Engineer")
+    assert applylog.unlogged(log, [{"employer": "InPost", "role": "Senior Engineer"}]) == []
+
+
+def test_reconcile_cli_prints_gaps_and_exits_1(log, tmp_path, capsys):
+    _row(log, employer="Example", role="Senior Engineer")
+    f = tmp_path / "applied.csv"
+    f.write_text('employer,role,date\nExample,Senior Engineer,2026-11-19\n"Epam Systems","Senior Software Engineer (Full stack, Kafka)",2026-11-20\n',
+                 encoding="utf-8")
+    assert applylog.main(["reconcile", "--log", str(log), "--file", str(f)]) == 1
+    assert capsys.readouterr().out.strip() == 'Epam Systems,"Senior Software Engineer (Full stack, Kafka)"'
+
+
+def test_reconcile_cli_exits_0_when_everything_is_logged(log, tmp_path):
+    _row(log, employer="Example", role="Senior Engineer")
+    f = tmp_path / "applied.csv"
+    f.write_text("employer,role\nExample,Senior Engineer\n", encoding="utf-8")
+    assert applylog.main(["reconcile", "--log", str(log), "--file", str(f)]) == 0
+
+
+def test_reconcile_cli_rejects_a_file_without_the_header(log, tmp_path, capsys):
+    f = tmp_path / "applied.csv"
+    f.write_text("company,title\nExample,Dev\n", encoding="utf-8")
+    assert applylog.main(["reconcile", "--log", str(log), "--file", str(f)]) == 2
+    assert "employer,role" in capsys.readouterr().err
