@@ -450,8 +450,7 @@ def test_a_dropped_important_is_announced_by_count_only_and_its_text_is_absent(s
     assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in result["text"]
     assert "far away" not in result["text"] and "src/secret.py" not in result["text"]
     gate = review.next_gate(stage, result["needs_changes"], result["dropped_important"])
-    assert gate == ("No Important finding kept; 1 dropped as not on a changed line (see the run summary). "
-                    "A human decides and merges.")
+    assert gate == "No Important finding kept; 1 dropped (see the run summary). A human decides and merges."
     assert result["needs_changes"] is False
     assert result["text"].splitlines()[-2].startswith("Dropped (not on a changed line)")
 

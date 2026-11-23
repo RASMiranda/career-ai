@@ -217,8 +217,7 @@ def test_a_verifier_drop_of_the_only_important_finding_is_announced_and_is_not_n
     assert lines == ["No finding kept after the verifier.", VERIFIER_LINE.format(n=1), "Checks: commit: x"]
     assert result["needs_changes"] is False and result["dropped_important"] == 1
     gate = review.next_gate("build", result["needs_changes"], result["dropped_important"])
-    assert gate == ("No Important finding kept; 1 dropped as not on a changed line (see the run summary). "
-                    "A human decides and merges.")
+    assert gate == "No Important finding kept; 1 dropped (see the run summary). A human decides and merges."
 
 
 def test_a_kept_important_stays_and_the_verifier_drop_of_the_other_is_counted_in_its_own_line():

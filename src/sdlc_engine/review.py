@@ -269,9 +269,11 @@ def summary(result: dict, changed) -> str:
 def next_gate(stage: str, needs_changes: bool, dropped_important: int = 0):
     """The 'Next gate' sentence after a review. None for other stages, which keep their own sentence.
 
-    An IMPORTANT finding that was dropped (not on a changed line) is never described as "No Important finding"."""
+    ``dropped_important`` counts every dropped IMPORTANT finding, whether the diff dropped it (not on a changed line) or
+    the verifier did (ADR-068). The sentence is neutral about which, so it is true for both; the posted review and the
+    run summary name the cause. An IMPORTANT finding that was dropped is never described as "No Important finding"."""
     if stage in ("build", "review") and not needs_changes and dropped_important:
-        return (f"No Important finding kept; {dropped_important} dropped as not on a changed line (see the run summary). "
+        return (f"No Important finding kept; {dropped_important} dropped (see the run summary). "
                 "A human decides and merges.")
     if stage == "build":
         return ("Fix or dismiss each Important finding, then apply `agent:build` again. A human merges." if needs_changes
