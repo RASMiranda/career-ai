@@ -146,6 +146,31 @@ verdict line; `IMPORTANT` findings are what block the next gate, and nothing els
 - **`needs_changes`** is true when a kept `IMPORTANT` finding exists. It only chooses the wording of the `Next gate` line.
   It ticks no box, adds no label and blocks nothing.
 
+### The review round cap and the optional verifier (ADR-068)
+Every pushed build is reviewed, so each review round costs usage. Two repository variables (Settings, Secrets and variables,
+Actions, Variables) bound that:
+
+| Repository variable | Meaning | Default |
+|---|---|---|
+| `SDLC_MAX_REVIEW_ROUNDS` | how many reviews may run on one issue | 3 |
+| `SDLC_REVIEW_VERIFY` | set it to exactly `true` to turn the verifier on | off |
+
+- **Round.** Each posted review carries a hidden marker, `<!-- sdlc-review round=N sha=… -->`. The round is one more than the
+  markers in the issue's comments written by the workflow's own bot (`github-actions[bot]`). A marker from anyone else is
+  ignored. A review runs while its round is at most the cap; with the default, rounds 1 to 3 run and round 4 is blocked.
+  If the issue's comments cannot be read, the review is blocked too (fail closed).
+- **Blocked round.** No review agent runs. The build's own report is still posted, followed by one short comment that starts
+  with the owner's mention (`budget.mention` in `.github/sdlc-config.json`) and asks you to step back and reconsider the
+  approach before another round. The job stays green and adds a warning annotation.
+- **Diff only from round 3.** The review reads only the change since the commit in the latest marker, while that commit is
+  still an ancestor of the branch. After a force-push or rebase it reads the full diff, and the run summary says so.
+- **Verifier (off by default).** With `SDLC_REVIEW_VERIFY` set to exactly `true`, a second read-only agent (Read, Grep and
+  Glob; 8 turns) checks each IMPORTANT finding against the code. Only a CONFIRMED finding is posted. A DROPPED finding is
+  named in the run summary by tag and line only. A missing or malformed answer keeps every finding. It is off by default
+  because it is one more model call on every review that has an IMPORTANT finding, and the owner's plan has usage limits.
+- **To stop reviews entirely**, set `SDLC_MAX_REVIEW_ROUNDS` to `0`: every review is blocked, and the build still runs and
+  posts its report. Remove the variable to go back to 3.
+
 ### Support tiers
 | Tier | Agent | Does | Escalates with |
 |---|---|---|---|

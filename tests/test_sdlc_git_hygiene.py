@@ -59,7 +59,7 @@ def test_the_job_turns_hooks_and_fsmonitor_off_for_every_git_call():
 def test_the_reset_steps_unset_the_dangerous_keys_and_empty_the_hooks_before_the_push():
     names = [s["name"] for s in steps()]
     resets = reset_steps()
-    assert len(resets) == 2
+    assert len(resets) == 3          # after the stage agent, the reviewers and the optional verifier (ADR-068)
     for s in resets:
         run = s["run"]
         for needle in ("core.fsmonitor", "core.hooksPath", "include.path", "--remove-section include",

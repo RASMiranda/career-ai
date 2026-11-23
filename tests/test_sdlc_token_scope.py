@@ -13,7 +13,7 @@ TOKEN_STEPS = {
     "Commit and push the artifact, open the draft PR, start the tests",
     "Post the report, apply the stage label",
     # ADR-037: the reviewers' check results are read by a step of their own, after the agent that could forge them
-    "Read the check results of the pushed commit (for the reviewers, ADR-037)",
+    "Read the check results and the issue comments of the pushed commit (for the reviewers, ADR-037, ADR-068)",
     "Read the check results of the current commit (for a review or release stage, ADR-037)",
 }
 SECRET_NAMES = ("GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC", "CLAUDE_CODE_OAUTH_TOKEN")
@@ -86,8 +86,10 @@ def test_checkout_does_not_persist_credentials_and_origin_is_reset_after_each_ac
     _, st = steps()
     assert st[0]["with"]["persist-credentials"] is False
     names = [s["name"] for s in st]
+    # ADR-068: the verifier is an agent too; the same rules apply to it (its own reset, then only the keep step)
     for action_name, next_name in (("Run the stage agents", "Check what the agent changed"),
-                                   ("Run the review agents", "Reject any change the reviewers made")):
+                                   ("Run the review agents", "Keep the review agents' execution file (ADR-055)"),
+                                   ("Run the verifier agent (optional, ADR-068)", "Keep the verifier's execution file (ADR-068)")):
         i = names.index(action_name)
         clean = st[i + 1]
         assert clean["name"].startswith("Remove the token the action wrote")
@@ -98,7 +100,7 @@ def test_checkout_does_not_persist_credentials_and_origin_is_reset_after_each_ac
 
 
 # ----------------------------------------------------------------- ADR-037: fresh, unforgeable check results
-CHECKS_PUSHED = "Read the check results of the pushed commit (for the reviewers, ADR-037)"
+CHECKS_PUSHED = "Read the check results and the issue comments of the pushed commit (for the reviewers, ADR-037, ADR-068)"
 CHECKS_CURRENT = "Read the check results of the current commit (for a review or release stage, ADR-037)"
 SHA = "a" * 40
 
