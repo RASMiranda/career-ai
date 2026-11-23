@@ -309,9 +309,9 @@ def test_text_written_after_the_first_check_is_scanned_again_before_posting(tmp_
 
 def test_a_normal_run_still_posts_the_report_review_and_test_result(tmp_path):
     # ADR-037: an agent-written .sdlc/pytest.txt is no longer posted; the workflow's own line says tests were not run.
-    body = run_post_step(tmp_path, {}, {"comment.md": "built it", "review.md": "Verdict: no Important findings",
+    body = run_post_step(tmp_path, {}, {"comment.md": "built it", "review.md": "Nothing to fix.\n",
                                         "pytest.txt": "12 passed"})
-    assert "built it" in body and "Verdict: no Important findings" in body and "12 passed" not in body and FIXED not in body
+    assert "built it" in body and "Nothing to fix." in body and "12 passed" not in body and FIXED not in body
     assert "Tests were NOT run by the agent" in body and "`pytest` check on the PR" in body
     assert "Next gate (yours)" in body
 
@@ -406,7 +406,9 @@ def test_the_workflow_never_writes_agent_output_to_the_job_summary():
     text = (WF / "sdlc-stage.yml").read_text()
     start = text.index("      - name: Budget gate")
     end = text.index("      - name: Check out the issue's branch")
-    rest = (text[:start] + text[end:]).replace('cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"', "")
+    # ADR-067: the review step also writes one summary: tags, line numbers and changed-file names, built by trusted code.
+    rest = (text[:start] + text[end:]).replace('cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"', "") \
+        .replace('cat .sdlc/review-summary.txt >> "$GITHUB_STEP_SUMMARY"', "")
     assert "GITHUB_STEP_SUMMARY" not in rest
     assert ".sdlc/post.md" not in text[start:end]
 
@@ -593,3 +595,19 @@ def test_the_stage_workflow_declares_workflow_call_with_each_secret_it_uses():
 def test_the_stage_job_asks_for_no_more_than_the_caller_grants():
     assert workflow("sdlc-stage")["jobs"]["stage"]["permissions"] == workflow("sdlc")["jobs"]["stage"]["permissions"]
     assert workflow("sdlc")["permissions"] == {}                    # top level stays empty; the grants are per job
+
+
+def test_the_post_step_drops_a_finding_outside_the_diff_and_names_the_gate_from_the_engine(tmp_path):
+    # ADR-067: the real post step, run with a diff whose only hunk is src/x.py:1-1; the finding is on line 40.
+    diff = "diff --git a/src/x.py b/src/x.py\n--- a/src/x.py\n+++ b/src/x.py\n@@ -1,1 +1,1 @@\n-a\n+b\n"
+    files = {"review.md": "1 findings (1 important, 0 nit, 0 pre-existing)\nIMPORTANT src/x.py:40 - far away\n",
+             "diff.patch": diff}
+    body = run_post_step(tmp_path, {"CHECKS_LINE": "commit: abc"}, files)
+    assert "**Review**" in body and "Nothing to fix." in body and "Checks: commit: abc" in body
+    # ADR-067 (follow-up): the finding's own text is absent, and the posted review says how many were dropped, by count.
+    assert "far away" not in body
+    assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in body
+    assert "**Next gate (yours):** No Important finding kept; 1 dropped as not on a changed line" in body
+    summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert "Dropped, not on a changed line: IMPORTANT at src/x.py:40." in summary   # a changed file, so named
+    assert "far away" not in summary

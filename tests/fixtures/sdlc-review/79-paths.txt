@@ -1,0 +1,4 @@
+docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/intent.md
+docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/plan.md
+docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/spec.md
+docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/verification.md

@@ -28,7 +28,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from . import config
+from . import config, review
 
 # The built-in values. ``configure`` replaces them with .github/sdlc-config.json when the file is given (ADR-060);
 # tests/test_sdlc_config_file.py keeps the file equal to these.
@@ -267,17 +267,27 @@ reading the code and the tests, without editing the tests the tester wrote excep
 report. Keep to the plan; anything outside it is a note in your comment. Follow the repo's style: read the surrounding \
 code first. Do not run `python`, `pytest` or `pip`. Your comment must say plainly that the tests were written but NOT run \
 by you, and list the tests you added or changed; never claim they pass.""",
-    "review": """Review the change on this branch against REVIEW.md. Read `.sdlc/diff.patch`, then the files it touches, then \
-`{workdir}/spec.md` and `{workdir}/plan.md`. Reviewer: contract, correctness (trace a real input to a wrong result \
-before you report anything), drift from spec and plan, tests (any skipped, loosened or missing). You cannot run tests: \
-read `.sdlc/checks.txt`, which the workflow wrote for the commit just pushed or checked out. Quote its first line \
-(`commit: <sha>`) in your review. Say the test result is "not known" if the file says it could not read results, \
-has no `pytest` line, or shows that check as queued or in_progress (a review right after a build usually runs before \
-it ends). Never claim the tests pass unless a `pytest` line shows `completed success` for that commit. Security reviewer: \
-untrusted text reaching a prompt, a shell, a path or a URL; secrets or personal data; a weakened guard, hook, \
-allow-list or protected path; a model given a browser, a token or the network. Write `.sdlc/review.md`: findings as a \
-list, each Important or Nit with file:line and the realistic failure (at most 5 nits), then a last line `Verdict: no \
-Important findings` or `Verdict: N Important findings`. You never approve and never say it is safe to merge.""",
+    "review": """Review the change on this branch against REVIEW.md: the failures to look for in each area, the evidence a \
+finding needs, the nit limit and the tags. Read `.sdlc/diff.patch`, then the files it touches, then `{workdir}/spec.md` and \
+`{workdir}/plan.md`. Reviewer: contract, correctness (trace a real input to a wrong result before you report anything), \
+drift from spec and plan, tests (any skipped, loosened or missing). Security reviewer: untrusted text reaching a prompt, a \
+shell, a path or a URL; secrets or personal data; a weakened guard, hook, allow-list or protected path; a model given a \
+browser, a token or the network.
+
+Write `.sdlc/review.md` in exactly this shape, and nothing else in the file (the workflow parses it with code):
+- Line 1 is `Nothing to fix.` when you have no finding. Otherwise it is `N findings (I important, M nit, P pre-existing)`, \
+where N = I + M + P and the numbers count the lines below.
+- Then one line per finding: `IMPORTANT path:line - text`, `NIT path:line - text` or `PRE-EXISTING path:line - text`. `path` \
+is a file the diff touches, `line` is a number or a range such as `10-20`, and `text` is one line under 300 characters: the \
+realistic failure, not a restatement of the code. An area with no finding is simply not mentioned: no headings, and no \
+'No finding' sections.
+- Every IMPORTANT and NIT must cite a line the diff adds or shows as context. The workflow drops any other and says so in \
+the run summary. PRE-EXISTING is for a problem this change did not introduce.
+- A `Checks:` line is optional and last. The workflow writes that line from `.sdlc/checks.txt`, so do not state a test \
+result yourself.
+
+You cannot run tests: `.sdlc/checks.txt` is what the workflow read for the commit. You never approve and never say it is \
+safe to merge.""",
     "release": """Prepare the release note for a human release manager: what changed (from the PR diff, `git log` and \
 `{workdir}`), what to check, what to do on the owner's machine (new commands, config, migrations), known limits. Write \
 it to `.sdlc/comment.md`. Confirm the gates were met: intent, spec and plan approved, the required pytest check green on the head commit, review findings \
@@ -471,13 +481,31 @@ def agent_note_outputs(notes: dict, no_report: bool) -> dict[str, str]:
 
 
 # -------------------------------------------------------------------------- cli
-def pr_body(number: int | str, workdir: str) -> str:
-    """The draft PR body. "Closes #N" on the first line links the PR in the issue's Development sidebar (ADR-034)."""
+TESTING_LINE = ("Not run by the agent, and not by this workflow. The `pytest` check on this PR is the evidence: "
+                "if it is red or missing, do not merge.")
+
+
+def changed_paths() -> list[str]:
+    """The files this branch changes against main, renames split into both names (for the risk tier, ADR-067)."""
+    return [p for p in _git("diff", "--name-only", "--no-renames", "origin/main...HEAD").splitlines() if p]
+
+
+def pr_body(number: int | str, workdir: str, paths=()) -> str:
+    """The draft PR body. "Closes #N" on the first line links the PR in the issue's Development sidebar (ADR-034).
+
+    ``paths`` are the changed files; the risk tier is computed from them with the project's protected paths (ADR-067).
+    The review-findings box stays unticked: nothing in the review ticks it."""
+    tier, reason = review.risk_tier(paths, lambda p: matches(p, PROTECTED))
     return (f"Closes #{number}\n\n"
             f"Artifacts: `{workdir}/`. Opened by the SDLC workflow as a draft; a human merges it after the gates in docs/SDLC.md.\n"
             f"Stage reports are on the issue: #{number}.\n\n"
             "- [ ] intent accepted\n- [ ] spec approved\n- [ ] plan approved\n"
-            "- [ ] review findings resolved\n\n---\n_Generated by [Claude Code](https://claude.ai/code)_\n")
+            "- [ ] review findings resolved\n\n"
+            f"## Testing\n{TESTING_LINE}\n\n"
+            f"## Risk\n**{tier}**: {reason}.\n\n"
+            f"## How to revert\nRevert the squash-merge commit on `main`. Everything this PR adds is under `{workdir}/` "
+            "or the files named in Risk.\n\n"
+            "---\n_Generated by [Claude Code](https://claude.ai/code)_\n")
 
 
 TESTS_NOTE = ("**Tests were NOT run by the agent, and not by this workflow.** The `pytest` check on the PR (the tests "
@@ -529,6 +557,38 @@ def configure(cfg) -> None:
     PROMPT = {**PROMPT_DEFAULTS, **cfg.get("prompt", {})}
 
 
+def _checks_text(line: str) -> str:
+    """The Checks line's text: the first line the workflow read from .sdlc/checks.txt in a trusted step, passed as a
+    step output (ADR-037, ADR-067), never read from the file, which a reviewer may write. Scanned like any posted text."""
+    line = line.strip()[:300]
+    if not line:
+        return "not known (no check result line)"
+    return "withheld by the safety check" if _CREDENTIAL.search(line) else line
+
+
+def review_command(args) -> int:
+    """`review`: rebuild the review under the ADR-067 contract. Total: any failure writes an unparseable review instead.
+
+    Reads the review at most MAX_REVIEW_BYTES + 1 bytes, so an oversized file fails the size check rather than loading."""
+    try:
+        with open(args.review, "rb") as fh:
+            text = fh.read(review.MAX_REVIEW_BYTES + 1).decode("utf-8", errors="replace")
+    except OSError:
+        text = ""
+    try:
+        diff = Path(args.diff).read_text(encoding="utf-8", errors="replace") if Path(args.diff).is_file() else None
+    except OSError:
+        diff = None
+    ranges = review.hunk_ranges(diff) if diff is not None else None
+    result = review.decide(text, ranges, _checks_text(args.checks_line))
+    Path(args.out).write_text(result["text"], encoding="utf-8")
+    gate = review.next_gate(args.stage, result["needs_changes"], result["dropped_important"])
+    Path(args.next_out).write_text(f"{gate}\n" if gate else "", encoding="utf-8")
+    Path(args.summary_out).write_text(review.summary(result, set(ranges) if ranges is not None else None),
+                                      encoding="utf-8")
+    return 0
+
+
 def main(argv=None) -> int:
     # --config is read before the parser is built, so the stage names the parser offers come from the same file.
     pre = argparse.ArgumentParser(add_help=False)
@@ -561,6 +621,15 @@ def main(argv=None) -> int:
     p = sub.add_parser("pr-body")
     p.add_argument("--number", required=True)
     p.add_argument("--workdir", required=True)
+    p.add_argument("--paths", help="file with the changed paths, one per line (default: git diff against origin/main)")
+    p = sub.add_parser("review", help="parse .sdlc/review.md under the ADR-067 contract and drop lines not in the diff")
+    p.add_argument("--stage", required=True)
+    p.add_argument("--review", default=".sdlc/review.md")
+    p.add_argument("--diff", default=".sdlc/diff.patch")
+    p.add_argument("--checks-line", default="", help="the first line of the check results, from a trusted step output")
+    p.add_argument("--out", required=True, help="where the posted review is written")
+    p.add_argument("--next-out", required=True, help="the Next gate sentence, or empty for a stage without one")
+    p.add_argument("--summary-out", required=True)
     p = sub.add_parser("agent-notes")
     p.add_argument("--stage", help="the stage agent's execution file")
     p.add_argument("--review", help="the review agents' execution file")
@@ -586,8 +655,11 @@ def main(argv=None) -> int:
         Path(args.out).write_text(render_issue(event, load(args.comments), load(args.pr_comments)), encoding="utf-8")
         return 0
     if args.cmd == "pr-body":
-        print(pr_body(args.number, args.workdir), end="")
+        paths = Path(args.paths).read_text(encoding="utf-8").splitlines() if args.paths else changed_paths()
+        print(pr_body(args.number, args.workdir, paths), end="")
         return 0
+    if args.cmd == "review":
+        return review_command(args)
     if args.cmd == "agent-notes":
         out = agent_note_outputs(agent_notes(args.stage, args.review), args.no_report)
         Path(args.summary_out).write_text(out["summary"], encoding="utf-8")
