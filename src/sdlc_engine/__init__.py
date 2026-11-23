@@ -582,7 +582,7 @@ def review_command(args) -> int:
     ranges = review.hunk_ranges(diff) if diff is not None else None
     result = review.decide(text, ranges, _checks_text(args.checks_line))
     Path(args.out).write_text(result["text"], encoding="utf-8")
-    gate = review.next_gate(args.stage, result["needs_changes"])
+    gate = review.next_gate(args.stage, result["needs_changes"], result["dropped_important"])
     Path(args.next_out).write_text(f"{gate}\n" if gate else "", encoding="utf-8")
     Path(args.summary_out).write_text(review.summary(result, set(ranges) if ranges is not None else None),
                                       encoding="utf-8")

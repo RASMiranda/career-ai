@@ -13,8 +13,10 @@ Anything else is malformed and fails closed: the review becomes one IMPORTANT fi
 import re
 
 MAX_FINDINGS = 50                  # more finding lines than this is malformed
-MAX_LINE = 300                     # a longer line is malformed
-MAX_REVIEW_BYTES = 20_000          # a longer file is malformed; the posted review stays under this too
+MAX_LINE = 600                     # a longer line is malformed (the prompt still asks for text under 300)
+# The input cap is 19 000, not 20 000: the posted review can be slightly longer than its input (a Checks line of up to
+# 300 characters and a Dropped line replace the reviewer's own), and the workflow shows at most 20 000 bytes.
+MAX_REVIEW_BYTES = 19_000
 NOTHING = "Nothing to fix."
 COUNT_RE = re.compile(r"(\d{1,3}) findings \((\d{1,3}) important, (\d{1,3}) nit, (\d{1,3}) pre-existing\)")
 FINDING_RE = re.compile(r"(IMPORTANT|NIT|PRE-EXISTING) (\S+):(\d{1,6})(?:-(\d{1,6}))? - (.+)")
@@ -129,16 +131,19 @@ def decide(text: str, ranges, checks: str) -> dict:
                 kept.append(finding)
             else:
                 dropped.append(finding)
-    return {"findings": kept, "dropped": dropped, "needs_changes": any(f["tag"] == "IMPORTANT" for f in kept),
-            "unparseable": why, "no_diff": ranges is None, "text": render(kept, checks)}
+    dropped_important = sum(f["tag"] == "IMPORTANT" for f in dropped)
+    return {"findings": kept, "dropped": dropped, "dropped_important": dropped_important,
+            "needs_changes": any(f["tag"] == "IMPORTANT" for f in kept), "unparseable": why,
+            "no_diff": ranges is None, "text": render(kept, checks, dropped)}
 
 
 def _span(finding: dict) -> str:
     return str(finding["lo"]) if finding["lo"] == finding["hi"] else f"{finding['lo']}-{finding['hi']}"
 
 
-def render(findings: list, checks: str) -> str:
-    """The posted review: the contract shape, rebuilt from the findings that were kept, then the Checks line."""
+def render(findings: list, checks: str, dropped=()) -> str:
+    """The posted review: the contract shape, rebuilt from the findings that were kept, a counts-only line for any
+    dropped ones (no finding text, no path), then the Checks line."""
     if findings:
         count = {tag: sum(f["tag"] == tag for f in findings) for tag in ("IMPORTANT", "NIT", "PRE-EXISTING")}
         lines = [f"{len(findings)} findings ({count['IMPORTANT']} important, {count['NIT']} nit, "
@@ -146,6 +151,10 @@ def render(findings: list, checks: str) -> str:
         lines += [f"{f['tag']} {f['path']}:{_span(f)} - {f['text']}" for f in findings]
     else:
         lines = [NOTHING]
+    if dropped:
+        imp = sum(f["tag"] == "IMPORTANT" for f in dropped)
+        nit = sum(f["tag"] == "NIT" for f in dropped)
+        lines.append(f"Dropped (not on a changed line): {imp} important, {nit} nit. See the run summary.")
     return "\n".join(lines + [f"Checks: {checks}"]) + "\n"
 
 
@@ -163,8 +172,13 @@ def summary(result: dict, changed) -> str:
     return ("\n".join(out) + "\n") if out else ""
 
 
-def next_gate(stage: str, needs_changes: bool):
-    """The 'Next gate' sentence after a review. None for other stages, which keep their own sentence."""
+def next_gate(stage: str, needs_changes: bool, dropped_important: int = 0):
+    """The 'Next gate' sentence after a review. None for other stages, which keep their own sentence.
+
+    An IMPORTANT finding that was dropped (not on a changed line) is never described as "No Important finding"."""
+    if stage in ("build", "review") and not needs_changes and dropped_important:
+        return (f"No Important finding kept; {dropped_important} dropped as not on a changed line (see the run summary). "
+                "A human decides and merges.")
     if stage == "build":
         return ("Fix or dismiss each Important finding, then apply `agent:build` again. A human merges." if needs_changes
                 else "No Important finding in the review above. Read the draft PR; a human merges.")

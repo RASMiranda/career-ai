@@ -604,8 +604,10 @@ def test_the_post_step_drops_a_finding_outside_the_diff_and_names_the_gate_from_
              "diff.patch": diff}
     body = run_post_step(tmp_path, {"CHECKS_LINE": "commit: abc"}, files)
     assert "**Review**" in body and "Nothing to fix." in body and "Checks: commit: abc" in body
-    assert "far away" not in body and "IMPORTANT" not in body
-    assert "**Next gate (yours):** No Important finding in the review above." in body
+    # ADR-067 (follow-up): the finding's own text is absent, and the posted review says how many were dropped, by count.
+    assert "far away" not in body
+    assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in body
+    assert "**Next gate (yours):** No Important finding kept; 1 dropped as not on a changed line" in body
     summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
     assert "Dropped, not on a changed line: IMPORTANT at src/x.py:40." in summary   # a changed file, so named
     assert "far away" not in summary

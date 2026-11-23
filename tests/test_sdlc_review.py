@@ -420,3 +420,60 @@ def test_the_review_step_reads_the_checks_result_from_a_step_output_not_the_file
     assert set(ids) == {"checks_pushed", "checks_current"}
     for s in ids.values():
         assert "GITHUB_OUTPUT" in s["run"] and "line=" in s["run"]
+
+
+# ------------------------------------------- follow-up (ADR-067): dropped lines are visible, counts only; line limit 600
+ISSUE_79_NIT = ("NIT docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/spec.md:138 - requirement 10 says the only "
+                "file this stage changes is spec.md; that is true of the spec stage only, and the branch also carries "
+                "intent, plan and verification from earlier stages, so the wording is misleading on the final PR.")
+
+
+def test_the_real_nit_from_issue_79_parses_under_the_line_limit():
+    assert 200 <= len(ISSUE_79_NIT) - len("NIT docs/intents/79-feature-throwaway-verify-hygiene-i-f3-i/spec.md:138 - ") <= 240
+    result = review.parse("1 findings (0 important, 1 nit, 0 pre-existing)\n" + ISSUE_79_NIT + "\n")
+    assert result["ok"] and result["findings"][0]["path"].endswith("spec.md") and result["findings"][0]["lo"] == 138
+
+
+def test_a_line_of_600_characters_parses_and_one_of_601_fails_closed():
+    prefix = "NIT src/x.py:1 - "
+    ok_line = prefix + "x" * (review.MAX_LINE - len(prefix))
+    too_long = prefix + "x" * (review.MAX_LINE + 1 - len(prefix))
+    assert len(ok_line) == 600 and len(too_long) == 601
+    assert review.parse("1 findings (0 important, 1 nit, 0 pre-existing)\n" + ok_line + "\n")["ok"]
+    assert review.parse("1 findings (0 important, 1 nit, 0 pre-existing)\n" + too_long + "\n")["ok"] is False
+
+
+@pytest.mark.parametrize("stage", ["build", "review"])
+def test_a_dropped_important_is_announced_by_count_only_and_its_text_is_absent(stage):
+    text = "1 findings (1 important, 0 nit, 0 pre-existing)\nIMPORTANT src/secret.py:40 - far away and private\n"
+    result = review.decide(text, review.hunk_ranges(SRC), "commit: abc")
+    assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in result["text"]
+    assert "far away" not in result["text"] and "src/secret.py" not in result["text"]
+    gate = review.next_gate(stage, result["needs_changes"], result["dropped_important"])
+    assert gate == ("No Important finding kept; 1 dropped as not on a changed line (see the run summary). "
+                    "A human decides and merges.")
+    assert result["needs_changes"] is False
+    assert result["text"].splitlines()[-2].startswith("Dropped (not on a changed line)")
+
+
+def test_the_dropped_line_comes_before_checks_and_counts_nits_too():
+    text = ("2 findings (0 important, 2 nit, 0 pre-existing)\nNIT src/x.py:40 - a\nNIT src/x.py:41 - b\n")
+    lines = review.decide(text, review.hunk_ranges(SRC), "commit: abc")["text"].splitlines()
+    assert lines[:2] == ["Nothing to fix.", "Dropped (not on a changed line): 0 important, 2 nit. See the run summary."]
+    assert lines[-1] == "Checks: commit: abc"
+
+
+def test_a_kept_important_keeps_the_fix_wording_even_with_drops():
+    text = ("2 findings (1 important, 1 nit, 0 pre-existing)\nIMPORTANT src/x.py:2 - kept\nNIT src/x.py:40 - gone\n")
+    result = review.decide(text, review.hunk_ranges(SRC), "c")
+    assert result["needs_changes"] is True
+    assert review.next_gate("build", True, result["dropped_important"]).startswith("Fix or dismiss")
+
+
+def test_without_drops_the_original_ok_wording_is_unchanged():
+    assert review.next_gate("build", False, 0).startswith("No Important finding in the review above")
+    assert review.next_gate("review", False, 0) == "No Important finding. A human decides and merges."
+
+
+def test_the_input_cap_keeps_the_posted_review_under_the_workflow_display_limit():
+    assert review.MAX_REVIEW_BYTES + 400 < 20_000
