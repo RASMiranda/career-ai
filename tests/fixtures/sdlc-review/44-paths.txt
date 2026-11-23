@@ -1,0 +1,4 @@
+docs/intents/44-bug-fix-typo-in-readme-seperate-separate/intent.md
+docs/intents/44-bug-fix-typo-in-readme-seperate-separate/plan.md
+docs/intents/44-bug-fix-typo-in-readme-seperate-separate/spec.md
+README.md

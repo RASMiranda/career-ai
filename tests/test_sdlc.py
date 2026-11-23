@@ -274,7 +274,8 @@ def test_a_build_can_be_followed_by_a_review_of_the_same_branch():
     assert review["repo"] is False and review["writes"] == [] and "Edit" not in review["tools"].split(",")
     assert sdlc.check(review, ["src/jobscan/x.py"], {})                   # the reviewer may not touch code
     text = sdlc.render_prompt(review)
-    assert "Verdict:" in text and "never approve" in text and ".sdlc/review.md" in text
+    # ADR-067: the first line of the review is the contract's, not a free-text verdict.
+    assert "Nothing to fix." in text and "Verdict:" not in text and "never approve" in text and ".sdlc/review.md" in text
 
 
 def test_the_untrusted_title_is_never_written_to_the_workflow_outputs(tmp_path, monkeypatch):
@@ -357,6 +358,8 @@ def test_the_pr_line_appears_only_when_a_pr_number_is_given():
     assert sdlc.report_header("build", "[]", "9").splitlines()[1] == "PR: #9"
 
 
-def test_pr_body_command_prints_the_body(capsys):
-    assert sdlc.main(["pr-body", "--number", "5", "--workdir", "docs/intents/5-x"]) == 0
-    assert capsys.readouterr().out == sdlc.pr_body(5, "docs/intents/5-x")
+def test_pr_body_command_prints_the_body(capsys, tmp_path):
+    paths = tmp_path / "paths.txt"
+    paths.write_text("src/x.py\n", encoding="utf-8")       # explicit, so the test never asks git for origin/main
+    assert sdlc.main(["pr-body", "--number", "5", "--workdir", "docs/intents/5-x", "--paths", str(paths)]) == 0
+    assert capsys.readouterr().out == sdlc.pr_body(5, "docs/intents/5-x", ["src/x.py"])
