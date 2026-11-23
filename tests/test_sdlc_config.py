@@ -608,7 +608,7 @@ def test_the_post_step_drops_a_finding_outside_the_diff_and_names_the_gate_from_
     # ADR-067 (follow-up): the finding's own text is absent, and the posted review says how many were dropped, by count.
     assert "far away" not in body
     assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in body
-    assert "**Next gate (yours):** No Important finding kept; 1 dropped as not on a changed line" in body
+    assert "**Next gate (yours):** No Important finding kept; 1 dropped (see the run summary)" in body
     summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
     assert "Dropped, not on a changed line: IMPORTANT at src/x.py:40." in summary   # a changed file, so named
     assert "far away" not in summary

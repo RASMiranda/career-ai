@@ -66,10 +66,12 @@ def test_a_confirmed_finding_is_posted_and_a_dropped_one_is_not_and_the_text_is_
     assert "old constant" not in result["text"] and "1 findings (1 important, 0 nit, 0 pre-existing)" in result["text"]
 
 
-def test_when_the_verifier_drops_every_important_finding_nothing_needs_changes_and_the_text_says_nothing_to_fix():
+def test_when_the_verifier_drops_every_important_finding_nothing_needs_changes_and_the_text_does_not_say_nothing_to_fix():
+    # ADR-068 follow-up: a verifier drop is never "Nothing to fix." on the first line; the Dropped line names it.
     result = review.decide(TWO_IMPORTANT, review.hunk_ranges(DIFF), "c", answer="1 DROPPED - a\n2 DROPPED - b\n")
     assert result["needs_changes"] is False and result["findings"] == []
-    assert result["text"].startswith("Nothing to fix.")
+    assert result["text"].splitlines()[0] == "No finding kept after the verifier."
+    assert "Dropped by the verifier (not confirmed): 2 important." in result["text"]
 
 
 def test_a_finding_without_a_verdict_line_is_kept_so_only_an_explicit_dropped_removes_one():
@@ -202,3 +204,54 @@ def test_the_post_step_reads_the_verifier_answer_only_when_a_verifier_ran():
     """The workflow decides this with the verifier step's outcome, so a verifier that did not run keeps every finding."""
     assert "VERIFY_RAN: ${{ steps.verify.outcome != 'skipped' }}" in POST_TEXT
     assert '--verify-answer .sdlc/verify-answer.md' in POST_TEXT and 'VARGS=(--verify-answer' in POST_TEXT
+
+
+# ------------------------------------------------- a verifier drop is announced like a diff drop (ADR-068 follow-up)
+ONE_IMPORTANT = "1 findings (1 important, 0 nit, 0 pre-existing)\nIMPORTANT src/x.py:2 - the value is never checked\n"
+VERIFIER_LINE = "Dropped by the verifier (not confirmed): {n} important. See the run summary."
+
+
+def test_a_verifier_drop_of_the_only_important_finding_is_announced_and_is_not_nothing_to_fix():
+    result = review.decide(ONE_IMPORTANT, review.hunk_ranges(DIFF), "commit: x", answer="1 DROPPED - not real\n")
+    lines = result["text"].splitlines()
+    assert lines == ["No finding kept after the verifier.", VERIFIER_LINE.format(n=1), "Checks: commit: x"]
+    assert result["needs_changes"] is False and result["dropped_important"] == 1
+    gate = review.next_gate("build", result["needs_changes"], result["dropped_important"])
+    assert gate == "No Important finding kept; 1 dropped (see the run summary). A human decides and merges."
+
+
+def test_a_kept_important_stays_and_the_verifier_drop_of_the_other_is_counted_in_its_own_line():
+    result = review.decide(TWO_IMPORTANT, review.hunk_ranges(DIFF), "commit: x",
+                           answer="1 CONFIRMED - real\n2 DROPPED - not real\n")
+    lines = result["text"].splitlines()
+    assert lines[:2] == ["1 findings (1 important, 0 nit, 0 pre-existing)", "IMPORTANT src/x.py:2 - the value is never checked"]
+    assert VERIFIER_LINE.format(n=1) in lines and lines[-1] == "Checks: commit: x"
+    assert result["needs_changes"] is True and result["dropped_important"] == 1
+    assert review.next_gate("build", True, result["dropped_important"]).startswith("Fix or dismiss each Important finding")
+
+
+def test_a_nit_dropped_for_the_diff_and_an_important_dropped_by_the_verifier_both_lines_appear():
+    text = ("2 findings (1 important, 1 nit, 0 pre-existing)\nIMPORTANT src/x.py:2 - the value is never checked\n"
+            "NIT src/other.py:40 - far away\n")
+    result = review.decide(text, review.hunk_ranges(DIFF), "commit: x", answer="1 DROPPED - not real\n")
+    lines = result["text"].splitlines()
+    assert lines == ["No finding kept after the verifier.",
+                     "Dropped (not on a changed line): 0 important, 1 nit. See the run summary.",
+                     VERIFIER_LINE.format(n=1), "Checks: commit: x"]
+    assert result["dropped_important"] == 1 and result["needs_changes"] is False
+
+
+def test_the_posted_text_never_contains_a_dropped_findings_text_or_path():
+    text = ("3 findings (1 important, 2 nit, 0 pre-existing)\nIMPORTANT src/x.py:2 - SECRET-VERIFIER-TEXT\n"
+            "NIT src/private/deep.py:40 - SECRET-DIFF-TEXT\nNIT src/private/other.py:41 - SECRET-DIFF-TEXT-2\n")
+    result = review.decide(text, review.hunk_ranges(DIFF), "commit: x", answer="1 DROPPED - a\n")
+    for secret in ("SECRET-VERIFIER-TEXT", "SECRET-DIFF-TEXT", "src/x.py", "src/private", "deep.py"):
+        assert secret not in result["text"], secret
+    assert result["text"].startswith("No finding kept after the verifier.")
+
+
+def test_a_missing_answer_drops_nothing_so_it_adds_no_verifier_line_and_keeps_the_ok_first_line():
+    result = review.decide(ONE_IMPORTANT, review.hunk_ranges(DIFF), "commit: x", answer="")
+    assert result["verifier"] == "missing" and result["dropped_important"] == 0
+    assert "Dropped by the verifier" not in result["text"] and result["text"].startswith(
+        "1 findings (1 important, 0 nit, 0 pre-existing)")

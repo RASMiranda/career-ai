@@ -123,7 +123,9 @@ def decide(text: str, ranges, checks: str, answer: str | None = None) -> dict:
     Dropped: an IMPORTANT or NIT whose line is not in the diff. PRE-EXISTING is never checked against the diff.
     ``answer`` is the verifier's final message (ADR-068), or None when no verifier ran; only IMPORTANT findings are
     verified, and a missing or malformed answer keeps every one of them.
-    ``needs_changes`` is true only for a kept IMPORTANT finding; it chooses wording and nothing else."""
+    ``dropped_important`` counts every dropped IMPORTANT finding, the diff's and the verifier's alike: the Next gate
+    must not call a review clean when an IMPORTANT was removed. ``needs_changes`` is true only for a kept IMPORTANT
+    finding; it chooses wording and nothing else."""
     parsed = parse(text)
     dropped, verified_out, verifier = [], [], ""
     if not parsed["ok"]:
@@ -138,11 +140,11 @@ def decide(text: str, ranges, checks: str, answer: str | None = None) -> dict:
                 dropped.append(finding)
         if answer is not None:
             kept, verified_out, verifier = _verify(kept, answer)
-    dropped_important = sum(f["tag"] == "IMPORTANT" for f in dropped)
+    dropped_important = sum(f["tag"] == "IMPORTANT" for f in dropped + verified_out)
     return {"findings": kept, "dropped": dropped, "dropped_important": dropped_important,
             "needs_changes": any(f["tag"] == "IMPORTANT" for f in kept), "unparseable": why,
             "no_diff": ranges is None, "verifier": verifier, "verifier_dropped": verified_out,
-            "text": render(kept, checks, dropped)}
+            "text": render(kept, checks, dropped, verified_out)}
 
 
 def parse_answer(text: str | None, count: int) -> dict:
@@ -216,20 +218,31 @@ def _span(finding: dict) -> str:
     return str(finding["lo"]) if finding["lo"] == finding["hi"] else f"{finding['lo']}-{finding['hi']}"
 
 
-def render(findings: list, checks: str, dropped=()) -> str:
+NO_KEPT_AFTER_VERIFIER = "No finding kept after the verifier."
+
+
+def render(findings: list, checks: str, dropped=(), verifier_dropped=()) -> str:
     """The posted review: the contract shape, rebuilt from the findings that were kept, a counts-only line for any
-    dropped ones (no finding text, no path), then the Checks line."""
+    dropped ones (no finding text, no path), then the Checks line.
+
+    ``dropped`` are the diff's drops; ``verifier_dropped`` are the IMPORTANT findings the verifier removed (ADR-068). Each
+    gets its own counts-only line, and when the verifier removed something the first line is never ``Nothing to fix.``."""
     if findings:
         count = {tag: sum(f["tag"] == tag for f in findings) for tag in ("IMPORTANT", "NIT", "PRE-EXISTING")}
         lines = [f"{len(findings)} findings ({count['IMPORTANT']} important, {count['NIT']} nit, "
                  f"{count['PRE-EXISTING']} pre-existing)"]
         lines += [f"{f['tag']} {f['path']}:{_span(f)} - {f['text']}" for f in findings]
+    elif verifier_dropped:
+        lines = [NO_KEPT_AFTER_VERIFIER]
     else:
         lines = [NOTHING]
     if dropped:
         imp = sum(f["tag"] == "IMPORTANT" for f in dropped)
         nit = sum(f["tag"] == "NIT" for f in dropped)
         lines.append(f"Dropped (not on a changed line): {imp} important, {nit} nit. See the run summary.")
+    if verifier_dropped:
+        lines.append(f"Dropped by the verifier (not confirmed): {len(verifier_dropped)} important. "
+                     "See the run summary.")
     return "\n".join(lines + [f"Checks: {checks}"]) + "\n"
 
 
@@ -256,9 +269,11 @@ def summary(result: dict, changed) -> str:
 def next_gate(stage: str, needs_changes: bool, dropped_important: int = 0):
     """The 'Next gate' sentence after a review. None for other stages, which keep their own sentence.
 
-    An IMPORTANT finding that was dropped (not on a changed line) is never described as "No Important finding"."""
+    ``dropped_important`` counts every dropped IMPORTANT finding, whether the diff dropped it (not on a changed line) or
+    the verifier did (ADR-068). The sentence is neutral about which, so it is true for both; the posted review and the
+    run summary name the cause. An IMPORTANT finding that was dropped is never described as "No Important finding"."""
     if stage in ("build", "review") and not needs_changes and dropped_important:
-        return (f"No Important finding kept; {dropped_important} dropped as not on a changed line (see the run summary). "
+        return (f"No Important finding kept; {dropped_important} dropped (see the run summary). "
                 "A human decides and merges.")
     if stage == "build":
         return ("Fix or dismiss each Important finding, then apply `agent:build` again. A human merges." if needs_changes

@@ -167,7 +167,7 @@ Actions, Variables) bound that:
 - **Verifier (off by default).** With `SDLC_REVIEW_VERIFY` set to exactly `true`, a second read-only agent (Read, Grep and
   Glob; 8 turns) checks each IMPORTANT finding against the code. Only a CONFIRMED finding is posted. A DROPPED finding is
   named in the run summary by tag and line only. A missing or malformed answer keeps every finding. It is off by default
-  because it is one more model call on every review that has an IMPORTANT finding, and the owner's plan has usage limits.
+  because it is one more model call on every review that has an IMPORTANT finding, and the owner's plan has usage limits. A finding it drops is announced in the posted review by a counts-only line, so a review that lost an IMPORTANT finding never reads as clean.
 - **To stop reviews entirely**, set `SDLC_MAX_REVIEW_ROUNDS` to `0`: every review is blocked, and the build still runs and
   posts its report. Remove the variable to go back to 3.
 
