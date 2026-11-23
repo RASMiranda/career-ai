@@ -72,7 +72,7 @@ def test_the_checkout_leaves_no_token_for_the_agent_to_read():
 
 def test_agents_run_with_no_web_and_no_push_or_github_tools():
     runs = [s for s in steps("sdlc-stage") if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")]
-    assert len(runs) == 2                                              # the stage agents and the post-build review
+    assert len(runs) == 3                                              # the stage agents, the post-build review and the optional verifier (ADR-068)
     for s in runs:
         args = s["with"]["claude_args"]
         assert "--disallowedTools" in args and "WebFetch" in args and "WebSearch" in args
@@ -239,7 +239,7 @@ def agent_steps():
 
 def test_the_action_is_pinned_to_a_commit_and_does_not_set_the_subprocess_env_scrub():
     runs = agent_steps()
-    assert len(runs) == 2
+    assert len(runs) == 3                  # ADR-068: the verifier is pinned exactly like the two agents before it
     for s in runs:
         assert s["uses"] == "anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9"
         # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap, which the runner lacks: it failed the first run (ADR-033).
@@ -344,7 +344,7 @@ def test_the_copy_aside_copies_the_build_report_or_writes_a_fixed_line(tmp_path)
     import subprocess
 
     lines = step_named("Review the build")["run"].splitlines()
-    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if l.startswith("git diff"))])   # before the reviewers
+    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if l.startswith("DIFF_BASE="))])   # before the diff and the reviewers (ADR-068)
     (tmp_path / ".sdlc").mkdir()
     (tmp_path / ".sdlc" / "comment.md").write_text("built it\n")
     subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=os.environ, check=True, capture_output=True)
@@ -417,7 +417,8 @@ def test_the_workflow_never_writes_agent_output_to_the_job_summary():
 def test_each_agent_step_has_an_id_and_its_execution_file_is_copied_right_after_the_step_before_the_post():
     # The action overwrites its execution file on every run, so each copy must run before the next agent starts.
     # The token-reset steps must stay straight after each agent (test_sdlc_token_scope), so the copies follow the
-    # check (stage) and reject (review) steps, which only read the checkout.
+    # check (stage) step, and the review copy follows the trusted reload that comes after the review agent (ADR-068 moved
+    # it there, before the verifier runs).
     all_steps = steps("sdlc-stage")
     names = [s.get("name", "") for s in all_steps]
     stage_agent, review_agent = names.index("Run the stage agents"), names.index("Run the review agents")
@@ -425,7 +426,7 @@ def test_each_agent_step_has_an_id_and_its_execution_file_is_copied_right_after_
     for step_id, keep_name, kept, previous in (
             ("agent", "Keep the stage agent's execution file (ADR-055)", "exec-stage.json", "Check what the agent changed"),
             ("review", "Keep the review agents' execution file (ADR-055)", "exec-review.json",
-             "Reject any change the reviewers made")):
+             "Trusted engine code, again after the reviewers (3 of 3) use it (ADR-036)")):
         k = names.index(keep_name)
         keep = all_steps[k]
         assert names[k - 1] == previous
