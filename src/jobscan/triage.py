@@ -231,7 +231,7 @@ def render_brief(to_score: list[dict], cfg: dict, root, excerpt: int = EXCERPT_C
     return "\n".join(out).rstrip() + "\n"
 
 
-def keywords_path(root, pid: str | None = None) -> Path:
+def keywords_path(root, pid: str) -> Path:
     """Where profile ``pid``'s title keywords are read from (ADR-069 layout)."""
     return layout.resolve(root, pid, "apply/triage.yaml")
 

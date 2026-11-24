@@ -1,8 +1,7 @@
 """Answer bank v2: owner-approved answers with provenance, plus the apply-run record.
 
-Lives in career-data as ``profiles/<id>/answer_bank.yaml`` (ADR-069; the data-root copy is read until the
-data PR merges). ADR-045 keeps identity facts there. Only the owner
-writes it. Code fills a form field only from here, and only when the question is not one code
+Lives in career-data as ``profiles/<id>/answer_bank.yaml`` (ADR-069). ADR-045 keeps identity facts there.
+Only the owner writes it. Code fills a form field only from here, and only when the question is not one code
 must never answer (sworn attestation, I-9, citizenship, clearance: always NEEDS_ANSWER).
 
     version: 2
@@ -201,7 +200,7 @@ def _entry(item, i: int, source_name: str) -> Entry:
                  decided_on=decided, quote=quote, conflicts=conflicts)
 
 
-def bank_path(root, pid: str | None = None) -> Path:
+def bank_path(root, pid: str) -> Path:
     """Where profile ``pid``'s answer bank is read from or created (ADR-069 layout)."""
     return layout.resolve(root, pid, "answer_bank.yaml")
 
