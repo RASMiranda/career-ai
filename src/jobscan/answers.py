@@ -1,7 +1,6 @@
 """Answer bank: owner-written answers to exact application questions.
 
-Lives in career-data as ``profiles/<id>/apply/answer-bank.yaml`` (ADR-069; the data-root copy is read until
-the data PR merges):
+Lives in career-data as ``profiles/<id>/apply/answer-bank.yaml`` (ADR-069):
 
     version: 1
     answers:
@@ -66,7 +65,7 @@ class Bank:
         return len(self.entries)
 
 
-def bank_path(root, pid: str | None = None) -> Path:
+def bank_path(root, pid: str) -> Path:
     """Where profile ``pid``'s drafted-answer bank is read from or created (ADR-069 layout)."""
     return layout.resolve(root, pid, "apply/answer-bank.yaml")
 

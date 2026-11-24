@@ -1,5 +1,5 @@
-"""Profile file layout (ADR-069, phase A): the profile-folder copy wins, the data-root copy is a fallback,
-a file that is created goes to the profile folder, and several profiles need an explicit --profile."""
+"""Profile file layout (ADR-069, ADR-070): every profile file lives under profiles/<id>/, there is no
+root-path fallback, and a command needs a profile id (explicit, or the only profile folder)."""
 
 import hashlib
 import json
@@ -23,52 +23,57 @@ def profile(root: Path, pid: str) -> None:
     touch(root, f"profiles/{pid}/profile.yaml", "display_name: Synthetic\n")
 
 
-def test_the_new_path_wins_over_the_legacy_one(tmp_path):
+def test_resolve_is_the_profile_folder_path_and_nothing_else(tmp_path):
     profile(tmp_path, "rui")
-    touch(tmp_path, "answer_bank.yaml", "legacy\n")
-    new = touch(tmp_path, "profiles/rui/answer_bank.yaml", "new\n")
-    assert layout.resolve(tmp_path, "rui", "answer_bank.yaml") == new
+    expected = tmp_path / "profiles/rui/answer_bank.yaml"
+    assert layout.resolve(tmp_path, "rui", "answer_bank.yaml") == expected
+    assert layout.resolve(tmp_path, "rui", "apply/triage.yaml") == tmp_path / "profiles/rui/apply/triage.yaml"
 
 
-def test_the_legacy_root_path_is_read_until_the_data_moves(tmp_path):
+def test_a_file_only_at_the_old_root_path_is_not_found(tmp_path):
     profile(tmp_path, "rui")
-    legacy = touch(tmp_path, "apply/triage.yaml", "keywords\n")
-    assert layout.resolve(tmp_path, "rui", "apply/triage.yaml") == legacy
-    state = touch(tmp_path, "state/cv_manifest.json", "{}")
-    assert layout.resolve(tmp_path, "rui", "cv_manifest.json") == state
-    docs = touch(tmp_path, "docs/OPEN-QUESTIONS.md", "# q\n")
-    assert layout.resolve(tmp_path, "rui", "OPEN-QUESTIONS.md") == docs
+    touch(tmp_path, "apply/triage.yaml", "keywords\n")                 # the pre-ADR-070 location
+    touch(tmp_path, "state/cv_manifest.json", "{}")
+    assert layout.resolve(tmp_path, "rui", "apply/triage.yaml") == tmp_path / "profiles/rui/apply/triage.yaml"
+    assert not layout.resolve(tmp_path, "rui", "apply/triage.yaml").exists()
 
 
-def test_a_created_file_goes_to_the_new_path(tmp_path):
+def test_a_missing_cv_manifest_error_names_the_profile_path(tmp_path, capsys):
     profile(tmp_path, "rui")
-    expected = tmp_path / "profiles/rui/apply/answer-bank.yaml"
-    assert layout.resolve(tmp_path, "rui", "apply/answer-bank.yaml") == expected
-    touch(tmp_path, "profiles/rui/apply/answer-bank.yaml", "new\n")
-    assert layout.resolve(tmp_path, "rui", "apply/answer-bank.yaml") == expected
-    assert not (tmp_path / "apply/answer-bank.yaml").exists()           # nothing written at the root
+    touch(tmp_path, "cv_manifest.json", json.dumps({"cv/general.md": hashlib.sha256(b"x").hexdigest()}))
+    with pytest.raises(cvcheck.CvCheckError, match=r"profiles/rui/cv_manifest\.json"):
+        cvcheck.check(tmp_path, "rui")                                  # the root copy is ignored
+    assert main(["cv-check", "--data", str(tmp_path), "--profile", "rui"]) == 2
+    assert "profiles/rui/cv_manifest.json" in capsys.readouterr().err
 
 
-def test_the_profile_copy_is_preferred_even_when_the_legacy_one_is_newer(tmp_path):
-    profile(tmp_path, "rui")
-    touch(tmp_path, "state/rate_card.json", "{}")
-    new = touch(tmp_path, "profiles/rui/rate_card.json", "{}")
-    assert layout.resolve(tmp_path, "rui", "rate_card.json") == new
+def test_no_profile_folder_is_a_config_error(tmp_path):
+    with pytest.raises(ConfigError, match=r"no profile: expected profiles/<id>/profile\.yaml"):
+        layout.default_profile(tmp_path)
+    touch(tmp_path, "profiles/notes/readme.md")                         # a folder without profile.yaml
+    with pytest.raises(ConfigError, match="no profile"):
+        layout.default_profile(tmp_path)
 
 
-def test_several_profiles_without_an_explicit_id_is_a_config_error(tmp_path):
+def test_several_profiles_without_an_explicit_id_is_a_config_error(tmp_path, capsys):
     profile(tmp_path, "ana")
     profile(tmp_path, "bruno")
     with pytest.raises(ConfigError, match="--profile"):
         layout.default_profile(tmp_path)
     assert layout.default_profile(tmp_path, "bruno") == "bruno"       # explicit always wins
+    assert main(["cv-check", "--data", str(tmp_path)]) == 2
+    assert "--profile" in capsys.readouterr().err
 
 
-def test_one_profile_is_the_default_and_none_means_legacy_only(tmp_path):
-    assert layout.default_profile(tmp_path) is None                    # no profile folder: legacy paths
+def test_one_profile_is_the_default(tmp_path):
     profile(tmp_path, "rui")
     touch(tmp_path, "profiles/notes/readme.md")                         # a folder without profile.yaml
     assert layout.default_profile(tmp_path) == "rui"
+
+
+def test_resolve_requires_a_profile_id(tmp_path):
+    with pytest.raises(ValueError, match="profile id"):
+        layout.resolve(tmp_path, "", "answer_bank.yaml")
 
 
 def test_names_outside_the_data_repo_are_refused(tmp_path):
@@ -89,20 +94,11 @@ def test_cv_check_reads_the_profile_manifest_with_keys_relative_to_the_profile(t
     assert "all 1 CV file(s)" in capsys.readouterr().out
 
 
-def test_cv_check_with_several_profiles_needs_the_profile_flag(tmp_path, capsys):
-    profile(tmp_path, "ana")
-    profile(tmp_path, "bruno")
-    assert main(["cv-check", "--data", str(tmp_path)]) == 2
-    assert "--profile" in capsys.readouterr().err
-    assert main(["cv-check", "--data", str(tmp_path), "--profile", "ana"]) == 2   # no manifest yet, still named
-    assert "no cv_manifest.json" in capsys.readouterr().err
-
-
-def test_cv_check_legacy_state_manifest_keys_stay_relative_to_the_data_root(tmp_path):
+def test_cv_check_keys_that_point_at_the_data_root_are_not_read(tmp_path):
     profile(tmp_path, "rui")
     data = b"CV card, synthetic\n"
     touch(tmp_path, "profiles/rui/cv/general.md", data.decode())
     manifest = {"profiles/rui/cv/general.md": hashlib.sha256(data).hexdigest()}
-    touch(tmp_path, "state/cv_manifest.json", json.dumps(manifest))
+    touch(tmp_path, "profiles/rui/cv_manifest.json", json.dumps(manifest))
     report = cvcheck.check(tmp_path, "rui")
-    assert report.fresh and report.checked == 1
+    assert report.missing == ["profiles/rui/cv/general.md"]            # keys resolve inside the profile only
