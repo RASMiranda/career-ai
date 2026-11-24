@@ -23,8 +23,8 @@ folder, and otherwise returns NEEDS_ANSWER. It is deterministic and makes no net
 Work-authorisation answers are returned only when authorization.yaml has
 ``work_auth_standing.acknowledged_on`` (ADR-044).
 
-``ApplyOutcome`` records one job's result in ``logs/apply/<site>-<date>.jsonl`` in career-data
-(ADR-045 hand-off). URLs in every field lose their query string and fragment before writing.
+``ApplyOutcome`` records one job's result in ``profiles/<id>/logs/apply/<site>-<date>.jsonl`` in
+career-data (ADR-045 hand-off, ADR-071). URLs in every field lose their query string and fragment before writing.
 
 This is separate from ``jobscan.answers`` (apply/answer-bank.yaml, version 1, drafted-answer era).
 Neither module logs answer values.
@@ -368,17 +368,18 @@ def validate_outcome(o: ApplyOutcome) -> ApplyOutcome:
     return o
 
 
-def outcome_path(root: Path, site: str, ts: str) -> Path:
+def outcome_path(root: Path, site: str, ts: str, profile: str | None = None) -> Path:
+    """logs/apply/<site>-<date>.jsonl under the profile (ADR-071); see layout.apply_path."""
     stamp = ts[:10]
     date.fromisoformat(stamp)
-    return root / "logs" / "apply" / f"{site}-{stamp}.jsonl"
+    return layout.apply_path(root, "logs/apply", profile) / f"{site}-{stamp}.jsonl"
 
 
-def append_outcome(outcome: ApplyOutcome, data: str | None = None) -> Path:
-    """Append one redacted line to logs/apply/<site>-<date>.jsonl in career-data."""
+def append_outcome(outcome: ApplyOutcome, data: str | None = None, profile: str | None = None) -> Path:
+    """Append one redacted line to the profile's logs/apply/<site>-<date>.jsonl in career-data."""
     o = validate_outcome(outcome)
     clean = ApplyOutcome(**{k: redact(v) for k, v in asdict(o).items()})
-    path = outcome_path(data_root(data), clean.site, clean.ts)
+    path = outcome_path(data_root(data), clean.site, clean.ts, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(asdict(clean), sort_keys=True, ensure_ascii=False) + "\n")
