@@ -1,6 +1,7 @@
 """Application log for the browser-apply runs: one CSV row per job considered.
 
-Lives in career-data as ``apply/log.csv``. Columns: date, site, employer, role, job_id, status.
+Lives in career-data as ``profiles/<id>/apply/log.csv`` (ADR-071; the root ``apply/log.csv`` is read
+until the data PR moves it). Columns: date, site, employer, role, job_id, status.
 Lines starting with ``#`` are comments (TODO notes): kept on disk, skipped on read.
 Dates are ISO (YYYY-MM-DD). A blank date means unknown; for ``employer_applied_recently`` an
 unknown date counts as recent, so an employer is not applied to twice by accident.
@@ -18,6 +19,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from . import layout
 from .blacklist import canon
 
 FIELDS = ("date", "site", "employer", "role", "job_id", "status")
@@ -247,10 +249,10 @@ def _id_problems(text: str, name: str) -> list[str]:
             if _ID_SHAPE.search(line) or _ID_LABEL.search(line)]
 
 
-def _outcome_keys(root: Path) -> tuple[set, list[str]]:
-    """(site, job_id) pairs with a jsonl outcome under logs/apply, and any problems in those files."""
+def _outcome_keys(root: Path, profile: str | None = None) -> tuple[set, list[str]]:
+    """(site, job_id) pairs with a jsonl outcome under the profile's logs/apply, and any problems."""
     keys, problems = set(), []
-    folder = root / "logs" / "apply"
+    folder = layout.apply_path(root, "logs/apply", profile)
     for f in sorted(folder.glob("*.jsonl")) if folder.is_dir() else []:
         text = f.read_text(encoding="utf-8")
         problems += _id_problems(text, str(f))
@@ -268,12 +270,11 @@ def _outcome_keys(root: Path) -> tuple[set, list[str]]:
 
 
 LEGACY_FIELDS = ("site", "job_id", "reason")
-LEGACY_FILE = Path("apply") / "legacy-outcomes.csv"  # under the data folder (ADR-054)
+LEGACY_FILE = "apply/legacy-outcomes.csv"  # under the profile folder (ADR-054, ADR-071)
 
 
-def _legacy_allowlist(root: Path) -> dict[tuple[str, str], int]:
-    """(site, job_id) -> line number from apply/legacy-outcomes.csv. A missing file is an empty list."""
-    p = root / LEGACY_FILE
+def _legacy_allowlist(p: Path) -> dict[tuple[str, str], int]:
+    """(site, job_id) -> line number from the legacy-outcomes file. A missing file is an empty list."""
     if not p.is_file():
         return {}
     numbered = [(n, ln) for n, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), start=1)
@@ -295,8 +296,8 @@ def _legacy_allowlist(root: Path) -> dict[tuple[str, str], int]:
     return out
 
 
-def check_log(log, data=None):
-    """Validate apply/log.csv and, given ``data``, the jsonl outcomes.
+def check_log(log, data=None, profile: str | None = None):
+    """Validate apply/log.csv and, given ``data``, the profile's jsonl outcomes (ADR-071).
 
     Returns (errors, gaps, warnings, rows, legacy). A structural error in the CSV raises ApplyLogError,
     as ``read`` does. ``gaps``: SUBMITTED rows with no outcome and not on the legacy allowlist; these
@@ -318,10 +319,10 @@ def check_log(log, data=None):
         root = Path(data)
         if not root.is_dir():
             raise ApplyLogError(f"data folder not found: {root}")
-        keys, outcome_problems = _outcome_keys(root)
+        keys, outcome_problems = _outcome_keys(root, profile)
         errors += outcome_problems
-        allow = _legacy_allowlist(root)
-        allow_path = root / LEGACY_FILE
+        allow_path = layout.apply_path(root, LEGACY_FILE, profile)
+        allow = _legacy_allowlist(allow_path)
         if allow_path.is_file():
             errors += _id_problems(allow_path.read_text(encoding="utf-8"), str(allow_path))
         submitted = {(r["site"], r["job_id"]) for r in rows if r["status"] == "SUBMITTED"}
@@ -407,7 +408,7 @@ def _batch_outcome(n: int, r: dict, seen: set):
         fail(str(e))
 
 
-def batch(log, data, rows_file) -> dict:
+def batch(log, data, rows_file, profile: str | None = None) -> dict:
     """Validate every row first, then write the log rows and jsonl outcomes. All or nothing.
 
     Idempotent: a row already in the log is left alone, and an outcome line already on disk is not
@@ -439,7 +440,7 @@ def batch(log, data, rows_file) -> dict:
             continue
         clean = bank.ApplyOutcome(**{k: bank.redact(v) for k, v in asdict(outcome).items()})
         line = json.dumps(asdict(clean), sort_keys=True, ensure_ascii=False)
-        target = bank.outcome_path(root, clean.site, clean.ts)
+        target = bank.outcome_path(root, clean.site, clean.ts, profile)
         have = target.read_text(encoding="utf-8").splitlines() if target.is_file() else []
         problems += _id_problems(line, str(target))
         if line not in have:
@@ -460,8 +461,18 @@ def batch(log, data, rows_file) -> dict:
     return {**counts, "outcomes": len(outcome_writes)}
 
 
-def _check(log, data, strict: bool) -> int:
-    errors, gaps, warnings, rows, legacy = check_log(log, data)
+def _log_arg(a) -> Path:
+    """``--log`` as given (relative to the cwd), else the profile's apply/log.csv under ``--data`` (ADR-071)."""
+    from .config import data_root
+    if a.log:
+        return Path(a.log)
+    if not a.data:
+        raise ApplyLogError("pass --log, or --data (and --profile) for the profile's apply/log.csv")
+    return layout.apply_path(data_root(a.data), "apply/log.csv", a.profile)
+
+
+def _check(log, data, strict: bool, profile: str | None = None) -> int:
+    errors, gaps, warnings, rows, legacy = check_log(log, data, profile)
     if errors:
         for e in errors:
             print(f"error: {e}", file=sys.stderr)
@@ -483,59 +494,67 @@ def main(argv=None) -> int:
     from . import bank
     ap = argparse.ArgumentParser(prog="python -m jobscan.applylog")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    def log_arg(q, data=True):
+        q.add_argument("--log", default=None,
+                       help="log file (relative to the cwd); default: profiles/<id>/apply/log.csv in --data")
+        q.add_argument("--profile", help="profile id when the data repo has several (default: the only one)")
+        if data:
+            q.add_argument("--data", help="data repo; with no --log, the profile's apply/log.csv is used; "
+                                          "for check, also check the jsonl outcomes")
+
     for name in ("upsert", "outcome"):
         q = sub.add_parser(name)
         if name == "upsert":
-            q.add_argument("--log", required=True)
+            log_arg(q)
             q.add_argument("--date", required=True)
         else:
             q.add_argument("--data", required=True)
+            q.add_argument("--profile", help="profile id when the data repo has several (default: the only one)")
             q.add_argument("--ts", required=True)
             q.add_argument("--verified-by", default="", choices=["", *bank.VERIFIED_BY])
         for f in ("site", "employer", "role", "job-id", "status"):
             q.add_argument("--" + f, required=True)
     b = sub.add_parser("batch", help="validate a rows file, then write its log rows and outcomes")
-    b.add_argument("--log", required=True)
+    log_arg(b, data=False)
     b.add_argument("--data", required=True)
     b.add_argument("--file", required=True)
     s = sub.add_parser("seen", help="list APPLIED rows for this employer and role on any site; exit 1 if any")
-    s.add_argument("--log", required=True)
+    log_arg(s)
     s.add_argument("--employer", required=True)
     s.add_argument("--role", required=True)
     r = sub.add_parser("reconcile", help="list Applied-list entries that no APPLIED log row covers; exit 1 if any")
-    r.add_argument("--log", required=True)
+    log_arg(r)
     r.add_argument("--file", required=True, help="CSV of the site's Applied list, header employer,role")
     c = sub.add_parser("check")
-    c.add_argument("--log", required=True)
-    c.add_argument("--data", help="also check that every SUBMITTED row has a jsonl outcome")
+    log_arg(c)
     c.add_argument("--strict", action="store_true", help="exit 2 when a SUBMITTED row has no outcome")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "upsert":
-            print(upsert(a.log, site=a.site, employer=a.employer, role=a.role, job_id=a.job_id,
+            print(upsert(_log_arg(a), site=a.site, employer=a.employer, role=a.role, job_id=a.job_id,
                          status=a.status, when=a.date))
         elif a.cmd == "outcome":
             path = bank.append_outcome(bank.ApplyOutcome(
                 job_id=a.job_id, employer=a.employer, role=a.role, site=a.site, status=a.status,
-                verified_by=a.verified_by, ts=a.ts), data=a.data)
+                verified_by=a.verified_by, ts=a.ts), data=a.data, profile=a.profile)
             print(path)
         elif a.cmd == "batch":
-            counts = batch(a.log, a.data, a.file)
+            counts = batch(_log_arg(a), a.data, a.file, a.profile)
             print(f"{counts['new']} new, {counts['updated']} updated, {counts['unchanged']} unchanged")
             print(f"outcomes: {counts['outcomes']} written")
-            return _check(a.log, a.data, strict=False)
+            return _check(_log_arg(a), a.data, strict=False, profile=a.profile)
         elif a.cmd == "seen":
-            matches = seen(a.log, a.employer, a.role)
+            matches = seen(_log_arg(a), a.employer, a.role)
             for r in matches:
                 print(",".join((r["site"], r["job_id"], r["date"], r["status"])))
             return 1 if matches else 0
         elif a.cmd == "reconcile":
-            missing = unlogged(a.log, read_entries(a.file))
+            missing = unlogged(_log_arg(a), read_entries(a.file))
             for e in missing:
                 print(",".join(f'"{v}"' if "," in v else v for v in (e["employer"], e["role"])))
             return 1 if missing else 0
         else:
-            return _check(a.log, a.data, a.strict)
+            return _check(_log_arg(a), a.data, a.strict, a.profile)
     except (ApplyLogError, bank.ApplyOutcomeError, ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
