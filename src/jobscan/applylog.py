@@ -1,7 +1,7 @@
 """Application log for the browser-apply runs: one CSV row per job considered.
 
-Lives in career-data as ``profiles/<id>/apply/log.csv`` (ADR-071; the root ``apply/log.csv`` is read
-until the data PR moves it). Columns: date, site, employer, role, job_id, status.
+Lives in career-data as ``profiles/<id>/apply/log.csv`` (ADR-071). A root ``apply/log.csv`` is not read
+(ADR-072). Columns: date, site, employer, role, job_id, status.
 Lines starting with ``#`` are comments (TODO notes): kept on disk, skipped on read.
 Dates are ISO (YYYY-MM-DD). A blank date means unknown; for ``employer_applied_recently`` an
 unknown date counts as recent, so an employer is not applied to twice by accident.
