@@ -1,6 +1,7 @@
 """jobscan <command>   (also: python -m jobscan <command>)
 
-  cv-check --data PATH   names the CV files changed or missing since cv_manifest.json was written
+  cv-check --data PATH [--profile ID]
+                         names the CV files changed or missing since cv_manifest.json was written
 
 Exit codes: 0 all fresh · 1 stale or missing files (named) · 2 the check could not run.
 """
@@ -8,7 +9,7 @@ Exit codes: 0 all fresh · 1 stale or missing files (named) · 2 the check could
 import argparse
 import sys
 
-from . import cvcheck
+from . import cvcheck, layout
 from .config import ConfigError, data_root
 
 
@@ -18,11 +19,12 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("cv-check", help="are the CV files still the ones the manifest was written for")
     p.add_argument("--data", help="path to the private data repo (or CAREER_DATA)")
+    p.add_argument("--profile", help="profile id whose manifest to check (default: the only profile)")
     args = ap.parse_args(argv)
 
     try:
         root = data_root(args.data)
-        report = cvcheck.check(root)
+        report = cvcheck.check(root, layout.default_profile(root, args.profile))
     except (ConfigError, cvcheck.CvCheckError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

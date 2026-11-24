@@ -1,6 +1,7 @@
 """Answer bank: owner-written answers to exact application questions.
 
-Lives in career-data as ``apply/answer-bank.yaml``:
+Lives in career-data as ``profiles/<id>/apply/answer-bank.yaml`` (ADR-069; the data-root copy is read until
+the data PR merges):
 
     version: 1
     answers:
@@ -22,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+from . import layout
 
 
 class AnswerBankError(ValueError):
@@ -61,6 +64,11 @@ class Bank:
 
     def __len__(self) -> int:
         return len(self.entries)
+
+
+def bank_path(root, pid: str | None = None) -> Path:
+    """Where profile ``pid``'s drafted-answer bank is read from or created (ADR-069 layout)."""
+    return layout.resolve(root, pid, "apply/answer-bank.yaml")
 
 
 def load(path) -> Bank:
