@@ -1,7 +1,8 @@
 """CV freshness: are the CV files still the ones the manifest was written for?
 
-``cv_manifest.json`` in the data repo maps a file's path, relative to the data repo, to the SHA-256 of that
-file. A file whose hash differs from the manifest is stale; a listed file that is not there is missing. The
+``profiles/<id>/cv_manifest.json`` (ADR-069; the data-root and ``state/`` copies are read until the data PR
+merges) maps a file's path to the SHA-256 of that file. Paths are relative to the profile folder when the
+manifest is there, else to the data repo. A file whose hash differs from the manifest is stale; a listed file that is not there is missing. The
 report names the files. It never prints a hash, and never reads a file outside the data repo.
 """
 
@@ -10,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import layout
 from .store import FileStore
 
 MANIFEST = "cv_manifest.json"
@@ -39,11 +41,16 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def check(root: Path) -> Report:
-    """Compare every file the manifest lists with its recorded hash. Raises CvCheckError on a bad manifest."""
-    store = FileStore(root)
+def check(root: Path, pid: str | None = None) -> Report:
+    """Compare every file the manifest lists with its recorded hash. Raises CvCheckError on a bad manifest.
+
+    The manifest is ``profiles/<pid>/cv_manifest.json`` when it exists there (its keys are then relative to
+    that profile folder), else the legacy copy under the data root (keys relative to the data root).
+    """
+    root = Path(root)
+    where = layout.resolve(root, pid, MANIFEST)
     try:
-        manifest = store.read_json(MANIFEST, None)
+        manifest = FileStore(root).read_json(where.relative_to(root).as_posix(), None)
     except ValueError as exc:
         raise CvCheckError(f"{MANIFEST} is not valid JSON") from exc
     if manifest is None:
@@ -51,6 +58,8 @@ def check(root: Path) -> Report:
     if not isinstance(manifest, dict) or not manifest:
         raise CvCheckError(f"{MANIFEST} must map file names to SHA-256 values and list at least one file")
 
+    own_folder = pid is not None and where.parent == root / layout.PROFILES / pid
+    store = FileStore(where.parent if own_folder else root)
     report = Report(checked=len(manifest))
     for name in sorted(manifest):
         digest = manifest[name]

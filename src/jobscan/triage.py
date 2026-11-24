@@ -15,7 +15,9 @@ entirely and are not marked seen, so they come back next time.
 
 import html
 import re
+from pathlib import Path
 
+from . import layout
 from .config import ConfigError
 from .cv import catalog
 
@@ -229,10 +231,15 @@ def render_brief(to_score: list[dict], cfg: dict, root, excerpt: int = EXCERPT_C
     return "\n".join(out).rstrip() + "\n"
 
 
+def keywords_path(root, pid: str | None = None) -> Path:
+    """Where profile ``pid``'s title keywords are read from (ADR-069 layout)."""
+    return layout.resolve(root, pid, "apply/triage.yaml")
+
+
 # ------------------------------------------------------------------ bucket
 # Title-level fit for the browser-apply runs. The owner's keywords come from career-data
-# (apply/triage.yaml) and are passed in as ``cfg``; the code ships only the generic off-domain
-# words below, because a title regex passes hotel and facilities roles.
+# (profiles/<id>/apply/triage.yaml, ADR-069) and are passed in as ``cfg``; the code ships only the
+# generic off-domain words below, because a title regex passes hotel and facilities roles.
 DEFAULT_OFF_DOMAIN = ("hotel", "hospitality", "facilities", "resort", "construction", "civil",
                       "mechanical", "electrical", "plant", "maintenance")
 BUCKETS = ("core-fit", "adjacent", "off-domain", "off-target")
