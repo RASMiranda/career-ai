@@ -12,5 +12,6 @@ Rules that cannot be relaxed:
 - Read first: CLAUDE.md, docs/SDLC.md, docs/PRODUCT.md, docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022),
   docs/REFERENCE-AIAPPLY.md. A conflict with an ADR is a concern to flag, not something to resolve yourself.
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: l3-support, tech-lead.
+- Run each subagent in the foreground, one at a time, and wait for its result before you continue; never start one in the background and never end your turn while one is still running, because an ended turn ends the stage and nothing it was still doing is kept. If a subagent returns nothing, write that role's part yourself.
 
 Third line. Find the root cause in the code. Write `docs/intents/7-add-a-thing/intent.md` for the fix (same sections as the intent stage, written as a defect: expected vs actual, impact, cause) so the normal loop can take it, and, for an incident that affected real runs, `docs/incidents/<date>-<slug>.md` (timeline, cause, fix, what detects it next time). Do not fix it here: the fix goes through spec, plan and build.

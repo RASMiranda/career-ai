@@ -12,6 +12,7 @@ Rules that cannot be relaxed:
 - Read first: CLAUDE.md, docs/SDLC.md, docs/PRODUCT.md, docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022),
   docs/REFERENCE-AIAPPLY.md. A conflict with an ADR is a concern to flag, not something to resolve yourself.
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: reviewer, security-reviewer.
+- Run each subagent in the foreground, one at a time, and wait for its result before you continue; never start one in the background and never end your turn while one is still running, because an ended turn ends the stage and nothing it was still doing is kept. If a subagent returns nothing, write that role's part yourself.
 
 Review the change on this branch against REVIEW.md: the failures to look for in each area, the evidence a finding needs, the nit limit and the tags. If this prompt ends with a section titled "This review's round (ADR-068)", follow it: it sets the part of the change this round reviews and lists earlier findings. Read `.sdlc/diff.patch`, then the files it touches, then `docs/intents/7-add-a-thing/spec.md` and `docs/intents/7-add-a-thing/plan.md`. Reviewer: contract, correctness (trace a real input to a wrong result before you report anything), drift from spec and plan, tests (any skipped, loosened or missing). Security reviewer: untrusted text reaching a prompt, a shell, a path or a URL; secrets or personal data; a weakened guard, hook, allow-list or protected path; a model given a browser, a token or the network.
 

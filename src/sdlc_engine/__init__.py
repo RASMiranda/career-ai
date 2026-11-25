@@ -251,6 +251,7 @@ Rules that cannot be relaxed:
 - Do not weaken a test, a hook, a guard or a rule to make something pass. If the plan seems to need that, stop and say so.
 {read_first}
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: {roles}.
+- Run each subagent in the foreground, one at a time, and wait for its result before you continue; never start one in the background and never end your turn while one is still running, because an ended turn ends the stage and nothing it was still doing is kept. If a subagent returns nothing, write that role's part yourself.
 """
 
 _TASKS = {

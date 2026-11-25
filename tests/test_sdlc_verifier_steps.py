@@ -49,7 +49,9 @@ def test_the_verifier_is_pinned_and_limited_like_the_reviewers_with_its_own_tool
 
 def test_the_verifier_carries_no_token_no_step_permission_and_no_env_of_its_own():
     verifier = by_name(VERIFY)
-    assert "env" not in verifier and "permissions" not in verifier and "GH_TOKEN" not in str(verifier)
+    # ADR-073: the verifier's one env key is the foreground setting; no token or other variable may join it
+    assert set(verifier.get("env") or {}) == {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"}
+    assert "permissions" not in verifier and "GH_TOKEN" not in str(verifier)
     assert "permissions" not in by_name(REVIEW) and "permissions" not in by_name(PREP)
 
 
