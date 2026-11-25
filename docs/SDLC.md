@@ -179,6 +179,9 @@ Actions, Variables) bound that:
 | L3 | `l3-support` | root-causes in code, writes the fix's `intent.md` (and an incident record) | you apply `agent:spec` |
 Each escalation is yours to apply (`agent:l2`, `agent:l3`). Every incident gets a regression test (stage `build`).
 
+### Foreground subagents (ADR-073)
+The stage agents run each subagent in the foreground. Two layers: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` on each `claude-code-action` step (the stage, the reviewers and the verifier), and one rule in the shared stage prompt. Before this, an intent agent spawned its subagents in the background and ended its turn while they ran, so the stage ended with no `intent.md` (#118). An agent now cannot run a background command or a background subagent. Who may merge is unchanged.
+
 ### Roles
 `stakeholder`, `product-owner`, `scrum-master`, `tech-lead`, `developer`, `tester`, `devops`, `reviewer`,
 `security-reviewer`, `release-manager`, `l1-support`, `l2-support`, `l3-support` (`.claude/agents/`). Humans: you are the

@@ -194,6 +194,8 @@ jobs:
         id: agent
         if: steps.d.outputs.run == 'true' && env.stop != 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
+        env:
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: >-
@@ -375,6 +377,8 @@ jobs:
         id: review
         if: steps.d.outputs.run == 'true' && steps.d.outputs.stage == 'build' && steps.push.outputs.pushed == 'true' && steps.rounds.outputs.blocked != 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
+        env:
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: >-
@@ -445,6 +449,8 @@ jobs:
         id: verify
         if: steps.verifyprep.outputs.needed == 'true'
         uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9 # v1
+        env:
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: >-

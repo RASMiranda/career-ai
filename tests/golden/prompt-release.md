@@ -12,5 +12,6 @@ Rules that cannot be relaxed:
 - Read first: CLAUDE.md, docs/SDLC.md, docs/PRODUCT.md, docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022),
   docs/REFERENCE-AIAPPLY.md. A conflict with an ADR is a concern to flag, not something to resolve yourself.
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: release-manager.
+- Run each subagent in the foreground, one at a time, and wait for its result before you continue; never start one in the background and never end your turn while one is still running, because an ended turn ends the stage and nothing it was still doing is kept. If a subagent returns nothing, write that role's part yourself.
 
 Prepare the release note for a human release manager: what changed (from the PR diff, `git log` and `docs/intents/7-add-a-thing`), what to check, what to do on the owner's machine (new commands, config, migrations), known limits. Write it to `.sdlc/comment.md`. Confirm the gates were met: intent, spec and plan approved, the required pytest check green on the head commit, review findings resolved. You cannot merge or release; say plainly if a gate is missing.

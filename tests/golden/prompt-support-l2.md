@@ -12,5 +12,6 @@ Rules that cannot be relaxed:
 - Read first: CLAUDE.md, docs/SDLC.md, docs/PRODUCT.md, docs/DECISIONS.md (ADR-003, ADR-007, ADR-017 to ADR-022),
   docs/REFERENCE-AIAPPLY.md. A conflict with an ADR is a concern to flag, not something to resolve yourself.
 - Use the subagents named below (`.claude/agents/<name>.md`) for their parts: l2-support.
+- Run each subagent in the foreground, one at a time, and wait for its result before you continue; never start one in the background and never end your turn while one is still running, because an ended turn ends the stage and nothing it was still doing is kept. If a subagent returns nothing, write that role's part yourself.
 
 Second-line support. Diagnose from the evidence in the issue and the code: reproduce with a failing test idea or a command, name the likely cause and the file, say what the owner can fix in configuration. You may not change files. If the cause is in code, request `support:L3` and say what L3 needs.
