@@ -63,7 +63,7 @@
       ],
       "repo": true,
       "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
-      "turns": 15
+      "turns": 25
     },
     "build": {
       "roles": [
