@@ -151,3 +151,95 @@ def test_publish_falls_back_when_main_is_rejected(tmp_path):
 
 def test_publish_with_nothing_changed_does_nothing(tmp_path):
     assert pipeline.publish(make_repo(tmp_path), "x") == "nothing to commit"
+
+
+def with_profiles(data, *ids):
+    """Give each id a profile folder (profile.yaml marks it) holding files the routine must never publish."""
+    for pid in ids:
+        base = data / "profiles" / pid
+        for rel in ("profile.yaml", "answer_bank.yaml", "authorization.yaml", "apply/triage.yaml",
+                    "applications/answers.json", "logs/runs.jsonl", "logs/apply/x.jsonl"):
+            (base / rel).parent.mkdir(parents=True, exist_ok=True)
+            (base / rel).write_text("x")
+    git(data, "add", "-A"); git(data, "commit", "-qm", "profiles")
+
+
+def committed(data) -> list[str]:
+    return git(data, "show", "--name-only", "--format=", "HEAD").split()
+
+
+def test_the_allowlist_never_names_profiles_or_a_profile_folder_as_a_whole(tmp_path):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p", "q")
+    paths = pipeline.publish_paths(data)
+    for forbidden in ("profiles", "profiles/p", "profiles/q", "logs", "applications", "applications/answers.json"):
+        assert forbidden not in paths
+    assert not any(p.endswith(("answer_bank.yaml", "profile.yaml", "authorization.yaml", "answers.json"))
+                   for p in paths)
+    assert {"profiles/p/reports", "profiles/p/state", "profiles/p/applications/queue.json"} <= set(paths)
+
+
+def test_a_profile_publish_lands_under_the_profile(tmp_path):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p")
+    for rel in ("reports/d.md", "state/job-scan-seen.json", "applications/queue.json"):
+        (data / "profiles/p" / rel).parent.mkdir(parents=True, exist_ok=True)
+        (data / "profiles/p" / rel).write_text("{}")
+    assert pipeline.publish(data, "scan") == "main"
+    assert sorted(committed(data)) == ["profiles/p/applications/queue.json", "profiles/p/reports/d.md",
+                                       "profiles/p/state/job-scan-seen.json"]
+
+
+def test_the_root_forms_are_still_published_while_legacy_lasts(tmp_path):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p")
+    (data / "reports/d.md").write_text("r")
+    (data / "state/job-scan-seen.json").write_text("{}")
+    (data / "applications/queue.json").write_text("{}")
+    assert pipeline.publish(data, "scan") == "main"
+    assert sorted(committed(data)) == ["applications/queue.json", "reports/d.md", "state/job-scan-seen.json"]
+
+
+def test_other_profile_files_changed_in_the_tree_are_not_committed(tmp_path):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p")
+    (data / "profiles/p/answer_bank.yaml").write_text("changed")          # modified, not staged
+    (data / "profiles/p/applications/answers.json").write_text("changed")
+    (data / "profiles/p/logs/runs.jsonl").write_text("changed")
+    (data / "profiles/p/reports").mkdir()
+    (data / "profiles/p/reports/d.md").write_text("r")
+    pipeline.publish(data, "scan")
+    assert committed(data) == ["profiles/p/reports/d.md"]
+    assert "answer_bank.yaml" in git(data, "status", "--short")
+
+
+def test_two_profiles_each_publish_only_their_own_allowed_files(tmp_path):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p", "q")
+    for pid in ("p", "q"):
+        (data / "profiles" / pid / "reports").mkdir()
+        (data / "profiles" / pid / "reports/d.md").write_text(pid)
+        (data / "profiles" / pid / "profile.yaml").write_text("changed")
+    pipeline.publish(data, "scan")
+    assert sorted(committed(data)) == ["profiles/p/reports/d.md", "profiles/q/reports/d.md"]
+
+
+@pytest.mark.parametrize("name", [
+    "profiles/p/answer_bank.yaml", "profiles/p/profile.yaml", "profiles/p/authorization.yaml",
+    "profiles/p/applications/answers.json", "profiles/p/logs/runs.jsonl", "profiles/p/logs/apply/x.jsonl",
+    "profiles/p/apply/triage.yaml", "profiles/p/reportsx/d.md", "profiles/ghost/reports/d.md",
+    "authorization.yaml", "config.yaml", "logs/runs.jsonl", "applications/answers.json"])
+def test_a_forbidden_path_in_the_index_is_refused_and_nothing_is_committed(tmp_path, name):
+    data = make_repo(tmp_path)
+    with_profiles(data, "p")
+    before = git(data, "rev-parse", "HEAD")
+    (data / "profiles/p/reports").mkdir()
+    (data / "profiles/p/reports/d.md").write_text("r")
+    target = data / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("staged by something else")
+    git(data, "add", "-f", name)
+    with pytest.raises(RuntimeError, match="allowlist"):
+        pipeline.publish(data, "scan")
+    assert git(data, "rev-parse", "HEAD") == before
+    assert name not in git(data, "diff", "--cached", "--name-only")       # not left staged for a later run

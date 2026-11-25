@@ -48,6 +48,38 @@ def test_an_application_already_submitted_is_not_overwritten(tmp_path):
         decide.apply_decision(tmp_path, "skip 76eee1ca")
 
 
+def profiles(tmp_path, *ids):
+    for pid in ids:
+        (tmp_path / "profiles" / pid).mkdir(parents=True, exist_ok=True)
+        (tmp_path / "profiles" / pid / "profile.yaml").write_text("{}")
+
+
+def test_the_command_defaults_to_the_only_profile(tmp_path, capsys):
+    make(tmp_path)
+    profiles(tmp_path, "p")
+    assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca"]) == 0
+    assert Queue(tmp_path).items[KEY]["status"] == "done"
+    assert "Virtual7" in capsys.readouterr().out
+
+
+def test_several_profiles_need_an_explicit_profile(tmp_path, capsys):
+    make(tmp_path)
+    profiles(tmp_path, "p", "q")
+    assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca"]) == 2
+    assert "--profile" in capsys.readouterr().err
+    assert Queue(tmp_path).items[KEY]["status"] == "queued"
+    assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca", "--profile", "p"]) == 0
+    assert Queue(tmp_path).items[KEY]["status"] == "done"
+
+
+def test_a_job_of_another_profile_is_not_changed(tmp_path, capsys):
+    make(tmp_path)
+    profiles(tmp_path, "p", "q")
+    assert decide.main(["--data", str(tmp_path), "--title", "skip 76eee1ca", "--profile", "q"]) == 2
+    assert "another profile" in capsys.readouterr().err
+    assert Queue(tmp_path).items[KEY]["status"] == "queued"
+
+
 def test_the_waiting_item_in_the_email_carries_both_links(tmp_path):
     out = tmp_path / "out"
     out.mkdir()

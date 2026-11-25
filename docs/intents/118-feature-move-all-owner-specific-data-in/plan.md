@@ -69,14 +69,14 @@ Checks: `python -m pytest -q` including `tests/test_no_personal_data.py` (A13); 
 
 ## Tasks
 
-- [ ] PR 1: write the failing tests above
+- [x] PR 1b tests (run 1, per P3): allowlist, staged check, `decide --profile` (written, not run). The other PR 1 tests wait for run 2
 - [ ] `layout`: LEGACY resolver (read+write in place, one warning), docstring
 - [ ] Queue, answers, runlog, slug cache, cooldown via `layout`
 - [ ] State files, `collect`, reports, apply summary via `layout`
 - [ ] `faillog` with the profile from the queue row
 - [ ] Apply config from `profiles/<id>/apply/config.yaml`
-- [ ] `PUBLISH_PATHS` per-profile allowlist (+ root while LEGACY) and staged-path check
-- [ ] `decide --profile`
+- [x] `PUBLISH_PATHS` per-profile allowlist (+ root while LEGACY) and staged-path check (run 1)
+- [x] `decide --profile` (run 1; the queue itself moves through `layout` in run 2, with `Queue`)
 - [ ] `kit.py` hint text; update fixtures and goldens only where paths are named
 - [ ] Suite green; open PR 1
 - [ ] Human: ADR, D1 (renames, `decide.yml`, drop `.gitkeep`), pause routine

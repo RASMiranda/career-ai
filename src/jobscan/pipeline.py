@@ -20,13 +20,27 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import collect, report, triage, validate
+from . import collect, layout, report, triage, validate
 from .apply import cli as apply_cli
 from .apply.queue import Queue
 from .apply.summary import count_failures
 from .config import ConfigError, data_root, load_authorization, load_config
 
-PUBLISH_PATHS = ("reports", "state", "applications", "logs")
+# What the routine may commit, relative to a profile folder or, while layout's LEGACY window lasts, to the
+# data repo root (ADR-075). An explicit allowlist: never ``profiles`` or ``profiles/<id>`` as a whole, so the
+# answer bank, ``profile.yaml`` and ``authorization.yaml`` are never published, and never ``logs`` or
+# ``answers.json`` (owner-run sessions write those).
+PUBLISH_PATHS = ("reports", "state", "applications/queue.json")
+
+
+def publish_paths(root: Path) -> list[str]:
+    """Every path ``publish`` may stage: the allowlist under each profile, then the root forms (LEGACY)."""
+    return [f"{layout.PROFILES}/{pid}/{p}" for pid in layout.profile_ids(root) for p in PUBLISH_PATHS] \
+        + list(PUBLISH_PATHS)
+
+
+def _allowed(path: str, allowed: list[str]) -> bool:
+    return any(path == a or path.startswith(a + "/") for a in allowed)
 
 
 def _read(path: Path, default):
@@ -42,13 +56,23 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def publish(root: Path, message: str) -> str:
-    """Commit reports/state/applications/logs and push to main, else to claude/job-scan.
+    """Commit the allowlisted paths (``publish_paths``) and push to main, else to claude/job-scan.
+
+    Refuses, with nothing committed, when the index holds any path outside the allowlist. That check guards
+    this function's own bugs and anything staged before it ran; it does not stop a routine that runs ``git``
+    itself, so it is not an enforcement boundary (a server-side control in the data repo is).
 
     Returns where the state went. Also pushes the current claude/* session branch
     (best effort): the cloud harness warns about unpushed commits on it, which
     would cost the model another turn.
     """
-    _git(root, "add", *[p for p in PUBLISH_PATHS if (root / p).exists()])
+    allowed = publish_paths(root)
+    _git(root, "add", *[p for p in allowed if (root / p).exists()])
+    staged = _git(root, "diff", "--cached", "--name-only", "-z").stdout.split("\0")
+    stray = [p for p in staged if p and not _allowed(p, allowed)]
+    if stray:
+        _git(root, "reset", "-q", "--", *stray)
+        raise RuntimeError(f"refusing to publish outside the allowlist: {', '.join(stray[:5])}")
     if _git(root, "diff", "--cached", "--quiet").returncode == 0:
         return "nothing to commit"
     done = _git(root, "commit", "-qm", message)
