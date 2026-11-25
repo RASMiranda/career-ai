@@ -9,6 +9,7 @@ status: queued -> approved -> submitted | filled | failed | consent_pending
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from ..layout import moved_path
 from ..state import _read, _write
 
 # After an application went out the tracker records what came back.
@@ -24,8 +25,8 @@ def now() -> datetime:
 
 
 class Queue:
-    def __init__(self, root: Path):
-        self.path = root / "applications" / "queue.json"
+    def __init__(self, root: Path, pid: str | None = None):
+        self.path = moved_path(root, "applications/queue.json", pid)
         self.items: dict = _read(self.path, {}).get("items", {})
 
     def save(self) -> None:

@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import cv
+from .. import cv, layout
 from ..triage import clean
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
@@ -85,8 +85,7 @@ def _cv_for(item: dict, root: Path, cfg: dict) -> str | None:
 
 
 def cmd_enqueue(args, root, cfg, auth):
-    acfg = policy.apply_cfg(cfg)
-    if acfg["mode"] == "off":
+    if all(policy.apply_cfg(cfg, p["id"])["mode"] == "off" for p in cfg["profiles"]):
         print("apply.mode is off — nothing queued")
         return 0
     cands = {c["candidate_key"]: c for c in
@@ -100,6 +99,9 @@ def cmd_enqueue(args, root, cfg, auth):
         if d["disposition"] != "email" or q.has(key) or key not in cands:
             continue
         c = cands[key]
+        acfg = policy.apply_cfg(cfg, c.get("profile"))
+        if acfg["mode"] == "off":
+            continue
         item = {"title": c["title"], "company": c["company"], "url": c["url"],
                 "source": c["source"], "fit": d["fit"], "tier": d["tier"],
                 "confidence": d["confidence"], "profile": c.get("profile"),
@@ -164,7 +166,7 @@ def cmd_questions(args, root, cfg, auth):
 
 
 def cmd_run(args, root, cfg, auth):
-    acfg = policy.apply_cfg(cfg)
+    acfg = policy.apply_cfg(cfg, getattr(args, "profile", None))
     mode = args.mode or acfg["mode"]
     if mode in ("off", "manual"):
         print(f"mode is {mode!r}: nothing to run. Use --mode assisted, or set apply.mode.")
@@ -177,9 +179,11 @@ def cmd_run(args, root, cfg, auth):
     applicants = _known_applicants(root, cfg)
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
-    flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
+    only = getattr(args, "profile", None)  # None: the only profile, or the root while LEGACY
+    flog, q, store = faillog.FailureLog(root, secrets), Queue(root, only), drafted.AnswerStore(root, only)
     fstore = FileStore(root)
-    runs = runlog.RunLog(fstore)
+    runs = runlog.RunLog(fstore, file=layout.moved_name(root, runlog.FILE, only))
+    cooldown_file = layout.moved_name(root, linkedin.COOLDOWN_FILE, only)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -189,7 +193,8 @@ def cmd_run(args, root, cfg, auth):
         return 0
 
     run_id = uuid.uuid4().hex[:8]
-    approved = sorted(q.by_status("approved"), key=lambda i: -i.get("fit", 0))
+    approved = sorted((i for i in q.by_status("approved") if not only or i.get("profile") == only),
+                      key=lambda i: -i.get("fit", 0))
     for pid in sorted({i.get("profile") for i in approved} - set(applicants)):
         profile = cv.profile_by_id(cfg, pid)
         try:
@@ -203,7 +208,7 @@ def cmd_run(args, root, cfg, auth):
         return 2        # approved jobs exist but none has a usable applicant.yaml
 
     print(f"run {run_id}: mode={mode} dry_run={args.dry_run} items={len(todo)}")
-    cooling = submit and linkedin.cooldown_active(fstore)
+    cooling = submit and linkedin.cooldown_active(fstore, file=cooldown_file)
     if cooling:
         print("LinkedIn is in cooldown after a warning page: LinkedIn items wait")
     halted = False
@@ -247,7 +252,7 @@ def cmd_run(args, root, cfg, auth):
                 outcome = fail.code
                 print(f"  FAILED     {label} → {fail.code}")
                 if fail.code == Code.LINKEDIN_CHALLENGE and not args.dry_run:
-                    until = linkedin.start_cooldown(fstore, authz.linkedin_cooldown_days(auth))
+                    until = linkedin.start_cooldown(fstore, authz.linkedin_cooldown_days(auth), file=cooldown_file)
                     print(f"  HALTED: LinkedIn cooldown until {until}. Nothing else is tried this run.")
                     halted = True
             except Exception as exc:  # never let one job abort the batch
@@ -296,7 +301,7 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
         "mode": "dry-run" if dry_run else mode, "step": fail.step,
         "error_code": fail.code, "message": fail.message, "details": fail.details,
         "duration_ms": int((time.time() - t0) * 1000),
-    })
+    }, item.get("profile"))
     item["attempts"].append({"run": run_id, "outcome": "failed", "error_code": fail.code})
     if not dry_run:
         status = "consent_pending" if fail.code == Code.CONSENT_PENDING else "failed"
@@ -309,14 +314,15 @@ def cmd_summary(args, root, cfg, auth):
     md = summary.render_markdown(q, args.days, wait)
     if args.html:
         Path(args.html).write_text(summary.render_html(q, args.days, follow_up_days=wait), encoding="utf-8")
-    (root / "reports").mkdir(exist_ok=True)
-    (root / "reports" / "applications.md").write_text(md, encoding="utf-8")
+    out = layout.moved_path(root, "reports/applications.md")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(md, encoding="utf-8")
     print(md)
     return 0
 
 
 def cmd_bundle(args, root, cfg, auth):
-    entries = faillog.FailureLog(root).read_since(args.days)
+    entries = faillog.FailureLog(root).read_since(args.days, getattr(args, "profile", None))
     if not entries:
         print("no failures in that window")
         return 0
@@ -377,11 +383,13 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", action="store_true", help="fill forms, never submit")
     p.add_argument("--headed", action="store_true", help="show the browser")
     p.add_argument("--limit", type=int)
+    p.add_argument("--profile", help="run this profile's queue only (default: the only profile)")
     p = sub.add_parser("summary")
     p.add_argument("--html")
     p.add_argument("--days", type=int, default=7)
     p = sub.add_parser("bundle")
     p.add_argument("--days", type=int, default=14)
+    p.add_argument("--profile", help="only this profile's failures (default: all)")
     p.add_argument("--out", default="failures.md")
     p = sub.add_parser("blacklist")
     p.add_argument("action", choices=["list", "test"])

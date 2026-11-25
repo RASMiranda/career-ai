@@ -18,6 +18,7 @@ from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
 from . import feedback
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
+from .layout import moved_path
 from .normalize import is_http_url
 from .state import Journal, Seen
 
@@ -136,7 +137,7 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         pid = profile["id"]
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
         matches, pending = _bucket(own, decisions, [profile])
-        wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
+        wait = int(profile.get("follow_up_days") or apply_cfg(cfg, pid)["follow_up_days"])
         apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False,
                                    decision_repo=decision_repo) if queue else ""
         repo = (cfg.get("feedback") or {}).get("repo") or feedback.DEFAULT_REPO
@@ -162,6 +163,8 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Render report and email; update state.")
     ap.add_argument("--data")
+    ap.add_argument("--profile", help="profile whose state and reports are written "
+                                      "(default: the only profile)")
     ap.add_argument("--candidates", default="candidates.json")
     ap.add_argument("--decisions", default="decisions.json")
     ap.add_argument("--out-dir", default=".",
@@ -183,24 +186,29 @@ def main(argv=None) -> int:
     if isinstance(decisions, dict):
         decisions = decisions.get("decisions", [])
 
-    journal = Journal(root)
+    day = candidates.get("generated_on") or date.today().isoformat()
+    try:
+        journal = Journal(root, args.profile)
+        report_file = moved_path(root, f"reports/{day}.md", args.profile)
+    except ConfigError as exc:  # several profiles and nothing to choose one from
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
     if journal.has_open_send():
         print("a previous delivery is stuck in 'sending' — review it by hand first",
               file=sys.stderr)
         return 1
 
-    day = candidates.get("generated_on") or date.today().isoformat()
     matches, pending = _bucket(candidates, decisions, cfg["profiles"])
 
     md = render_markdown(day, matches, pending, candidates.get("errors", []))
-    (root / "reports").mkdir(exist_ok=True)
-    (root / "reports" / f"{day}.md").write_text(md, encoding="utf-8")
+    report_file.parent.mkdir(parents=True, exist_ok=True)
+    report_file.write_text(md, encoding="utf-8")
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir, repo_slug(root))
+    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root, args.profile), out_dir, repo_slug(root))
     (out_dir / "deliveries.json").write_text(json.dumps(deliveries, indent=2), encoding="utf-8")
 
-    print(f"report: reports/{day}.md")
+    print(f"report: {report_file.relative_to(root).as_posix()}")
     print(f"deliveries: {out_dir / 'deliveries.json'}")
     for d in deliveries:
         status = f"send to {', '.join(d['to']) or 'NOBODY'}" if d["send"] else "nothing to send"
@@ -212,7 +220,7 @@ def main(argv=None) -> int:
         print("dry run — state not written (pass --commit after the email is sent)")
         return 0
 
-    seen = Seen(root)
+    seen = Seen(root, args.profile)
     for row in [*matches, *pending]:
         seen.add(row["candidate_key"], row["title"], row["company"])
     for c in candidates["candidates"]:

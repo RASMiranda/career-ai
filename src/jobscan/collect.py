@@ -14,6 +14,7 @@ from . import clip
 from .config import ConfigError, data_root, load_config, secret
 from .blacklist import Blacklist
 from .cv import catalog
+from .layout import moved_path
 from .normalize import is_http_url
 from .sources import REGISTRY
 from .state import Budget, Seen
@@ -28,7 +29,7 @@ def proxied_sources(cfg: dict) -> set[str]:
             if isinstance(meta, dict) and meta.get("auth") == "proxy"}
 
 
-def preflight(root: Path, cfg: dict) -> list[str]:
+def preflight(root: Path, cfg: dict, pid: str | None = None) -> list[str]:
     """Report readiness without ever printing a secret value."""
     report = []
     proxied = proxied_sources(cfg)
@@ -40,7 +41,7 @@ def preflight(root: Path, cfg: dict) -> list[str]:
     for profile in cfg["profiles"]:
         criteria = root / profile["criteria"]
         report.append(f"  criteria[{profile['id']}]: {'ok' if criteria.is_file() else 'MISSING'}")
-    (root / "state").mkdir(exist_ok=True)
+    moved_path(root, "state", pid).mkdir(parents=True, exist_ok=True)
     return report
 
 
@@ -54,6 +55,8 @@ def queries_for(profile: dict, today: date) -> list[dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Collect and dedupe job candidates.")
     ap.add_argument("--data", help="path to the private data repo")
+    ap.add_argument("--profile", help="collect for this profile only, with its own seen-set and "
+                                      "budget (default: the only profile)")
     ap.add_argument("--out", default="candidates.json")
     ap.add_argument("--preflight-only", action="store_true")
     args = ap.parse_args(argv)
@@ -66,15 +69,21 @@ def main(argv=None) -> int:
         return 2
 
     print("preflight:")
-    for line in preflight(root, cfg):
-        print(line)
-    if args.preflight_only:
-        return 0
+    try:
+        if args.profile and args.profile not in {p["id"] for p in cfg["profiles"]}:
+            raise ConfigError(f"unknown profile {args.profile!r}")
+        for line in preflight(root, cfg, args.profile):
+            print(line)
+        if args.preflight_only:
+            return 0
+        seen = Seen(root, args.profile)
+        budget = Budget(root, cfg.get("budgets", {}), args.profile)
+    except ConfigError as exc:  # several profiles and no state folder to choose from
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
 
     secrets = {name: secret(name) for name in SECRET_NAMES}
     secrets["_proxy"] = proxied_sources(cfg)
-    seen = Seen(root)
-    budget = Budget(root, cfg.get("budgets", {}))
     today = date.today()
 
     collected, skipped_seen, errors = {}, 0, []
@@ -92,6 +101,8 @@ def main(argv=None) -> int:
             collected.setdefault(cand.candidate_key, cand)  # cross-source dedupe
 
     for profile in cfg["profiles"]:
+        if args.profile and profile["id"] != args.profile:
+            continue
         blacklist = Blacklist.from_config(cfg, profile["id"])
         for query in queries_for(profile, today):
             source = query["source"]
@@ -112,7 +123,7 @@ def main(argv=None) -> int:
                 consider(cand, blacklist)
 
     # Jobs the owner clipped from pages they saved (jobscan.clip): same filters as any source.
-    profiles = {p["id"] for p in cfg["profiles"]}
+    profiles = {p["id"] for p in cfg["profiles"] if not args.profile or p["id"] == args.profile}
     clipped = clip.pending(root, seen)
     for pid, cand in clipped:
         if pid in profiles:

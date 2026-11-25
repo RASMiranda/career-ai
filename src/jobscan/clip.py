@@ -246,7 +246,12 @@ def main(argv=None) -> int:
                   + (f"\n    ! the prefilter would discard it: {why}" if why else ""))
         print("dry run: nothing was written." if found else "dry run: nothing found.")
         return status
-    added, known = add(root, Seen(root), found)
+    try:
+        seen = Seen(root, pid)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    added, known = add(root, seen, found)
     for cand in added:
         why = triage.reject_reason(cand.to_dict(), rules)
         print(f"  clipped  {cand.title} — {cand.company}" + (f"\n    ! the prefilter will discard it: {why}" if why else ""))

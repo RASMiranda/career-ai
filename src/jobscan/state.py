@@ -8,6 +8,8 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from .layout import moved_path
+
 
 def _read(path: Path, default):
     if not path.is_file():
@@ -26,8 +28,8 @@ def _write(path: Path, payload) -> None:
 
 
 class Seen:
-    def __init__(self, root: Path):
-        self.path = root / "state" / "job-scan-seen.json"
+    def __init__(self, root: Path, pid: str | None = None):
+        self.path = moved_path(root, "state/job-scan-seen.json", pid)
         self.data = _read(self.path, {})
 
     def __contains__(self, key: str) -> bool:
@@ -47,8 +49,8 @@ class Seen:
 class Budget:
     """Monthly request counter for quota-limited APIs."""
 
-    def __init__(self, root: Path, limits: dict):
-        self.path = root / "state" / "job-scan-budget.json"
+    def __init__(self, root: Path, limits: dict, pid: str | None = None):
+        self.path = moved_path(root, "state/job-scan-budget.json", pid)
         self.limits = limits or {}
         self.data = _read(self.path, {})
         self.month = date.today().strftime("%Y-%m")
@@ -76,8 +78,8 @@ class Journal:
 
     STATES = ("prepared", "sending", "sent", "completed", "skipped", "failed")
 
-    def __init__(self, root: Path):
-        self.path = root / "state" / "job-scan-delivery.json"
+    def __init__(self, root: Path, pid: str | None = None):
+        self.path = moved_path(root, "state/job-scan-delivery.json", pid)
         self.data = _read(self.path, {"runs": []})
 
     def has_open_send(self) -> bool:

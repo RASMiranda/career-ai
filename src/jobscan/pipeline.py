@@ -20,13 +20,27 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import collect, report, triage, validate
+from . import collect, layout, report, triage, validate
 from .apply import cli as apply_cli
 from .apply.queue import Queue
 from .apply.summary import count_failures
 from .config import ConfigError, data_root, load_authorization, load_config
 
-PUBLISH_PATHS = ("reports", "state", "applications", "logs")
+# What the routine may commit, relative to a profile folder or, while layout's LEGACY window lasts, to the
+# data repo root (ADR-075). An explicit allowlist: never ``profiles`` or ``profiles/<id>`` as a whole, so the
+# answer bank, ``profile.yaml`` and ``authorization.yaml`` are never published, and never ``logs`` or
+# ``answers.json`` (owner-run sessions write those).
+PUBLISH_PATHS = ("reports", "state", "applications/queue.json")
+
+
+def publish_paths(root: Path) -> list[str]:
+    """Every path ``publish`` may stage: the allowlist under each profile, then the root forms (LEGACY)."""
+    return [f"{layout.PROFILES}/{pid}/{p}" for pid in layout.profile_ids(root) for p in PUBLISH_PATHS] \
+        + list(PUBLISH_PATHS)
+
+
+def _allowed(path: str, allowed: list[str]) -> bool:
+    return any(path == a or path.startswith(a + "/") for a in allowed)
 
 
 def _read(path: Path, default):
@@ -42,13 +56,23 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def publish(root: Path, message: str) -> str:
-    """Commit reports/state/applications/logs and push to main, else to claude/job-scan.
+    """Commit the allowlisted paths (``publish_paths``) and push to main, else to claude/job-scan.
+
+    Refuses, with nothing committed, when the index holds any path outside the allowlist. That check guards
+    this function's own bugs and anything staged before it ran; it does not stop a routine that runs ``git``
+    itself, so it is not an enforcement boundary (a server-side control in the data repo is).
 
     Returns where the state went. Also pushes the current claude/* session branch
     (best effort): the cloud harness warns about unpushed commits on it, which
     would cost the model another turn.
     """
-    _git(root, "add", *[p for p in PUBLISH_PATHS if (root / p).exists()])
+    allowed = publish_paths(root)
+    _git(root, "add", *[p for p in allowed if (root / p).exists()])
+    staged = _git(root, "diff", "--cached", "--name-only", "-z").stdout.split("\0")
+    stray = [p for p in staged if p and not _allowed(p, allowed)]
+    if stray:
+        _git(root, "reset", "-q", "--", *stray)
+        raise RuntimeError(f"refusing to publish outside the allowlist: {', '.join(stray[:5])}")
     if _git(root, "diff", "--cached", "--quiet").returncode == 0:
         return "nothing to commit"
     done = _git(root, "commit", "-qm", message)
@@ -76,6 +100,7 @@ def _setup(args):
         root = data_root(args.data)
         cfg = load_config(root)
         auth = load_authorization(root)
+        pid = _profile(root, getattr(args, "profile", None))
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return None
@@ -84,7 +109,19 @@ def _setup(args):
         return None
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
-    return root, cfg, work
+    return root, cfg, work, pid
+
+
+def _profile(root: Path, explicit: str | None) -> str | None:
+    """The profile this run works on. No profile folder at all keeps None (the pre-profile layout)."""
+    ids = layout.profile_ids(root)
+    if explicit and explicit not in ids:
+        raise ConfigError(f"unknown profile {explicit!r}" + (f" (have: {', '.join(ids)})" if ids else ""))
+    return layout.default_profile(root, explicit) if ids else None
+
+
+def _opt(pid: str | None) -> list[str]:
+    return ["--profile", pid] if pid else []
 
 
 def _quiet(fn, *a, **k):
@@ -96,12 +133,12 @@ def cmd_prepare(args) -> int:
     ctx = _setup(args)
     if not ctx:
         return 2
-    root, cfg, work = ctx
+    root, cfg, work, pid = ctx
     p = _paths(work)
     for stale in (p["model"], p["all"], p["auto"], p["brief"]):
         stale.unlink(missing_ok=True)
 
-    rc = collect.main(["--data", str(root), "--out", str(p["candidates"])])
+    rc = collect.main(["--data", str(root), "--out", str(p["candidates"]), *_opt(pid)])
     if rc:
         return rc
     payload = _read(p["candidates"], {})
@@ -121,7 +158,7 @@ def cmd_prepare(args) -> int:
     if not to_score:
         print("NOTHING TO SCORE: finishing the run automatically. If a SEND list follows (e.g. waiting "
               "applications), the email is still due: send it, then run commit.\n")
-        return _finish(root, cfg, work, commit_if_no_email=True)
+        return _finish(root, cfg, work, pid, commit_if_no_email=True)
 
     brief = triage.render_brief(to_score, cfg, root)
     p["brief"].write_text(brief, encoding="utf-8")
@@ -133,7 +170,7 @@ def cmd_prepare(args) -> int:
     return 0
 
 
-def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
+def _finish(root: Path, cfg: dict, work: Path, pid: str | None, commit_if_no_email: bool) -> int:
     p = _paths(work)
     payload = _read(p["candidates"], None)
     if payload is None:
@@ -157,13 +194,13 @@ def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
             print(f"STOP: apply {cmd[0]} failed ({rc}).", file=sys.stderr)
             return rc
     rc = report.main([*data, "--candidates", str(p["candidates"]), "--decisions", str(p["all"]),
-                      "--out-dir", str(p["out"])])
+                      "--out-dir", str(p["out"]), *_opt(pid)])
     if rc:
         return rc
 
     deliveries = _read(p["out"] / "deliveries.json", [])
     sendable = [d for d in deliveries if d["send"]]
-    queue = Queue(root)
+    queue = Queue(root, pid)
     counts = payload.get("counts", {})
     dispo = [d["disposition"] for d in merged]
     print("\nRUN SUMMARY")
@@ -186,14 +223,14 @@ def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
         return 0
     print("\nNo email to send.")
     if commit_if_no_email:
-        return _commit(root, work)
+        return _commit(root, work, pid)
     return 0
 
 
-def _commit(root: Path, work: Path) -> int:
+def _commit(root: Path, work: Path, pid: str | None) -> int:
     p = _paths(work)
     rc = report.main(["--data", str(root), "--candidates", str(p["candidates"]),
-                      "--decisions", str(p["all"]), "--out-dir", str(p["out"]), "--commit"])
+                      "--decisions", str(p["all"]), "--out-dir", str(p["out"]), "--commit", *_opt(pid)])
     if rc:
         return rc
     counts = _read(p["candidates"], {}).get("counts", {})
@@ -214,7 +251,7 @@ def cmd_finish(args) -> int:
 
 def cmd_commit(args) -> int:
     ctx = _setup(args)
-    return 2 if not ctx else _commit(ctx[0], ctx[2])
+    return 2 if not ctx else _commit(ctx[0], ctx[2], ctx[3])
 
 
 def cmd_show(args) -> int:
@@ -235,6 +272,7 @@ def cmd_show(args) -> int:
 def main(argv=None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--data")
+    common.add_argument("--profile", help="profile to run (default: the only profile)")
     common.add_argument("--work", default="/tmp", help="where candidates/decisions/emails are written")
     ap = argparse.ArgumentParser(prog="jobscan.pipeline", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

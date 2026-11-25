@@ -23,6 +23,7 @@ def data_root(explicit: str | None = None) -> Path:
 
 
 PROFILE_FILE = "profile.yaml"
+APPLY_CONFIG = "apply/config.yaml"  # inside a profile folder: that profile's apply settings (phase C)
 DEFAULT_CRITERIA = "profiles/{id}/01-knowledge/05-job-match.md"
 
 
@@ -62,6 +63,10 @@ def load_config(root: Path) -> dict:
     cfg["profiles"] = load_profiles(root, cfg.get("profiles"))
     if not cfg["profiles"]:
         raise ConfigError(f"no profiles: add profiles/<id>/{PROFILE_FILE} (or profiles: in config.yaml)")
+    for profile in cfg["profiles"]:
+        own = root / "profiles" / profile["id"] / APPLY_CONFIG
+        if own.is_file():
+            profile["apply_config"] = _load_yaml(own)
     return cfg
 
 

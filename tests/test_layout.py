@@ -218,3 +218,400 @@ def test_outcome_and_batch_write_under_the_profile(tmp_path, capsys):
     assert (tmp_path / "profiles/rui/apply/log.csv").is_file()
     assert (tmp_path / "profiles/rui/logs/apply/arc-2026-11-05.jsonl").is_file()
     assert not (tmp_path / "logs").exists()
+
+
+# ---- phase C (issue #118): moved_path and the LEGACY rule ----
+
+@pytest.fixture
+def fresh_warnings():
+    layout._warned.clear()
+
+
+def test_moved_path_is_under_the_profile_when_nothing_exists_yet(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "profiles/rui/state/seen.json"
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "profiles/rui/logs/runs.jsonl"
+    assert layout.moved_path(tmp_path, "applications/queue.json", "rui") == \
+        tmp_path / "profiles/rui/applications/queue.json"
+
+
+def test_moved_path_keeps_the_root_with_no_profile_folder(tmp_path, fresh_warnings):
+    assert layout.moved_path(tmp_path, "reports/2026-01-01.md") == tmp_path / "reports/2026-01-01.md"
+
+
+def test_a_new_file_in_an_existing_root_folder_stays_at_the_root(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "reports/2026-01-01.md")
+    assert layout.moved_path(tmp_path, "reports/2026-01-02.md") == tmp_path / "reports/2026-01-02.md"
+    assert not (tmp_path / "profiles/rui/reports").exists()
+
+
+def test_the_legacy_warning_is_printed_once_per_folder(tmp_path, capsys, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/seen.json")
+    layout.moved_path(tmp_path, "state/seen.json")
+    layout.moved_path(tmp_path, "state/runs.jsonl")
+    err = capsys.readouterr().err
+    assert err.count("LEGACY") == 1 and "state" in err
+
+
+def test_the_profile_folder_wins_when_both_exist(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/seen.json")
+    touch(tmp_path, "profiles/rui/state/other.json")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "profiles/rui/state/seen.json"
+
+
+def test_the_runs_log_moves_as_one_file_not_with_logs(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "logs/apply/.gitkeep", "")                       # a root logs/ folder alone
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "profiles/rui/logs/runs.jsonl"
+    touch(tmp_path, "logs/runs.jsonl", "{}\n")
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "logs/runs.jsonl"
+
+
+def test_several_profiles_use_the_root_only_while_it_holds_the_data(tmp_path, fresh_warnings):
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    with pytest.raises(ConfigError, match="--profile"):
+        layout.moved_path(tmp_path, "state/seen.json")
+    assert layout.moved_path(tmp_path, "state/seen.json", "bruno") == tmp_path / "profiles/bruno/state/seen.json"
+    touch(tmp_path, "state/seen.json")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "state/seen.json"
+
+
+def test_moved_name_is_relative_to_the_root(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_name(tmp_path, "state/linkedin-cooldown.json") == \
+        "profiles/rui/state/linkedin-cooldown.json"
+
+
+def test_the_queue_is_read_and_written_at_the_root_while_legacy(tmp_path, fresh_warnings):
+    from jobscan.apply.queue import Queue
+    profile(tmp_path, "rui")
+    touch(tmp_path, "applications/queue.json", json.dumps({"items": {"k1": {"candidate_key": "k1"}}}))
+    q = Queue(tmp_path)
+    assert "k1" in q.items
+    q.add("k2", {"status": "queued"})
+    q.save()
+    assert "k2" in json.loads((tmp_path / "applications/queue.json").read_text())["items"]
+    assert not (tmp_path / "profiles/rui/applications").exists()
+
+
+def test_queue_and_answers_are_created_under_the_profile_when_no_root_folder(tmp_path, fresh_warnings):
+    from jobscan.apply.answers import AnswerStore
+    from jobscan.apply.queue import Queue
+    profile(tmp_path, "rui")
+    q = Queue(tmp_path)
+    q.add("k1", {"status": "queued"})
+    q.save()
+    AnswerStore(tmp_path).save()
+    assert (tmp_path / "profiles/rui/applications/queue.json").is_file()
+    assert (tmp_path / "profiles/rui/applications/answers.json").is_file()
+    assert not (tmp_path / "applications").exists()
+
+
+def test_run_log_slug_cache_and_cooldown_use_a_moved_name(tmp_path, fresh_warnings):
+    from jobscan.apply import linkedin, runlog
+    from jobscan.apply.greenhouse import GreenhouseRef
+    from jobscan.apply.slug_cache import SlugCache
+    from jobscan.store import FileStore
+    profile(tmp_path, "rui")
+    store = FileStore(tmp_path)
+    log = runlog.RunLog(store, file=layout.moved_name(tmp_path, runlog.FILE))
+    log.finish(log.start("r1", "https://example.com/j"), "submitted")
+    assert (tmp_path / "profiles/rui/logs/runs.jsonl").is_file()
+    assert not (tmp_path / "logs/runs.jsonl").exists()
+
+    cool = layout.moved_name(tmp_path, linkedin.COOLDOWN_FILE)
+    linkedin.start_cooldown(store, 7, file=cool)
+    assert (tmp_path / "profiles/rui/state/linkedin-cooldown.json").is_file()
+    assert linkedin.cooldown_active(store, file=cool) is True
+    assert linkedin.cooldown_active(store) is False                  # the default name is another file
+
+    cache = SlugCache(store, file=layout.moved_name(tmp_path, "state/slug_cache.json"))
+    assert cache.record(GreenhouseRef("acme", "123", "us"), 200)
+    assert (tmp_path / "profiles/rui/state/slug_cache.json").is_file()
+
+
+def test_seen_budget_and_journal_follow_the_state_folder(tmp_path, fresh_warnings):
+    from jobscan.state import Budget, Journal, Seen
+    profile(tmp_path, "rui")
+    seen, budget, journal = Seen(tmp_path), Budget(tmp_path, {"adzuna": 5}), Journal(tmp_path)
+    seen.add("k1", "Lead", "Acme")
+    budget.spend("adzuna")
+    journal.record("2026-01-01", "completed")
+    for obj in (seen, budget, journal):
+        obj.save()
+    for name in ("seen", "budget", "delivery"):
+        assert (tmp_path / f"profiles/rui/state/job-scan-{name}.json").is_file()
+    assert not (tmp_path / "state").exists()
+
+
+def test_seen_is_read_and_written_at_the_root_while_legacy(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/job-scan-seen.json", json.dumps({"k1": {}}))
+    seen = Seen(tmp_path)
+    assert "k1" in seen
+    seen.add("k2", "Lead", "Acme")
+    seen.save()
+    assert set(json.loads((tmp_path / "state/job-scan-seen.json").read_text())) == {"k1", "k2"}
+    assert not (tmp_path / "profiles/rui/state").exists()
+
+
+def test_each_profile_has_its_own_seen_set(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    ana = Seen(tmp_path, "ana")
+    ana.add("k1", "Lead", "Acme")
+    ana.save()
+    assert "k1" in Seen(tmp_path, "ana")
+    assert "k1" not in Seen(tmp_path, "bruno")
+    with pytest.raises(ConfigError, match="--profile"):
+        Seen(tmp_path)
+
+
+def test_decide_reads_the_queue_of_the_chosen_profile(tmp_path, fresh_warnings):
+    from jobscan import decide
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    key = "abcdef12" + "0" * 24
+    touch(tmp_path, "profiles/ana/applications/queue.json", json.dumps(
+        {"items": {key: {"candidate_key": key, "status": "queued", "title": "Lead", "company": "Acme",
+                         "profile": "ana"}}}))
+    assert decide.main(["--data", str(tmp_path), "--title", "done abcdef12", "--profile", "ana"]) == 0
+    saved = json.loads((tmp_path / "profiles/ana/applications/queue.json").read_text())
+    assert saved["items"][key]["status"] == "done"
+
+
+def test_preflight_creates_the_state_folder_under_the_profile(tmp_path, fresh_warnings):
+    from jobscan.collect import preflight
+    profile(tmp_path, "rui")
+    preflight(tmp_path, {"profiles": []})
+    assert (tmp_path / "profiles/rui/state").is_dir() and not (tmp_path / "state").exists()
+
+
+def test_reports_follow_the_root_folder_while_legacy(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "profiles/rui/reports/applications.md"
+    touch(tmp_path, "reports/2026-01-01.md")
+    assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "reports/applications.md"
+
+
+# ---- phase C, per-profile Seen and Budget in collect, report and clip ----
+
+def _two_profile_repo(tmp_path):
+    import yaml
+    for pid in ("ana", "bruno"):
+        touch(tmp_path, f"profiles/{pid}/profile.yaml", yaml.safe_dump(
+            {"daily_queries": [{"source": "fake", "query": pid}]}))
+        touch(tmp_path, f"profiles/{pid}/01-knowledge/05-job-match.md")
+    touch(tmp_path, "config.yaml", "budgets: {fake: 5}\n")
+    touch(tmp_path, "authorization.yaml", "active: true\n")
+
+
+def test_collect_with_a_profile_uses_only_its_queries_seen_set_and_budget(tmp_path, monkeypatch, fresh_warnings):
+    from jobscan import collect
+    from jobscan.models import Candidate
+    _two_profile_repo(tmp_path)
+    asked = []
+
+    def fake(query, profile, secrets=None):
+        asked.append(profile)
+        return [Candidate(candidate_key="k1", profile=profile, source="fake", title="Lead",
+                          company="Acme", url="https://x.test/1")]
+
+    monkeypatch.setattr(collect, "REGISTRY", {"fake": fake})
+    out = tmp_path / "c.json"
+    assert collect.main(["--data", str(tmp_path), "--out", str(out), "--profile", "ana"]) == 0
+    assert asked == ["ana"]
+    assert (tmp_path / "profiles/ana/state/job-scan-budget.json").is_file()
+    assert not (tmp_path / "profiles/bruno/state/job-scan-budget.json").exists()
+    assert not (tmp_path / "state").exists()
+
+
+def test_collect_needs_a_profile_when_there_are_several_and_rejects_an_unknown_one(tmp_path, capsys, fresh_warnings):
+    from jobscan import collect
+    _two_profile_repo(tmp_path)
+    out = tmp_path / "c.json"
+    assert collect.main(["--data", str(tmp_path), "--out", str(out)]) == 2
+    assert "--profile" in capsys.readouterr().err
+    assert collect.main(["--data", str(tmp_path), "--out", str(out), "--profile", "nobody"]) == 2
+    assert "unknown profile" in capsys.readouterr().err
+
+
+def test_report_writes_state_and_report_under_the_chosen_profile(tmp_path, fresh_warnings):
+    from jobscan import report
+    _two_profile_repo(tmp_path)
+    cands = touch(tmp_path, "candidates.json", json.dumps(
+        {"generated_on": "2026-01-02", "candidates": [
+            {"candidate_key": "k1", "title": "Lead", "company": "Acme"}]}))
+    decs = touch(tmp_path, "decisions.json", "[]")
+    base = ["--data", str(tmp_path), "--candidates", str(cands), "--decisions", str(decs),
+            "--out-dir", str(tmp_path / "out")]
+    assert report.main([*base, "--profile", "ana", "--commit"]) == 0
+    assert (tmp_path / "profiles/ana/reports/2026-01-02.md").is_file()
+    assert "k1" in json.loads((tmp_path / "profiles/ana/state/job-scan-seen.json").read_text())
+    assert not (tmp_path / "profiles/bruno/state").exists()
+    assert not (tmp_path / "reports").exists() and not (tmp_path / "state").exists()
+
+
+def test_report_with_several_profiles_and_no_choice_is_a_config_error_not_a_traceback(tmp_path, capsys, fresh_warnings):
+    from jobscan import report
+    _two_profile_repo(tmp_path)
+    cands = touch(tmp_path, "candidates.json", json.dumps({"generated_on": "2026-01-02", "candidates": []}))
+    decs = touch(tmp_path, "decisions.json", "[]")
+    args = ["--data", str(tmp_path), "--candidates", str(cands), "--decisions", str(decs)]
+    assert report.main(args) == 2 and "config error" in capsys.readouterr().err
+    # root state exists but the root reports folder does not: still an error exit, not a traceback
+    touch(tmp_path, "state/job-scan-delivery.json", json.dumps({"runs": []}))
+    assert report.main(args) == 2 and "config error" in capsys.readouterr().err
+
+
+def test_a_seen_set_belongs_to_one_profile(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    _two_profile_repo(tmp_path)
+    seen = Seen(tmp_path, "bruno")
+    seen.add("k1", "Lead", "Acme")
+    seen.save()
+    assert (tmp_path / "profiles/bruno/state/job-scan-seen.json").is_file()
+    assert "k1" not in Seen(tmp_path, "ana")
+
+
+# ---- phase C, apply config per profile ----
+
+def _apply_repo(tmp_path, ids=("ana",), root_apply=None, own=None):
+    import yaml
+    for pid in ids:
+        profile(tmp_path, pid)
+        touch(tmp_path, f"profiles/{pid}/01-knowledge/05-job-match.md")
+    touch(tmp_path, "config.yaml", yaml.safe_dump({"apply": root_apply} if root_apply else {"budgets": {}}))
+    for pid, section in (own or {}).items():
+        touch(tmp_path, f"profiles/{pid}/apply/config.yaml", yaml.safe_dump(section))
+
+
+@pytest.fixture
+def fresh_apply_warning():
+    from jobscan.apply import policy
+    policy._warned_root_apply = False
+
+
+def test_apply_config_is_read_from_the_profile_folder(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, own={"ana": {"mode": "assisted", "auto": {"min_fit": 70}}})
+    acfg = policy.apply_cfg(load_config(tmp_path))
+    assert acfg["mode"] == "assisted" and acfg["auto"]["min_fit"] == 70
+    assert acfg["auto"]["max_per_day"] == 3 and acfg["delay_seconds"] == 30     # defaults fill the rest
+    assert capsys.readouterr().err == ""
+
+
+def test_the_profile_apply_config_wins_over_the_root_section(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, root_apply={"mode": "auto"}, own={"ana": {"mode": "off"}})
+    assert policy.apply_cfg(load_config(tmp_path), "ana")["mode"] == "off"
+    assert capsys.readouterr().err == ""
+
+
+def test_the_root_apply_section_is_the_fallback_with_one_warning(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, root_apply={"mode": "assisted"})
+    cfg = load_config(tmp_path)
+    assert policy.apply_cfg(cfg)["mode"] == "assisted"
+    assert policy.apply_cfg(cfg, "ana")["mode"] == "assisted"
+    err = capsys.readouterr().err
+    assert err.count("LEGACY") == 1 and "profiles/ana/apply/config.yaml" in err
+
+
+def test_each_profile_has_its_own_apply_config(tmp_path, fresh_apply_warning):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, ("ana", "bruno"), own={"ana": {"mode": "auto"}, "bruno": {"mode": "off"}})
+    cfg = load_config(tmp_path)
+    assert policy.apply_cfg(cfg, "ana")["mode"] == "auto"
+    assert policy.apply_cfg(cfg, "bruno")["mode"] == "off"
+    assert policy.apply_cfg(cfg)["mode"] == "manual"        # several profiles, no id, no root section: defaults
+
+
+def test_apply_config_defaults_when_nothing_is_set(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path)
+    assert policy.apply_cfg(load_config(tmp_path), "ana")["mode"] == "manual"
+    assert capsys.readouterr().err == ""
+
+
+# ---- phase C (issue #118): failure lines under the profile of the failed job ----
+
+def _fail_entry(key="k1"):
+    return {"candidate_key": key, "error_code": "TIMEOUT", "step": "open"}
+
+
+def test_a_failure_line_with_a_row_goes_under_the_profile(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    path = FailureLog(tmp_path).write(_fail_entry(), "rui")
+    assert path.parent == tmp_path / "profiles/rui/logs/apply"
+    assert path.is_file()
+    assert not (tmp_path / "logs").exists()
+
+
+def test_a_failure_line_without_a_row_is_skipped_with_one_warning(tmp_path, capsys):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    log = FailureLog(tmp_path)
+    assert log.write(_fail_entry(), None) is None
+    assert log.write(_fail_entry("k2"), None) is None
+    assert capsys.readouterr().err.count("warning: failure line skipped") == 1
+    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "profiles/rui/logs").exists()
+
+
+def test_a_failure_line_for_an_unknown_profile_is_skipped(tmp_path, capsys):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    assert FailureLog(tmp_path).write(_fail_entry(), "nobody") is None
+    assert "failure line skipped" in capsys.readouterr().err
+    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "profiles/nobody").exists()
+
+
+def test_failure_lines_keep_the_root_with_no_profile_folder(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    path = FailureLog(tmp_path).write(_fail_entry(), None)
+    assert path.parent == tmp_path / "logs/apply"
+
+
+def test_two_profiles_have_separate_failure_logs(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "ana")
+    profile(tmp_path, "rui")
+    log = FailureLog(tmp_path)
+    log.write(_fail_entry("ka"), "ana")
+    log.write(_fail_entry("kr"), "rui")
+    assert [r["candidate_key"] for r in log.read_since(1, "ana")] == ["ka"]
+    assert [r["candidate_key"] for r in log.read_since(1, "rui")] == ["kr"]
+    assert sorted(r["candidate_key"] for r in log.read_since(1)) == ["ka", "kr"]
+    assert not (tmp_path / "logs").exists()
+
+
+def test_record_failure_passes_the_row_profile(tmp_path):
+    import time
+    from jobscan.apply import cli
+    from jobscan.apply.adapters import Code
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+
+    class Fail:
+        step, code, message, details = "open", Code.TIMEOUT, "slow", {}
+
+    folder = tmp_path / "profiles/rui/logs/apply"
+    for pid, expect in ((None, False), ("rui", True)):
+        item = {"candidate_key": "k", "company": "C", "title": "T", "url": "https://example.com/j",
+                "attempts": [], "profile": pid}
+        cli._record_failure(FailureLog(tmp_path), None, item, Fail(), "auto", "r1", time.time(), True)
+        assert folder.is_dir() is expect

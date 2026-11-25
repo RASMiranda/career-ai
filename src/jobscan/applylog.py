@@ -264,7 +264,7 @@ def _outcome_keys(root: Path, profile: str | None = None) -> tuple[set, list[str
             except ValueError:
                 problems.append(f"{f}:{n}: not valid JSON")
                 continue
-            if isinstance(rec, dict):
+            if isinstance(rec, dict) and "error_code" not in rec:  # failure lines (faillog) share the folder
                 keys.add((str(rec.get("site", "")), str(rec.get("job_id", ""))))
     return keys, problems
 

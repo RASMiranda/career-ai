@@ -8,6 +8,8 @@ Design rules (do not weaken without thinking hard):
 * The blacklist and one application per company per window are checked before any submit.
 """
 
+import sys
+
 from ..blacklist import Blacklist, canon
 from . import authz
 from .adapters import detect_ats
@@ -31,9 +33,27 @@ DEFAULTS = {
 }
 
 
-def apply_cfg(cfg: dict) -> dict:
-    out = {**DEFAULTS, **(cfg.get("apply") or {})}
-    out["auto"] = {**DEFAULTS["auto"], **((cfg.get("apply") or {}).get("auto") or {})}
+_warned_root_apply = False
+
+
+def apply_cfg(cfg: dict, pid: str | None = None) -> dict:
+    """The apply settings for one profile: its ``profiles/<id>/apply/config.yaml`` (``apply_config``).
+
+    LEGACY (removed by the cleanup PR): a profile without that file uses the root ``apply`` section, with one
+    warning. ``pid`` None means the only profile; with several, the root section.
+    """
+    global _warned_root_apply
+    profiles = cfg.get("profiles") or []
+    if pid is None and len(profiles) == 1:
+        pid = profiles[0].get("id")
+    own = next((p.get("apply_config") for p in profiles if p.get("id") == pid), None)
+    section = own if own is not None else cfg.get("apply") or {}
+    if own is None and section and pid is not None and not _warned_root_apply:
+        _warned_root_apply = True
+        print(f"warning: apply settings are still in the root config.yaml (LEGACY); they move to "
+              f"profiles/{pid}/apply/config.yaml in the data repo rename", file=sys.stderr)
+    out = {**DEFAULTS, **section}
+    out["auto"] = {**DEFAULTS["auto"], **(section.get("auto") or {})}
     return out
 
 

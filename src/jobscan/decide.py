@@ -14,7 +14,9 @@ import sys
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
+from . import layout
 from .apply.queue import Queue
+from .config import ConfigError
 
 ACTIONS = {"done": "done", "skip": "skipped"}
 LABEL = "job-decision"
@@ -50,11 +52,14 @@ def parse_title(title: str) -> tuple[str, str]:
     return m.group(1), m.group(2)
 
 
-def apply_decision(root: Path, title: str) -> str:
+def apply_decision(root: Path, title: str, profile: str | None = None) -> str:
+    """Record ``done``/``skip`` for the queue row; with ``profile``, only a row of that profile."""
     action, prefix = parse_title(title)
-    q = Queue(root)
+    q = Queue(root, profile)
     key = q.resolve(prefix)
     item = q.items[key]
+    if profile and item.get("profile") not in (None, profile):
+        raise ValueError(f"{prefix}: that job belongs to another profile")
     if item.get("status") in ("submitted", "replied", "interview", "offer", "rejected", "withdrawn"):
         raise ValueError(f"already {item['status']}: nothing to change")
     q.set(key, ACTIONS[action])
@@ -66,10 +71,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Apply an email-link decision (run by the data repo's workflow).")
     ap.add_argument("--data", required=True)
     ap.add_argument("--title", required=True, help="the issue title, 'done KEY8' or 'skip KEY8'")
+    ap.add_argument("--profile", help="profile id (default: the only profile; several need this option)")
     args = ap.parse_args(argv)
     try:
-        print(apply_decision(Path(args.data), args.title))
-    except (ValueError, KeyError) as exc:
+        pid = layout.default_profile(Path(args.data), args.profile)
+        print(apply_decision(Path(args.data), args.title, pid))
+    except (ValueError, KeyError, ConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
