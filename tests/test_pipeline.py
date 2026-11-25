@@ -243,3 +243,52 @@ def test_a_forbidden_path_in_the_index_is_refused_and_nothing_is_committed(tmp_p
         pipeline.publish(data, "scan")
     assert git(data, "rev-parse", "HEAD") == before
     assert name not in git(data, "diff", "--cached", "--name-only")       # not left staged for a later run
+
+
+# ---- phase C: --profile on every step ----
+
+def _add_profiles(data, *ids):
+    for pid in ids:
+        (data / f"profiles/{pid}").mkdir(parents=True, exist_ok=True)
+        (data / f"profiles/{pid}/profile.yaml").write_text("display_name: Synthetic\n")
+
+
+def _spy_collect(monkeypatch, work, seen):
+    def fake(argv):
+        seen.append(argv)
+        write_candidates(work, [cand("k1", "Junior Developer")])
+        return 0
+    monkeypatch.setattr(pipeline.collect, "main", fake)
+
+
+def test_prepare_passes_the_only_profile_to_collect(tmp_path, monkeypatch):
+    data, work, seen = make_repo(tmp_path), tmp_path / "work", []
+    _add_profiles(data, "x")                       # "p" is defined inline in config.yaml, so use other ids
+    _spy_collect(monkeypatch, work, seen)
+    pipeline.main(["prepare", "--data", str(data), "--work", str(work)])
+    assert seen[0][-2:] == ["--profile", "x"]
+
+
+def test_prepare_passes_an_explicit_profile_to_collect(tmp_path, monkeypatch):
+    data, work, seen = make_repo(tmp_path), tmp_path / "work", []
+    _add_profiles(data, "x", "y")
+    _spy_collect(monkeypatch, work, seen)
+    pipeline.main(["prepare", "--data", str(data), "--work", str(work), "--profile", "y"])
+    assert seen[0][-2:] == ["--profile", "y"]
+
+
+def test_prepare_without_a_profile_folder_passes_no_profile(tmp_path, monkeypatch):
+    data, work, seen = make_repo(tmp_path), tmp_path / "work", []
+    _spy_collect(monkeypatch, work, seen)
+    pipeline.main(["prepare", "--data", str(data), "--work", str(work)])
+    assert "--profile" not in seen[0]
+
+
+@pytest.mark.parametrize("extra", [[], ["--profile", "nobody"]])
+def test_several_profiles_without_a_choice_or_an_unknown_one_exit_2(tmp_path, monkeypatch, capsys, extra):
+    data = make_repo(tmp_path)
+    _add_profiles(data, "x", "y")
+    monkeypatch.setattr(pipeline.collect, "main", lambda argv: pytest.fail("collected"))
+    for cmd in ("prepare", "finish", "commit"):
+        assert pipeline.main([cmd, "--data", str(data), "--work", str(tmp_path / "w"), *extra]) == 2
+        assert "config error" in capsys.readouterr().err

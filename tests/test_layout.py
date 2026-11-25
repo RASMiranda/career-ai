@@ -478,3 +478,68 @@ def test_a_seen_set_belongs_to_one_profile(tmp_path, fresh_warnings):
     seen.save()
     assert (tmp_path / "profiles/bruno/state/job-scan-seen.json").is_file()
     assert "k1" not in Seen(tmp_path, "ana")
+
+
+# ---- phase C, apply config per profile ----
+
+def _apply_repo(tmp_path, ids=("ana",), root_apply=None, own=None):
+    import yaml
+    for pid in ids:
+        profile(tmp_path, pid)
+        touch(tmp_path, f"profiles/{pid}/01-knowledge/05-job-match.md")
+    touch(tmp_path, "config.yaml", yaml.safe_dump({"apply": root_apply} if root_apply else {"budgets": {}}))
+    for pid, section in (own or {}).items():
+        touch(tmp_path, f"profiles/{pid}/apply/config.yaml", yaml.safe_dump(section))
+
+
+@pytest.fixture
+def fresh_apply_warning():
+    from jobscan.apply import policy
+    policy._warned_root_apply = False
+
+
+def test_apply_config_is_read_from_the_profile_folder(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, own={"ana": {"mode": "assisted", "auto": {"min_fit": 70}}})
+    acfg = policy.apply_cfg(load_config(tmp_path))
+    assert acfg["mode"] == "assisted" and acfg["auto"]["min_fit"] == 70
+    assert acfg["auto"]["max_per_day"] == 3 and acfg["delay_seconds"] == 30     # defaults fill the rest
+    assert capsys.readouterr().err == ""
+
+
+def test_the_profile_apply_config_wins_over_the_root_section(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, root_apply={"mode": "auto"}, own={"ana": {"mode": "off"}})
+    assert policy.apply_cfg(load_config(tmp_path), "ana")["mode"] == "off"
+    assert capsys.readouterr().err == ""
+
+
+def test_the_root_apply_section_is_the_fallback_with_one_warning(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, root_apply={"mode": "assisted"})
+    cfg = load_config(tmp_path)
+    assert policy.apply_cfg(cfg)["mode"] == "assisted"
+    assert policy.apply_cfg(cfg, "ana")["mode"] == "assisted"
+    err = capsys.readouterr().err
+    assert err.count("LEGACY") == 1 and "profiles/ana/apply/config.yaml" in err
+
+
+def test_each_profile_has_its_own_apply_config(tmp_path, fresh_apply_warning):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path, ("ana", "bruno"), own={"ana": {"mode": "auto"}, "bruno": {"mode": "off"}})
+    cfg = load_config(tmp_path)
+    assert policy.apply_cfg(cfg, "ana")["mode"] == "auto"
+    assert policy.apply_cfg(cfg, "bruno")["mode"] == "off"
+    assert policy.apply_cfg(cfg)["mode"] == "manual"        # several profiles, no id, no root section: defaults
+
+
+def test_apply_config_defaults_when_nothing_is_set(tmp_path, fresh_apply_warning, capsys):
+    from jobscan.apply import policy
+    from jobscan.config import load_config
+    _apply_repo(tmp_path)
+    assert policy.apply_cfg(load_config(tmp_path), "ana")["mode"] == "manual"
+    assert capsys.readouterr().err == ""

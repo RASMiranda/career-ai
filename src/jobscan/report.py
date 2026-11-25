@@ -137,7 +137,7 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         pid = profile["id"]
         own = {"candidates": [c for c in candidates["candidates"] if c.get("profile") == pid]}
         matches, pending = _bucket(own, decisions, [profile])
-        wait = int(profile.get("follow_up_days") or apply_cfg(cfg)["follow_up_days"])
+        wait = int(profile.get("follow_up_days") or apply_cfg(cfg, pid)["follow_up_days"])
         apps = render_applications(queue, profile=pid, follow_up_days=wait, failures=False,
                                    decision_repo=decision_repo) if queue else ""
         repo = (cfg.get("feedback") or {}).get("repo") or feedback.DEFAULT_REPO

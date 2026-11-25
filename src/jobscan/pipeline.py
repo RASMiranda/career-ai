@@ -100,6 +100,7 @@ def _setup(args):
         root = data_root(args.data)
         cfg = load_config(root)
         auth = load_authorization(root)
+        pid = _profile(root, getattr(args, "profile", None))
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return None
@@ -108,7 +109,19 @@ def _setup(args):
         return None
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
-    return root, cfg, work
+    return root, cfg, work, pid
+
+
+def _profile(root: Path, explicit: str | None) -> str | None:
+    """The profile this run works on. No profile folder at all keeps None (the pre-profile layout)."""
+    ids = layout.profile_ids(root)
+    if explicit and explicit not in ids:
+        raise ConfigError(f"unknown profile {explicit!r}" + (f" (have: {', '.join(ids)})" if ids else ""))
+    return layout.default_profile(root, explicit) if ids else None
+
+
+def _opt(pid: str | None) -> list[str]:
+    return ["--profile", pid] if pid else []
 
 
 def _quiet(fn, *a, **k):
@@ -120,12 +133,12 @@ def cmd_prepare(args) -> int:
     ctx = _setup(args)
     if not ctx:
         return 2
-    root, cfg, work = ctx
+    root, cfg, work, pid = ctx
     p = _paths(work)
     for stale in (p["model"], p["all"], p["auto"], p["brief"]):
         stale.unlink(missing_ok=True)
 
-    rc = collect.main(["--data", str(root), "--out", str(p["candidates"])])
+    rc = collect.main(["--data", str(root), "--out", str(p["candidates"]), *_opt(pid)])
     if rc:
         return rc
     payload = _read(p["candidates"], {})
@@ -145,7 +158,7 @@ def cmd_prepare(args) -> int:
     if not to_score:
         print("NOTHING TO SCORE: finishing the run automatically. If a SEND list follows (e.g. waiting "
               "applications), the email is still due: send it, then run commit.\n")
-        return _finish(root, cfg, work, commit_if_no_email=True)
+        return _finish(root, cfg, work, pid, commit_if_no_email=True)
 
     brief = triage.render_brief(to_score, cfg, root)
     p["brief"].write_text(brief, encoding="utf-8")
@@ -157,7 +170,7 @@ def cmd_prepare(args) -> int:
     return 0
 
 
-def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
+def _finish(root: Path, cfg: dict, work: Path, pid: str | None, commit_if_no_email: bool) -> int:
     p = _paths(work)
     payload = _read(p["candidates"], None)
     if payload is None:
@@ -181,13 +194,13 @@ def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
             print(f"STOP: apply {cmd[0]} failed ({rc}).", file=sys.stderr)
             return rc
     rc = report.main([*data, "--candidates", str(p["candidates"]), "--decisions", str(p["all"]),
-                      "--out-dir", str(p["out"])])
+                      "--out-dir", str(p["out"]), *_opt(pid)])
     if rc:
         return rc
 
     deliveries = _read(p["out"] / "deliveries.json", [])
     sendable = [d for d in deliveries if d["send"]]
-    queue = Queue(root)
+    queue = Queue(root, pid)
     counts = payload.get("counts", {})
     dispo = [d["disposition"] for d in merged]
     print("\nRUN SUMMARY")
@@ -210,14 +223,14 @@ def _finish(root: Path, cfg: dict, work: Path, commit_if_no_email: bool) -> int:
         return 0
     print("\nNo email to send.")
     if commit_if_no_email:
-        return _commit(root, work)
+        return _commit(root, work, pid)
     return 0
 
 
-def _commit(root: Path, work: Path) -> int:
+def _commit(root: Path, work: Path, pid: str | None) -> int:
     p = _paths(work)
     rc = report.main(["--data", str(root), "--candidates", str(p["candidates"]),
-                      "--decisions", str(p["all"]), "--out-dir", str(p["out"]), "--commit"])
+                      "--decisions", str(p["all"]), "--out-dir", str(p["out"]), "--commit", *_opt(pid)])
     if rc:
         return rc
     counts = _read(p["candidates"], {}).get("counts", {})
@@ -238,7 +251,7 @@ def cmd_finish(args) -> int:
 
 def cmd_commit(args) -> int:
     ctx = _setup(args)
-    return 2 if not ctx else _commit(ctx[0], ctx[2])
+    return 2 if not ctx else _commit(ctx[0], ctx[2], ctx[3])
 
 
 def cmd_show(args) -> int:
@@ -259,6 +272,7 @@ def cmd_show(args) -> int:
 def main(argv=None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--data")
+    common.add_argument("--profile", help="profile to run (default: the only profile)")
     common.add_argument("--work", default="/tmp", help="where candidates/decisions/emails are written")
     ap = argparse.ArgumentParser(prog="jobscan.pipeline", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

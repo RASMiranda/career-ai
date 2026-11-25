@@ -85,8 +85,7 @@ def _cv_for(item: dict, root: Path, cfg: dict) -> str | None:
 
 
 def cmd_enqueue(args, root, cfg, auth):
-    acfg = policy.apply_cfg(cfg)
-    if acfg["mode"] == "off":
+    if all(policy.apply_cfg(cfg, p["id"])["mode"] == "off" for p in cfg["profiles"]):
         print("apply.mode is off — nothing queued")
         return 0
     cands = {c["candidate_key"]: c for c in
@@ -100,6 +99,9 @@ def cmd_enqueue(args, root, cfg, auth):
         if d["disposition"] != "email" or q.has(key) or key not in cands:
             continue
         c = cands[key]
+        acfg = policy.apply_cfg(cfg, c.get("profile"))
+        if acfg["mode"] == "off":
+            continue
         item = {"title": c["title"], "company": c["company"], "url": c["url"],
                 "source": c["source"], "fit": d["fit"], "tier": d["tier"],
                 "confidence": d["confidence"], "profile": c.get("profile"),
@@ -164,7 +166,7 @@ def cmd_questions(args, root, cfg, auth):
 
 
 def cmd_run(args, root, cfg, auth):
-    acfg = policy.apply_cfg(cfg)
+    acfg = policy.apply_cfg(cfg, getattr(args, "profile", None))
     mode = args.mode or acfg["mode"]
     if mode in ("off", "manual"):
         print(f"mode is {mode!r}: nothing to run. Use --mode assisted, or set apply.mode.")
