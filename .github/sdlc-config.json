@@ -50,7 +50,7 @@
       ],
       "repo": true,
       "tools": "Read,Grep,Glob,Write,Edit,Bash(git status:*),Bash(git diff:*),Bash(git log:*)",
-      "turns": 12
+      "turns": 20
     },
     "plan": {
       "roles": [
