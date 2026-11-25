@@ -216,7 +216,7 @@ The subprocess env scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is not used: it ne
 
 ### Limits you should know
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit
-per stage (turn caps: 10 to 40). It is for the code repository; `career-data` has no agents and no issues.
+per stage (turn caps: 10 to 60; the build stage is 60, ADR-076). It is for the code repository; `career-data` has no agents and no issues.
 
 ## Usage budget
 
