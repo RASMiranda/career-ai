@@ -205,7 +205,7 @@ def main(argv=None) -> int:
     report_file.write_text(md, encoding="utf-8")
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir, repo_slug(root))
+    deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root, args.profile), out_dir, repo_slug(root))
     (out_dir / "deliveries.json").write_text(json.dumps(deliveries, indent=2), encoding="utf-8")
 
     print(f"report: {report_file.relative_to(root).as_posix()}")

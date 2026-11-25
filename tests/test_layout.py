@@ -414,7 +414,7 @@ def _two_profile_repo(tmp_path):
 
 def test_collect_with_a_profile_uses_only_its_queries_seen_set_and_budget(tmp_path, monkeypatch, fresh_warnings):
     from jobscan import collect
-    from jobscan.normalize import Candidate
+    from jobscan.models import Candidate
     _two_profile_repo(tmp_path)
     asked = []
 
