@@ -645,3 +645,16 @@ def test_reconcile_cli_rejects_a_file_without_the_header(log, tmp_path, capsys):
     f.write_text("company,title\nExample,Dev\n", encoding="utf-8")
     assert applylog.main(["reconcile", "--log", str(log), "--file", str(f)]) == 2
     assert "employer,role" in capsys.readouterr().err
+
+
+def test_a_failure_line_in_the_outcomes_folder_is_not_an_orphan_outcome(tmp_path, capsys):
+    """faillog writes its lines beside the outcome lines (issue #118); the check must not count them."""
+    (tmp_path / "profiles/p/apply").mkdir(parents=True)
+    (tmp_path / "profiles/p/profile.yaml").write_text("id: p\n")
+    (tmp_path / "profiles/p/apply/log.csv").write_text("date,site,employer,role,job_id,status\n")
+    folder = tmp_path / "profiles/p/logs/apply"
+    folder.mkdir(parents=True)
+    (folder / "2026-01-02.jsonl").write_text(
+        '{"at": "2026-01-02T00:00:00+00:00", "candidate_key": "k", "error_code": "X", "url": "https://x.test/1"}\n')
+    keys, problems = applylog._outcome_keys(tmp_path, "p")
+    assert keys == set() and problems == []
