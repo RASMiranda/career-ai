@@ -1,5 +1,5 @@
-"""Profile file layout (ADR-069, ADR-070): every profile file lives under profiles/<id>/, there is no
-root-path fallback, and a command needs a profile id (explicit, or the only profile folder)."""
+"""Profile file layout (ADR-069, ADR-070, ADR-072): every profile file lives under profiles/<id>/, there is
+no root-path fallback, and a command needs a profile id (explicit, or the only profile folder)."""
 
 import hashlib
 import os
@@ -105,29 +105,11 @@ def test_cv_check_keys_that_point_at_the_data_root_are_not_read(tmp_path):
     assert report.missing == ["profiles/rui/cv/general.md"]            # keys resolve inside the profile only
 
 
-# ---- ADR-071 phase B: apply-run records under profiles/<id>/, with a root fallback until the data PR ----
+# ---- ADR-071 phase B, ADR-072: apply-run records under profiles/<id>/, no root fallback ----
 
 from jobscan import applylog, bank  # noqa: E402
 
 LOG_ROW = "date,site,employer,role,job_id,status\n2026-06-01,glassdoor,Acme,Dev,42,CANDIDATE\n"
-
-
-def test_apply_log_new_location_wins_when_both_exist(tmp_path):
-    profile(tmp_path, "rui")
-    touch(tmp_path, "profiles/rui/apply/log.csv", LOG_ROW)
-    touch(tmp_path, "apply/log.csv", "root copy, ignored\n")
-    assert layout.resolve(tmp_path, "rui", "apply/log.csv") == tmp_path / "profiles/rui/apply/log.csv"
-
-
-def test_apply_log_only_at_the_root_is_read_and_written_there(tmp_path):
-    profile(tmp_path, "rui")
-    touch(tmp_path, "apply/log.csv", LOG_ROW)                          # before the data PR
-    path = layout.resolve(tmp_path, "rui", "apply/log.csv")
-    assert path == tmp_path / "apply/log.csv"
-    applylog.append(path, site="glassdoor", employer="Beta", role="Lead", job_id="43",
-                    status="SUBMITTED", when="2026-06-02")
-    assert len(applylog.read(tmp_path / "apply/log.csv")) == 2        # history stays in one file
-    assert not (tmp_path / "profiles/rui/apply/log.csv").exists()
 
 
 def test_apply_log_created_at_the_profile_path_when_it_exists_nowhere(tmp_path):
@@ -139,34 +121,42 @@ def test_apply_log_created_at_the_profile_path_when_it_exists_nowhere(tmp_path):
     assert path.is_file() and not (tmp_path / "apply/log.csv").exists()
 
 
-def test_legacy_outcomes_follow_the_same_rule(tmp_path):
+def test_a_root_apply_log_is_not_found_when_a_profile_folder_exists(tmp_path):
     profile(tmp_path, "rui")
-    assert layout.resolve(tmp_path, "rui", "apply/legacy-outcomes.csv") == \
-        tmp_path / "profiles/rui/apply/legacy-outcomes.csv"
+    touch(tmp_path, "apply/log.csv", LOG_ROW)                          # the pre-#65 location
+    path = layout.resolve(tmp_path, "rui", "apply/log.csv")
+    assert path == tmp_path / "profiles/rui/apply/log.csv"
+    assert not path.exists()
+    assert layout.apply_path(tmp_path, "apply/log.csv", "rui") == path
+    assert applylog.read(path) == []                                   # the root row is not read
+
+
+def test_apply_log_and_outcome_records_resolve_to_the_profile_path_even_with_root_copies(tmp_path):
+    profile(tmp_path, "rui")
     touch(tmp_path, "apply/legacy-outcomes.csv", "site,job_id,reason\n")
+    touch(tmp_path, "logs/apply/arc-2026-11-12.jsonl", "{}\n")
     assert layout.resolve(tmp_path, "rui", "apply/legacy-outcomes.csv") == \
-        tmp_path / "apply/legacy-outcomes.csv"
-    touch(tmp_path, "profiles/rui/apply/legacy-outcomes.csv", "site,job_id,reason\n")
-    assert layout.resolve(tmp_path, "rui", "apply/legacy-outcomes.csv") == \
+        tmp_path / "profiles/rui/apply/legacy-outcomes.csv"
+    assert layout.resolve(tmp_path, "rui", "logs/apply") == tmp_path / "profiles/rui/logs/apply"
+    assert layout.apply_path(tmp_path, "logs/apply", "rui") == tmp_path / "profiles/rui/logs/apply"
+    assert layout.apply_path(tmp_path, "apply/legacy-outcomes.csv", "rui") == \
         tmp_path / "profiles/rui/apply/legacy-outcomes.csv"
 
 
-def test_logs_apply_folder_new_wins_then_legacy_then_created_under_the_profile(tmp_path):
+def test_a_checkout_from_before_the_data_pr_is_no_longer_read(tmp_path, capsys):
+    # career-data before #65: profile files already under profiles/rui/, apply-run records still at the root
     profile(tmp_path, "rui")
-    assert layout.resolve(tmp_path, "rui", "logs/apply") == tmp_path / "profiles/rui/logs/apply"  # neither
-    touch(tmp_path, "logs/apply/greenhouse-2026-11-11.jsonl", "{}\n")
-    assert layout.resolve(tmp_path, "rui", "logs/apply") == tmp_path / "logs/apply"              # legacy only
-    touch(tmp_path, "profiles/rui/logs/apply/arc-2026-11-12.jsonl", "{}\n")
-    assert layout.resolve(tmp_path, "rui", "logs/apply") == tmp_path / "profiles/rui/logs/apply"  # new wins
-
-
-def test_names_not_in_legacy_have_no_root_fallback(tmp_path):
-    profile(tmp_path, "rui")
-    touch(tmp_path, "logs/runs.jsonl", "{}\n")
-    touch(tmp_path, "applications/queue.json", "{}")
-    assert layout.resolve(tmp_path, "rui", "logs/runs.jsonl") == tmp_path / "profiles/rui/logs/runs.jsonl"
-    assert layout.resolve(tmp_path, "rui", "applications/queue.json") == \
-        tmp_path / "profiles/rui/applications/queue.json"
+    touch(tmp_path, "apply/log.csv", LOG_ROW)                          # a SUBMITTED row, no outcome
+    touch(tmp_path, "apply/legacy-outcomes.csv", "site,job_id,reason\nglassdoor,42,old\n")
+    touch(tmp_path, "logs/apply/glassdoor-2026-06-01.jsonl", '{"site": "glassdoor", "job_id": "42"}\n')
+    root_before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    # the profile log is absent, so the strict check reads nothing and passes; the root records are ignored
+    assert applylog.main(["check", "--strict", "--data", str(tmp_path), "--profile", "rui"]) == 0
+    assert "ok, 0 rows" in capsys.readouterr().out
+    assert applylog.main(["check", "--strict", "--data", str(tmp_path)]) == 0
+    assert "ok, 0 rows" in capsys.readouterr().out
+    assert not (tmp_path / "profiles/rui/apply/log.csv").exists()     # and nothing is created or moved
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == root_before
 
 
 def test_apply_path_without_a_profile_folder_keeps_the_root_location(tmp_path):
