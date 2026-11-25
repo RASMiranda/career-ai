@@ -72,7 +72,7 @@ Checks: `python -m pytest -q` including `tests/test_no_personal_data.py` (A13); 
 - [x] PR 1b tests (run 1, per P3): allowlist, staged check, `decide --profile` (written, not run). The other PR 1 tests wait for run 2
 - [x] `layout`: LEGACY resolver (read+write in place, one warning), docstring (run 2)
 - [x] Queue, answers, runlog, slug cache, cooldown via `layout` (run 2; `cmd_run` uses `moved_name`)
-- [x] State files, `collect`, reports, apply summary via `layout` (run 3; `pid` optional, per-profile dedup inside `collect` not yet)
+- [x] State files, `collect`, reports, apply summary via `layout` (run 3; `pid` optional, per-profile dedup inside `collect` not yet); run 4 adds `--profile` to `collect`, `report`, `apply run` and `clip` (`Seen`, `Budget`, `Journal`, `Queue`, run log by profile)
 - [ ] `faillog` with the profile from the queue row
 - [ ] Apply config from `profiles/<id>/apply/config.yaml`
 - [x] `PUBLISH_PATHS` per-profile allowlist (+ root while LEGACY) and staged-path check (run 1)

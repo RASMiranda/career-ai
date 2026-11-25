@@ -177,10 +177,11 @@ def cmd_run(args, root, cfg, auth):
     applicants = _known_applicants(root, cfg)
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
-    flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
+    only = getattr(args, "profile", None)  # None: the only profile, or the root while LEGACY
+    flog, q, store = faillog.FailureLog(root, secrets), Queue(root, only), drafted.AnswerStore(root, only)
     fstore = FileStore(root)
-    runs = runlog.RunLog(fstore, file=layout.moved_name(root, runlog.FILE))
-    cooldown_file = layout.moved_name(root, linkedin.COOLDOWN_FILE)
+    runs = runlog.RunLog(fstore, file=layout.moved_name(root, runlog.FILE, only))
+    cooldown_file = layout.moved_name(root, linkedin.COOLDOWN_FILE, only)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -190,7 +191,8 @@ def cmd_run(args, root, cfg, auth):
         return 0
 
     run_id = uuid.uuid4().hex[:8]
-    approved = sorted(q.by_status("approved"), key=lambda i: -i.get("fit", 0))
+    approved = sorted((i for i in q.by_status("approved") if not only or i.get("profile") == only),
+                      key=lambda i: -i.get("fit", 0))
     for pid in sorted({i.get("profile") for i in approved} - set(applicants)):
         profile = cv.profile_by_id(cfg, pid)
         try:
@@ -379,6 +381,7 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", action="store_true", help="fill forms, never submit")
     p.add_argument("--headed", action="store_true", help="show the browser")
     p.add_argument("--limit", type=int)
+    p.add_argument("--profile", help="run this profile's queue only (default: the only profile)")
     p = sub.add_parser("summary")
     p.add_argument("--html")
     p.add_argument("--days", type=int, default=7)

@@ -398,3 +398,83 @@ def test_reports_follow_the_root_folder_while_legacy(tmp_path, fresh_warnings):
     assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "profiles/rui/reports/applications.md"
     touch(tmp_path, "reports/2026-01-01.md")
     assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "reports/applications.md"
+
+
+# ---- phase C, per-profile Seen and Budget in collect, report and clip ----
+
+def _two_profile_repo(tmp_path):
+    import yaml
+    for pid in ("ana", "bruno"):
+        touch(tmp_path, f"profiles/{pid}/profile.yaml", yaml.safe_dump(
+            {"daily_queries": [{"source": "fake", "query": pid}]}))
+        touch(tmp_path, f"profiles/{pid}/01-knowledge/05-job-match.md")
+    touch(tmp_path, "config.yaml", "budgets: {fake: 5}\n")
+    touch(tmp_path, "authorization.yaml", "active: true\n")
+
+
+def test_collect_with_a_profile_uses_only_its_queries_seen_set_and_budget(tmp_path, monkeypatch, fresh_warnings):
+    from jobscan import collect
+    from jobscan.normalize import Candidate
+    _two_profile_repo(tmp_path)
+    asked = []
+
+    def fake(query, profile, secrets=None):
+        asked.append(profile)
+        return [Candidate(candidate_key="k1", profile=profile, source="fake", title="Lead",
+                          company="Acme", url="https://x.test/1")]
+
+    monkeypatch.setattr(collect, "REGISTRY", {"fake": fake})
+    out = tmp_path / "c.json"
+    assert collect.main(["--data", str(tmp_path), "--out", str(out), "--profile", "ana"]) == 0
+    assert asked == ["ana"]
+    assert (tmp_path / "profiles/ana/state/job-scan-budget.json").is_file()
+    assert not (tmp_path / "profiles/bruno/state/job-scan-budget.json").exists()
+    assert not (tmp_path / "state").exists()
+
+
+def test_collect_needs_a_profile_when_there_are_several_and_rejects_an_unknown_one(tmp_path, capsys, fresh_warnings):
+    from jobscan import collect
+    _two_profile_repo(tmp_path)
+    out = tmp_path / "c.json"
+    assert collect.main(["--data", str(tmp_path), "--out", str(out)]) == 2
+    assert "--profile" in capsys.readouterr().err
+    assert collect.main(["--data", str(tmp_path), "--out", str(out), "--profile", "nobody"]) == 2
+    assert "unknown profile" in capsys.readouterr().err
+
+
+def test_report_writes_state_and_report_under_the_chosen_profile(tmp_path, fresh_warnings):
+    from jobscan import report
+    _two_profile_repo(tmp_path)
+    cands = touch(tmp_path, "candidates.json", json.dumps(
+        {"generated_on": "2026-01-02", "candidates": [
+            {"candidate_key": "k1", "title": "Lead", "company": "Acme"}]}))
+    decs = touch(tmp_path, "decisions.json", "[]")
+    base = ["--data", str(tmp_path), "--candidates", str(cands), "--decisions", str(decs),
+            "--out-dir", str(tmp_path / "out")]
+    assert report.main([*base, "--profile", "ana", "--commit"]) == 0
+    assert (tmp_path / "profiles/ana/reports/2026-01-02.md").is_file()
+    assert "k1" in json.loads((tmp_path / "profiles/ana/state/job-scan-seen.json").read_text())
+    assert not (tmp_path / "profiles/bruno/state").exists()
+    assert not (tmp_path / "reports").exists() and not (tmp_path / "state").exists()
+
+
+def test_report_with_several_profiles_and_no_choice_is_a_config_error_not_a_traceback(tmp_path, capsys, fresh_warnings):
+    from jobscan import report
+    _two_profile_repo(tmp_path)
+    cands = touch(tmp_path, "candidates.json", json.dumps({"generated_on": "2026-01-02", "candidates": []}))
+    decs = touch(tmp_path, "decisions.json", "[]")
+    args = ["--data", str(tmp_path), "--candidates", str(cands), "--decisions", str(decs)]
+    assert report.main(args) == 2 and "config error" in capsys.readouterr().err
+    # root state exists but the root reports folder does not: still an error exit, not a traceback
+    touch(tmp_path, "state/job-scan-delivery.json", json.dumps({"runs": []}))
+    assert report.main(args) == 2 and "config error" in capsys.readouterr().err
+
+
+def test_a_seen_set_belongs_to_one_profile(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    _two_profile_repo(tmp_path)
+    seen = Seen(tmp_path, "bruno")
+    seen.add("k1", "Lead", "Acme")
+    seen.save()
+    assert (tmp_path / "profiles/bruno/state/job-scan-seen.json").is_file()
+    assert "k1" not in Seen(tmp_path, "ana")
