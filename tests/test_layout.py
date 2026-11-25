@@ -332,3 +332,69 @@ def test_run_log_slug_cache_and_cooldown_use_a_moved_name(tmp_path, fresh_warnin
     cache = SlugCache(store, file=layout.moved_name(tmp_path, "state/slug_cache.json"))
     assert cache.record(GreenhouseRef("acme", "123", "us"), 200)
     assert (tmp_path / "profiles/rui/state/slug_cache.json").is_file()
+
+
+def test_seen_budget_and_journal_follow_the_state_folder(tmp_path, fresh_warnings):
+    from jobscan.state import Budget, Journal, Seen
+    profile(tmp_path, "rui")
+    seen, budget, journal = Seen(tmp_path), Budget(tmp_path, {"adzuna": 5}), Journal(tmp_path)
+    seen.add("k1", "Lead", "Acme")
+    budget.spend("adzuna")
+    journal.record("2026-01-01", "completed")
+    for obj in (seen, budget, journal):
+        obj.save()
+    for name in ("seen", "budget", "delivery"):
+        assert (tmp_path / f"profiles/rui/state/job-scan-{name}.json").is_file()
+    assert not (tmp_path / "state").exists()
+
+
+def test_seen_is_read_and_written_at_the_root_while_legacy(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/job-scan-seen.json", json.dumps({"k1": {}}))
+    seen = Seen(tmp_path)
+    assert "k1" in seen
+    seen.add("k2", "Lead", "Acme")
+    seen.save()
+    assert set(json.loads((tmp_path / "state/job-scan-seen.json").read_text())) == {"k1", "k2"}
+    assert not (tmp_path / "profiles/rui/state").exists()
+
+
+def test_each_profile_has_its_own_seen_set(tmp_path, fresh_warnings):
+    from jobscan.state import Seen
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    ana = Seen(tmp_path, "ana")
+    ana.add("k1", "Lead", "Acme")
+    ana.save()
+    assert "k1" in Seen(tmp_path, "ana")
+    assert "k1" not in Seen(tmp_path, "bruno")
+    with pytest.raises(ConfigError, match="--profile"):
+        Seen(tmp_path)
+
+
+def test_decide_reads_the_queue_of_the_chosen_profile(tmp_path, fresh_warnings):
+    from jobscan import decide
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    key = "abcdef12" + "0" * 24
+    touch(tmp_path, "profiles/ana/applications/queue.json", json.dumps(
+        {"items": {key: {"candidate_key": key, "status": "queued", "title": "Lead", "company": "Acme",
+                         "profile": "ana"}}}))
+    assert decide.main(["--data", str(tmp_path), "--title", "done abcdef12", "--profile", "ana"]) == 0
+    saved = json.loads((tmp_path / "profiles/ana/applications/queue.json").read_text())
+    assert saved["items"][key]["status"] == "done"
+
+
+def test_preflight_creates_the_state_folder_under_the_profile(tmp_path, fresh_warnings):
+    from jobscan.collect import preflight
+    profile(tmp_path, "rui")
+    preflight(tmp_path, {"profiles": []})
+    assert (tmp_path / "profiles/rui/state").is_dir() and not (tmp_path / "state").exists()
+
+
+def test_reports_follow_the_root_folder_while_legacy(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "profiles/rui/reports/applications.md"
+    touch(tmp_path, "reports/2026-01-01.md")
+    assert layout.moved_path(tmp_path, "reports/applications.md") == tmp_path / "reports/applications.md"

@@ -18,6 +18,7 @@ from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
 from . import feedback
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
+from .layout import moved_path
 from .normalize import is_http_url
 from .state import Journal, Seen
 
@@ -183,7 +184,11 @@ def main(argv=None) -> int:
     if isinstance(decisions, dict):
         decisions = decisions.get("decisions", [])
 
-    journal = Journal(root)
+    try:
+        journal = Journal(root)
+    except ConfigError as exc:  # several profiles and no state folder to choose from
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
     if journal.has_open_send():
         print("a previous delivery is stuck in 'sending' — review it by hand first",
               file=sys.stderr)
@@ -193,14 +198,15 @@ def main(argv=None) -> int:
     matches, pending = _bucket(candidates, decisions, cfg["profiles"])
 
     md = render_markdown(day, matches, pending, candidates.get("errors", []))
-    (root / "reports").mkdir(exist_ok=True)
-    (root / "reports" / f"{day}.md").write_text(md, encoding="utf-8")
+    report_file = moved_path(root, f"reports/{day}.md")
+    report_file.parent.mkdir(parents=True, exist_ok=True)
+    report_file.write_text(md, encoding="utf-8")
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     deliveries = build_deliveries(day, cfg, candidates, decisions, Queue(root), out_dir, repo_slug(root))
     (out_dir / "deliveries.json").write_text(json.dumps(deliveries, indent=2), encoding="utf-8")
 
-    print(f"report: reports/{day}.md")
+    print(f"report: {report_file.relative_to(root).as_posix()}")
     print(f"deliveries: {out_dir / 'deliveries.json'}")
     for d in deliveries:
         status = f"send to {', '.join(d['to']) or 'NOBODY'}" if d["send"] else "nothing to send"

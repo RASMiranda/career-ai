@@ -55,7 +55,7 @@ def parse_title(title: str) -> tuple[str, str]:
 def apply_decision(root: Path, title: str, profile: str | None = None) -> str:
     """Record ``done``/``skip`` for the queue row; with ``profile``, only a row of that profile."""
     action, prefix = parse_title(title)
-    q = Queue(root)
+    q = Queue(root, profile)
     key = q.resolve(prefix)
     item = q.items[key]
     if profile and item.get("profile") not in (None, profile):

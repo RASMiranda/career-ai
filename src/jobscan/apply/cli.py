@@ -310,8 +310,9 @@ def cmd_summary(args, root, cfg, auth):
     md = summary.render_markdown(q, args.days, wait)
     if args.html:
         Path(args.html).write_text(summary.render_html(q, args.days, follow_up_days=wait), encoding="utf-8")
-    (root / "reports").mkdir(exist_ok=True)
-    (root / "reports" / "applications.md").write_text(md, encoding="utf-8")
+    out = layout.moved_path(root, "reports/applications.md")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(md, encoding="utf-8")
     print(md)
     return 0
 

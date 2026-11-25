@@ -14,6 +14,7 @@ from . import clip
 from .config import ConfigError, data_root, load_config, secret
 from .blacklist import Blacklist
 from .cv import catalog
+from .layout import moved_path
 from .normalize import is_http_url
 from .sources import REGISTRY
 from .state import Budget, Seen
@@ -40,7 +41,7 @@ def preflight(root: Path, cfg: dict) -> list[str]:
     for profile in cfg["profiles"]:
         criteria = root / profile["criteria"]
         report.append(f"  criteria[{profile['id']}]: {'ok' if criteria.is_file() else 'MISSING'}")
-    (root / "state").mkdir(exist_ok=True)
+    moved_path(root, "state").mkdir(parents=True, exist_ok=True)
     return report
 
 
@@ -66,15 +67,19 @@ def main(argv=None) -> int:
         return 2
 
     print("preflight:")
-    for line in preflight(root, cfg):
-        print(line)
-    if args.preflight_only:
-        return 0
+    try:
+        for line in preflight(root, cfg):
+            print(line)
+        if args.preflight_only:
+            return 0
+        seen = Seen(root)
+        budget = Budget(root, cfg.get("budgets", {}))
+    except ConfigError as exc:  # several profiles and no state folder to choose from
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
 
     secrets = {name: secret(name) for name in SECRET_NAMES}
     secrets["_proxy"] = proxied_sources(cfg)
-    seen = Seen(root)
-    budget = Budget(root, cfg.get("budgets", {}))
     today = date.today()
 
     collected, skipped_seen, errors = {}, 0, []
