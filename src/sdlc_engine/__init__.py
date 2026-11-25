@@ -60,7 +60,7 @@ STAGES = {
     "spec": {"roles": ["product-owner", "stakeholder"], "needs": "intent.md", "writes": [WORK + "/spec.md"],
              "repo": True, "tools": DOC_TOOLS, "turns": 20},
     "plan": {"roles": ["tech-lead", "scrum-master"], "needs": "spec.md", "writes": [WORK + "/plan.md"],
-             "repo": True, "tools": DOC_TOOLS, "turns": 15},
+             "repo": True, "tools": DOC_TOOLS, "turns": 25},
     "build": {"roles": ["tester", "developer"], "needs": "plan.md", "writes": ["src/**", "tests/**", "docs/**",
               "README.md"], "repo": True, "tools": BUILD_TOOLS, "turns": 60},
     "review": {"roles": ["reviewer", "security-reviewer"], "needs": None, "writes": [], "repo": False,
