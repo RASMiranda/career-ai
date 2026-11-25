@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import cv
+from .. import cv, layout
 from ..triage import clean
 from ..blacklist import Blacklist
 from ..config import ConfigError, data_root, load_authorization, load_config
@@ -179,7 +179,8 @@ def cmd_run(args, root, cfg, auth):
                for k in ("first_name", "last_name", "email", "phone")]
     flog, q, store = faillog.FailureLog(root, secrets), Queue(root), drafted.AnswerStore(root)
     fstore = FileStore(root)
-    runs = runlog.RunLog(fstore)
+    runs = runlog.RunLog(fstore, file=layout.moved_name(root, runlog.FILE))
+    cooldown_file = layout.moved_name(root, linkedin.COOLDOWN_FILE)
     submit = mode == "auto" and not args.dry_run
     headless = (mode == "auto" or args.dry_run) and not args.headed
     quota = policy.remaining_quota(acfg, q) if submit else 10**6
@@ -203,7 +204,7 @@ def cmd_run(args, root, cfg, auth):
         return 2        # approved jobs exist but none has a usable applicant.yaml
 
     print(f"run {run_id}: mode={mode} dry_run={args.dry_run} items={len(todo)}")
-    cooling = submit and linkedin.cooldown_active(fstore)
+    cooling = submit and linkedin.cooldown_active(fstore, file=cooldown_file)
     if cooling:
         print("LinkedIn is in cooldown after a warning page: LinkedIn items wait")
     halted = False
@@ -247,7 +248,7 @@ def cmd_run(args, root, cfg, auth):
                 outcome = fail.code
                 print(f"  FAILED     {label} → {fail.code}")
                 if fail.code == Code.LINKEDIN_CHALLENGE and not args.dry_run:
-                    until = linkedin.start_cooldown(fstore, authz.linkedin_cooldown_days(auth))
+                    until = linkedin.start_cooldown(fstore, authz.linkedin_cooldown_days(auth), file=cooldown_file)
                     print(f"  HALTED: LinkedIn cooldown until {until}. Nothing else is tried this run.")
                     halted = True
             except Exception as exc:  # never let one job abort the batch

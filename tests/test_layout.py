@@ -218,3 +218,117 @@ def test_outcome_and_batch_write_under_the_profile(tmp_path, capsys):
     assert (tmp_path / "profiles/rui/apply/log.csv").is_file()
     assert (tmp_path / "profiles/rui/logs/apply/arc-2026-11-05.jsonl").is_file()
     assert not (tmp_path / "logs").exists()
+
+
+# ---- phase C (issue #118): moved_path and the LEGACY rule ----
+
+@pytest.fixture
+def fresh_warnings():
+    layout._warned.clear()
+
+
+def test_moved_path_is_under_the_profile_when_nothing_exists_yet(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "profiles/rui/state/seen.json"
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "profiles/rui/logs/runs.jsonl"
+    assert layout.moved_path(tmp_path, "applications/queue.json", "rui") == \
+        tmp_path / "profiles/rui/applications/queue.json"
+
+
+def test_moved_path_keeps_the_root_with_no_profile_folder(tmp_path, fresh_warnings):
+    assert layout.moved_path(tmp_path, "reports/2026-01-01.md") == tmp_path / "reports/2026-01-01.md"
+
+
+def test_a_new_file_in_an_existing_root_folder_stays_at_the_root(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "reports/2026-01-01.md")
+    assert layout.moved_path(tmp_path, "reports/2026-01-02.md") == tmp_path / "reports/2026-01-02.md"
+    assert not (tmp_path / "profiles/rui/reports").exists()
+
+
+def test_the_legacy_warning_is_printed_once_per_folder(tmp_path, capsys, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/seen.json")
+    layout.moved_path(tmp_path, "state/seen.json")
+    layout.moved_path(tmp_path, "state/runs.jsonl")
+    err = capsys.readouterr().err
+    assert err.count("LEGACY") == 1 and "state" in err
+
+
+def test_the_profile_folder_wins_when_both_exist(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "state/seen.json")
+    touch(tmp_path, "profiles/rui/state/other.json")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "profiles/rui/state/seen.json"
+
+
+def test_the_runs_log_moves_as_one_file_not_with_logs(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    touch(tmp_path, "logs/apply/.gitkeep", "")                       # a root logs/ folder alone
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "profiles/rui/logs/runs.jsonl"
+    touch(tmp_path, "logs/runs.jsonl", "{}\n")
+    assert layout.moved_path(tmp_path, "logs/runs.jsonl") == tmp_path / "logs/runs.jsonl"
+
+
+def test_several_profiles_use_the_root_only_while_it_holds_the_data(tmp_path, fresh_warnings):
+    profile(tmp_path, "ana")
+    profile(tmp_path, "bruno")
+    with pytest.raises(ConfigError, match="--profile"):
+        layout.moved_path(tmp_path, "state/seen.json")
+    assert layout.moved_path(tmp_path, "state/seen.json", "bruno") == tmp_path / "profiles/bruno/state/seen.json"
+    touch(tmp_path, "state/seen.json")
+    assert layout.moved_path(tmp_path, "state/seen.json") == tmp_path / "state/seen.json"
+
+
+def test_moved_name_is_relative_to_the_root(tmp_path, fresh_warnings):
+    profile(tmp_path, "rui")
+    assert layout.moved_name(tmp_path, "state/linkedin-cooldown.json") == \
+        "profiles/rui/state/linkedin-cooldown.json"
+
+
+def test_the_queue_is_read_and_written_at_the_root_while_legacy(tmp_path, fresh_warnings):
+    from jobscan.apply.queue import Queue
+    profile(tmp_path, "rui")
+    touch(tmp_path, "applications/queue.json", json.dumps({"items": {"k1": {"candidate_key": "k1"}}}))
+    q = Queue(tmp_path)
+    assert "k1" in q.items
+    q.add("k2", {"status": "queued"})
+    q.save()
+    assert "k2" in json.loads((tmp_path / "applications/queue.json").read_text())["items"]
+    assert not (tmp_path / "profiles/rui/applications").exists()
+
+
+def test_queue_and_answers_are_created_under_the_profile_when_no_root_folder(tmp_path, fresh_warnings):
+    from jobscan.apply.answers import AnswerStore
+    from jobscan.apply.queue import Queue
+    profile(tmp_path, "rui")
+    q = Queue(tmp_path)
+    q.add("k1", {"status": "queued"})
+    q.save()
+    AnswerStore(tmp_path).save()
+    assert (tmp_path / "profiles/rui/applications/queue.json").is_file()
+    assert (tmp_path / "profiles/rui/applications/answers.json").is_file()
+    assert not (tmp_path / "applications").exists()
+
+
+def test_run_log_slug_cache_and_cooldown_use_a_moved_name(tmp_path, fresh_warnings):
+    from jobscan.apply import linkedin, runlog
+    from jobscan.apply.greenhouse import GreenhouseRef
+    from jobscan.apply.slug_cache import SlugCache
+    from jobscan.store import FileStore
+    profile(tmp_path, "rui")
+    store = FileStore(tmp_path)
+    log = runlog.RunLog(store, file=layout.moved_name(tmp_path, runlog.FILE))
+    log.finish(log.start("r1", "https://example.com/j"), "submitted")
+    assert (tmp_path / "profiles/rui/logs/runs.jsonl").is_file()
+    assert not (tmp_path / "logs/runs.jsonl").exists()
+
+    cool = layout.moved_name(tmp_path, linkedin.COOLDOWN_FILE)
+    linkedin.start_cooldown(store, 7, file=cool)
+    assert (tmp_path / "profiles/rui/state/linkedin-cooldown.json").is_file()
+    assert linkedin.cooldown_active(store, file=cool) is True
+    assert linkedin.cooldown_active(store) is False                  # the default name is another file
+
+    cache = SlugCache(store, file=layout.moved_name(tmp_path, "state/slug_cache.json"))
+    assert cache.record(GreenhouseRef("acme", "123", "us"), 200)
+    assert (tmp_path / "profiles/rui/state/slug_cache.json").is_file()

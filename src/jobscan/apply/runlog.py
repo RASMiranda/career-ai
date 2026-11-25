@@ -36,9 +36,10 @@ def counter_for(outcome: str) -> str:
 
 
 class RunLog:
-    def __init__(self, store: Store, now: Callable[[], str] = utc_now):
+    def __init__(self, store: Store, now: Callable[[], str] = utc_now, file: str = FILE):
         self.store = store
         self.now = now
+        self.file = file
 
     def start(self, run_id: str, source_url: str) -> dict:
         return {"run_id": run_id, "site": site_of(source_url), "source_url": source_url,
@@ -49,5 +50,5 @@ class RunLog:
         row = {**run, "ended_at": self.now()}
         counter = counter_for(outcome)
         row[counter] = row.get(counter, 0) + 1
-        self.store.append_line(FILE, row)
+        self.store.append_line(self.file, row)
         return row

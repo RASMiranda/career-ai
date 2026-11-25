@@ -146,18 +146,18 @@ def run_easy_apply(page: Page, applicant: dict, answers: dict, cv_path: str | No
 
 # ----------------------------------------------------------------- cooldown
 
-def cooldown_active(store, now: datetime | None = None) -> bool:
-    data = store.read_json(COOLDOWN_FILE, None)
+def cooldown_active(store, now: datetime | None = None, file: str = COOLDOWN_FILE) -> bool:
+    data = store.read_json(file, None)
     if not data:
         return False
     return (now or datetime.now(UTC)) < datetime.fromisoformat(data["until"])
 
 
-def start_cooldown(store, days: int, now: datetime | None = None) -> str:
+def start_cooldown(store, days: int, now: datetime | None = None, file: str = COOLDOWN_FILE) -> str:
     start = now or datetime.now(UTC)
     until = (start + timedelta(days=days)).isoformat(timespec="seconds")
-    store.write_json(COOLDOWN_FILE, {"until": until, "set_at": start.isoformat(timespec="seconds"),
-                                     "reason": "LinkedIn warning or challenge page"})
+    store.write_json(file, {"until": until, "set_at": start.isoformat(timespec="seconds"),
+                            "reason": "LinkedIn warning or challenge page"})
     return until
 
 

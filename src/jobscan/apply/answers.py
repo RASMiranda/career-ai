@@ -32,6 +32,7 @@ from pathlib import Path
 from .. import cv
 from ..blacklist import canon
 from ..draftcheck import problems_in
+from ..layout import moved_path
 from ..state import _read, _write
 from .adapters import _lab, resolve_value
 from .faillog import FailureLog
@@ -84,8 +85,8 @@ def owner_only(label: str, kind: str) -> str:
 class AnswerStore:
     """``applications/answers.json``: every drafted or owner-written answer and its status."""
 
-    def __init__(self, root: Path):
-        self.path = root / "applications" / "answers.json"
+    def __init__(self, root: Path, pid: str | None = None):
+        self.path = moved_path(root, "applications/answers.json", pid)
         self.items: dict = _read(self.path, {}).get("items", {})
 
     def save(self) -> None:

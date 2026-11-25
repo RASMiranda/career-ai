@@ -452,7 +452,8 @@ def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
     assert run_cli(base, "run") == 0
 
     from jobscan.store import FileStore
-    rows = FileStore(tmp_path).read_lines("logs/runs.jsonl")
+    from jobscan.layout import moved_name
+    rows = FileStore(tmp_path).read_lines(moved_name(tmp_path, "logs/runs.jsonl"))
     assert len(rows) == 5
     totals = {c: sum(r[c] for r in rows) for c in ("submitted_count", "skipped_count",
                                                     "consent_pending_count", "not_found_count")}

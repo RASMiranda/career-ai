@@ -24,10 +24,11 @@ def utc_now() -> str:
 
 
 class SlugCache:
-    def __init__(self, store: Store, now: Callable[[], str] = utc_now):
+    def __init__(self, store: Store, now: Callable[[], str] = utc_now, file: str = FILE):
         self.store = store
         self.now = now
-        self.items: dict = store.read_json(FILE, {}) or {}
+        self.file = file
+        self.items: dict = store.read_json(file, {}) or {}
 
     def get(self, job_id: str) -> dict | None:
         """The verified entry for this job id, or None. A miss is never filled in by inference."""
@@ -39,7 +40,7 @@ class SlugCache:
         if status != 200:
             return False
         self.items[ref.job_id] = {"slug": ref.slug, "host": ref.host, "verified_at": self.now()}
-        self.store.write_json(FILE, self.items)
+        self.store.write_json(self.file, self.items)
         return True
 
 
