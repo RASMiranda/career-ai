@@ -301,7 +301,7 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
         "mode": "dry-run" if dry_run else mode, "step": fail.step,
         "error_code": fail.code, "message": fail.message, "details": fail.details,
         "duration_ms": int((time.time() - t0) * 1000),
-    })
+    }, item.get("profile"))
     item["attempts"].append({"run": run_id, "outcome": "failed", "error_code": fail.code})
     if not dry_run:
         status = "consent_pending" if fail.code == Code.CONSENT_PENDING else "failed"
@@ -322,7 +322,7 @@ def cmd_summary(args, root, cfg, auth):
 
 
 def cmd_bundle(args, root, cfg, auth):
-    entries = faillog.FailureLog(root).read_since(args.days)
+    entries = faillog.FailureLog(root).read_since(args.days, getattr(args, "profile", None))
     if not entries:
         print("no failures in that window")
         return 0
@@ -389,6 +389,7 @@ def main(argv=None) -> int:
     p.add_argument("--days", type=int, default=7)
     p = sub.add_parser("bundle")
     p.add_argument("--days", type=int, default=14)
+    p.add_argument("--profile", help="only this profile's failures (default: all)")
     p.add_argument("--out", default="failures.md")
     p = sub.add_parser("blacklist")
     p.add_argument("action", choices=["list", "test"])

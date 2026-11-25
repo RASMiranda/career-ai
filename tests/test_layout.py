@@ -543,3 +543,75 @@ def test_apply_config_defaults_when_nothing_is_set(tmp_path, fresh_apply_warning
     _apply_repo(tmp_path)
     assert policy.apply_cfg(load_config(tmp_path), "ana")["mode"] == "manual"
     assert capsys.readouterr().err == ""
+
+
+# ---- phase C (issue #118): failure lines under the profile of the failed job ----
+
+def _fail_entry(key="k1"):
+    return {"candidate_key": key, "error_code": "TIMEOUT", "step": "open"}
+
+
+def test_a_failure_line_with_a_row_goes_under_the_profile(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    path = FailureLog(tmp_path).write(_fail_entry(), "rui")
+    assert path.parent == tmp_path / "profiles/rui/logs/apply"
+    assert path.is_file()
+    assert not (tmp_path / "logs").exists()
+
+
+def test_a_failure_line_without_a_row_is_skipped_with_one_warning(tmp_path, capsys):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    log = FailureLog(tmp_path)
+    assert log.write(_fail_entry(), None) is None
+    assert log.write(_fail_entry("k2"), None) is None
+    assert capsys.readouterr().err.count("warning: failure line skipped") == 1
+    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "profiles/rui/logs").exists()
+
+
+def test_a_failure_line_for_an_unknown_profile_is_skipped(tmp_path, capsys):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+    assert FailureLog(tmp_path).write(_fail_entry(), "nobody") is None
+    assert "failure line skipped" in capsys.readouterr().err
+    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "profiles/nobody").exists()
+
+
+def test_failure_lines_keep_the_root_with_no_profile_folder(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    path = FailureLog(tmp_path).write(_fail_entry(), None)
+    assert path.parent == tmp_path / "logs/apply"
+
+
+def test_two_profiles_have_separate_failure_logs(tmp_path):
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "ana")
+    profile(tmp_path, "rui")
+    log = FailureLog(tmp_path)
+    log.write(_fail_entry("ka"), "ana")
+    log.write(_fail_entry("kr"), "rui")
+    assert [r["candidate_key"] for r in log.read_since(1, "ana")] == ["ka"]
+    assert [r["candidate_key"] for r in log.read_since(1, "rui")] == ["kr"]
+    assert sorted(r["candidate_key"] for r in log.read_since(1)) == ["ka", "kr"]
+    assert not (tmp_path / "logs").exists()
+
+
+def test_record_failure_passes_the_row_profile(tmp_path):
+    import time
+    from jobscan.apply import cli
+    from jobscan.apply.adapters import Code
+    from jobscan.apply.faillog import FailureLog
+    profile(tmp_path, "rui")
+
+    class Fail:
+        step, code, message, details = "open", Code.TIMEOUT, "slow", {}
+
+    folder = tmp_path / "profiles/rui/logs/apply"
+    for pid, expect in ((None, False), ("rui", True)):
+        item = {"candidate_key": "k", "company": "C", "title": "T", "url": "https://example.com/j",
+                "attempts": [], "profile": pid}
+        cli._record_failure(FailureLog(tmp_path), None, item, Fail(), "auto", "r1", time.time(), True)
+        assert folder.is_dir() is expect

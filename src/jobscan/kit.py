@@ -317,7 +317,7 @@ def cmd_finish(args, root, cfg) -> int:
     queue.save()
     for where in written:
         print(f"wrote {where.relative_to(root)}")
-    print("Review every letter before it goes anywhere, then commit profiles/ and applications/ in career-data.")
+    print("Review every letter before it goes anywhere, then commit profiles/<id>/ (its 03-outputs/ and applications/ folders) in career-data.")
     return 0
 
 

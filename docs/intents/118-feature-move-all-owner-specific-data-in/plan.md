@@ -73,12 +73,12 @@ Checks: `python -m pytest -q` including `tests/test_no_personal_data.py` (A13); 
 - [x] `layout`: LEGACY resolver (read+write in place, one warning), docstring (run 2)
 - [x] Queue, answers, runlog, slug cache, cooldown via `layout` (run 2; `cmd_run` uses `moved_name`)
 - [x] State files, `collect`, reports, apply summary via `layout` (run 3; `pid` optional, per-profile dedup inside `collect` not yet); run 4 adds `--profile` to `collect`, `report`, `apply run` and `clip` (`Seen`, `Budget`, `Journal`, `Queue`, run log by profile)
-- [ ] `faillog` with the profile from the queue row
+- [x] `faillog` with the profile from the queue row (run 5b; `bundle --profile`)
 - [x] Apply config from `profiles/<id>/apply/config.yaml` (run 5a; root `apply` section is the LEGACY fallback with one warning)
 - [x] `pipeline` passes `--profile` to `collect` and `report` (run 5a)
 - [x] `PUBLISH_PATHS` per-profile allowlist (+ root while LEGACY) and staged-path check (run 1)
 - [x] `decide --profile` (run 1; the queue itself moves through `layout` in run 2, with `Queue`)
-- [ ] `kit.py` hint text; update fixtures and goldens only where paths are named
+- [x] `kit.py` hint text (run 5b); update fixtures and goldens only where paths are named
 - [ ] Suite green; open PR 1
 - [ ] Human: ADR, D1 (renames, `decide.yml`, drop `.gitkeep`), pause routine
 - [ ] PR 2: remove LEGACY and root allowlist entries; grep check

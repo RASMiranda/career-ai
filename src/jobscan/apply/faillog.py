@@ -2,11 +2,12 @@
 
 import json
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .. import __version__
+from .. import __version__, layout
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<![\w])\+?\d[\d\s().-]{7,}\d(?![\w])")
@@ -57,33 +58,64 @@ def host_of(url: str) -> str:
 
 
 class FailureLog:
-    def __init__(self, root: Path, secrets=()):
-        self.dir = root / "logs" / "apply"
-        self.secrets = [s for s in secrets if s]
+    """Failure lines under ``profiles/<id>/logs/apply/`` (ADR-071 (c), issue #118).
 
-    def write(self, entry: dict) -> Path:
-        self.dir.mkdir(parents=True, exist_ok=True)
+    With no profile folder at all the root ``logs/apply/`` is kept. Otherwise a line goes to the
+    profile of the failed job; a line with no known profile is skipped with one warning and never
+    written to the root.
+    """
+
+    def __init__(self, root: Path, secrets=()):
+        self.root = Path(root)
+        self.secrets = [s for s in secrets if s]
+        self._warned = False
+
+    def _dir(self, profile: str | None) -> Path | None:
+        ids = layout.profile_ids(self.root)
+        if not ids:
+            return self.root / "logs" / "apply"
+        if profile in ids:
+            return self.root / layout.PROFILES / profile / "logs" / "apply"
+        return None
+
+    def write(self, entry: dict, profile: str | None = None) -> Path | None:
+        folder = self._dir(profile)
+        if folder is None:
+            if not self._warned:
+                self._warned = True
+                print("warning: failure line skipped: no known profile for the failed job "
+                      f"({profile or 'no queue row'})", file=sys.stderr)
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
         entry = redact({
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "tool_version": __version__,
             **entry,
         }, self.secrets)
-        path = self.dir / f"{entry['at'][:10]}.jsonl"
+        path = folder / f"{entry['at'][:10]}.jsonl"
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return path
 
-    def read_since(self, days: int) -> list[dict]:
+    def read_since(self, days: int, profile: str | None = None) -> list[dict]:
+        """One profile's lines, or with no profile every profile's (and the root's, if present)."""
+        if profile:
+            folders = [self.root / layout.PROFILES / profile / "logs" / "apply"]
+        else:
+            folders = [self.root / layout.PROFILES / pid / "logs" / "apply"
+                       for pid in layout.profile_ids(self.root)]
+            folders.append(self.root / "logs" / "apply")
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         out = []
-        for path in sorted(self.dir.glob("*.jsonl")):
-            for line in path.read_text(encoding="utf-8").splitlines():
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if datetime.fromisoformat(row["at"]) >= cutoff:
-                    out.append(row)
+        for folder in folders:
+            for path in sorted(folder.glob("*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if datetime.fromisoformat(row["at"]) >= cutoff:
+                        out.append(row)
         return out
 
 
