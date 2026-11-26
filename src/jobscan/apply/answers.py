@@ -130,10 +130,13 @@ def answers_for(store: AnswerStore, profile: str, candidate_key: str, explicit: 
 
 # --------------------------------------------------------------------- prepare
 def harvest(root: Path, queue: Queue, store: AnswerStore, applicants: dict, days: int = 30,
-            limit: int = DEFAULT_LIMIT) -> tuple[list[dict], int]:
-    """Questions from recent failures that nothing can answer yet: (to draft, newly reserved for you)."""
+            limit: int = DEFAULT_LIMIT, pid: str | None = None) -> tuple[list[dict], int]:
+    """Questions from recent failures that nothing can answer yet: (to draft, newly reserved for you).
+
+    ``pid`` limits the failure lines to one profile's folder; None reads every profile's (as before).
+    """
     todo, reserved, seen = [], 0, set()
-    for entry in FailureLog(root).read_since(days):
+    for entry in FailureLog(root).read_since(days, pid):
         item = queue.items.get(entry.get("candidate_key"))
         if entry.get("error_code") != "UNKNOWN_REQUIRED_FIELD" or not item or not item.get("profile"):
             continue
@@ -312,10 +315,11 @@ def _read_json(path: Path, what: str):
 
 def run(args, root: Path, cfg: dict, applicants: dict) -> int:
     """``apply questions <action>``; returns an exit code."""
-    store, action, work = AnswerStore(root), args.action, Path(getattr(args, "work", "/tmp"))
+    pid = getattr(args, "profile", None)              # resolved by the CLI: one profile's answers and queue
+    store, action, work = AnswerStore(root, pid), args.action, Path(getattr(args, "work", "/tmp"))
 
     if action == "prepare":
-        todo, reserved = harvest(root, Queue(root), store, applicants, args.days, args.limit)
+        todo, reserved = harvest(root, Queue(root, pid), store, applicants, args.days, args.limit, pid)
         store.save()
         if reserved:
             print(f"{reserved} question(s) are yours to answer (legal, consent, pay, a checkbox…): "
