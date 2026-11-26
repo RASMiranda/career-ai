@@ -225,6 +225,8 @@ each with an `access_method` (`public_api`, `keyed_api`, `feed`, `ats_board`,
 | Source | Method | Key | State |
 |---|---|---|---|
 | Remotive | public_api | no | implemented |
+| Working Nomads | public_api | no | adapter built, **terms not reviewed: not run** (ADR-080) |
+| Jobgether | public_api | no | pending: waits for a sample response and terms (ADR-080, ADR-081) |
 | Arbeitnow | public_api | no | implemented |
 | Adzuna | keyed_api | yes | implemented (free developer tier) |
 | JSearch (RapidAPI) | keyed_api | yes | implemented (monthly quota, budget-tracked) |

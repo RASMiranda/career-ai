@@ -1,0 +1,42 @@
+[
+  {
+    "url": "https://www.workingnomads.com/jobs/example-senior-java-developer",
+    "title": "Senior Java Developer",
+    "description": "<p>Build backend services for a remote product team.</p>",
+    "company_name": "ExampleCo",
+    "category_name": "Development",
+    "tags": "java, spring, microservices",
+    "location": "Anywhere",
+    "pub_date": "2026-11-20T09:00:00+00:00"
+  },
+  {
+    "url": "https://www.workingnomads.com/jobs/example-frontend-engineer",
+    "title": "Frontend Engineer",
+    "description": "<p>Ship user interfaces. Experience with Angular is required.</p>",
+    "company_name": "Sample Web",
+    "category_name": "Development",
+    "tags": "angular,typescript",
+    "location": "Europe",
+    "pub_date": "2026-11-21T14:30:00+01:00"
+  },
+  {
+    "url": "https://www.workingnomads.com/jobs/example-data-analyst",
+    "title": "Data Analyst",
+    "description": "<p>Reporting dashboards. Some ETL pipelines are written in Java.</p>",
+    "company_name": "Sample Data",
+    "category_name": "Data",
+    "tags": "sql, python",
+    "location": "Anywhere",
+    "pub_date": "2026-11-22T08:00:00+00:00"
+  },
+  {
+    "url": "https://www.workingnomads.com/jobs/example-platform-lead",
+    "title": "Platform Lead",
+    "description": "<p>Lead a platform team running on Kubernetes.</p>",
+    "company_name": "Sample Labs",
+    "category_name": "DevOps",
+    "tags": "kubernetes, spring boot",
+    "location": "Anywhere",
+    "pub_date": "2026-11-23T10:15:00-03:00"
+  }
+]

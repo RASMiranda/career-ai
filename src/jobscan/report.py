@@ -56,9 +56,19 @@ def _bucket(candidates: dict, decisions: list, profiles: list | None = None) -> 
     return matches, shown
 
 
-def render_markdown(day: str, matches: list, pending: list, errors: list) -> str:
+def health_text(health: dict | None) -> str:
+    """One line per run: each source's status (collect's ``source_health``). Empty when there is none."""
+    if not health:
+        return ""
+    return "Sources: " + " · ".join(f"{name} {status}" for name, status in sorted(health.items()))
+
+
+def render_markdown(day: str, matches: list, pending: list, errors: list,
+                    health: dict | None = None) -> str:
     lines = [f"# Job scan — {day}", "",
              f"{len(matches)} match(es), {len(pending)} to verify.", ""]
+    if health_text(health):
+        lines += [health_text(health), ""]
     if not matches:
         lines += ["_No confirmed matches today._", ""]
     for m in matches:
@@ -105,12 +115,16 @@ def _card(row: dict) -> str:
 
 
 def render_email(day: str, matches: list, pending: list, extra_html: str = "", urgent_html: str = "",
-                 repo: str = feedback.DEFAULT_REPO) -> str:
-    """``urgent_html`` (applications to do by hand) goes first: it is the part that needs you today."""
+                 repo: str = feedback.DEFAULT_REPO, health: dict | None = None) -> str:
+    """``urgent_html`` (applications to do by hand) goes first: it is the part that needs you today.
+    ``health`` (per-source status) is shown under the counts, so a silent empty source is seen."""
     body = [f'<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px">',
             f'<h2 style="margin:0 0 4px">Job scan · {html.escape(day)}</h2>',
             f'<p style="color:#666;margin:0 0 16px">{len(matches)} match(es), '
             f'{len(pending)} to verify.</p>']
+    if health_text(health):
+        body.append(f'<p style="color:#666;margin:-8px 0 16px;font-size:13px">'
+                    f'{html.escape(health_text(health))}</p>')
     if urgent_html:
         body.append(urgent_html)
     body += [_card(m) for m in matches] or ['<p>No confirmed matches today.</p>']
@@ -144,7 +158,8 @@ def build_deliveries(day: str, cfg: dict, candidates: dict, decisions: list,
         urgent = render_failures(queue, pid, repo=repo, decision_repo=decision_repo) if queue else ""
         by_hand = count_failures(queue, pid) if queue else 0
         body = out_dir / f"email-{pid}.html"
-        body.write_text(render_email(day, matches, pending, apps, urgent, repo), encoding="utf-8")
+        body.write_text(render_email(day, matches, pending, apps, urgent, repo,
+                                     candidates.get("source_health")), encoding="utf-8")
         deliveries.append({
             "profile": pid,
             "to": recipients(profile),
@@ -200,7 +215,8 @@ def main(argv=None) -> int:
 
     matches, pending = _bucket(candidates, decisions, cfg["profiles"])
 
-    md = render_markdown(day, matches, pending, candidates.get("errors", []))
+    md = render_markdown(day, matches, pending, candidates.get("errors", []),
+                         candidates.get("source_health"))
     report_file.parent.mkdir(parents=True, exist_ok=True)
     report_file.write_text(md, encoding="utf-8")
     out_dir = Path(args.out_dir)

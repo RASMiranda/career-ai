@@ -13,8 +13,10 @@ import sys
 
 from .collect import proxied_sources
 from .config import ConfigError, data_root, load_config, secret
-from .sources import jsearch
+from .sources import blocked_reason, jsearch
 from .sources._http import probe_json
+from .sources.remotive import API as REMOTIVE_API
+from .sources.workingnomads import API as WORKINGNOMADS_API
 
 HOW = {
     401: "the key was rejected",
@@ -74,6 +76,23 @@ def check_jsearch(via_proxy: bool) -> tuple[bool, str]:
     return ok, f"{msg} [{mode}, {api.rsplit('/', 1)[1]}]"
 
 
+def check_remotive() -> tuple[bool, str]:
+    """Public, no key: one search for "java", one result."""
+    status, payload, error = probe_json(REMOTIVE_API, {"search": "java", "limit": 1})
+    return _verdict("remotive", status, payload, error, "jobs")
+
+
+def check_workingnomads() -> tuple[bool, str]:
+    """Public feed, no key. Not probed while its terms are unreviewed: collect does not run it either."""
+    why = blocked_reason("workingnomads")
+    if why:
+        return True, f"DISABLED: {why}"
+    status, payload, error = probe_json(WORKINGNOMADS_API)
+    if status == 200 and isinstance(payload, list):
+        return True, f"OK, HTTP 200, {len(payload)} job(s) in the feed"
+    return False, _verdict("workingnomads", status, {}, error, "")[1]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data")
@@ -83,7 +102,8 @@ def main(argv=None) -> int:
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
-    results = {"adzuna": check_adzuna(), "jsearch": check_jsearch("jsearch" in proxied_sources(cfg))}
+    results = {"adzuna": check_adzuna(), "jsearch": check_jsearch("jsearch" in proxied_sources(cfg)),
+               "remotive": check_remotive(), "workingnomads": check_workingnomads()}
     for name, (ok, msg) in results.items():
         print(f"{name:8} {msg}")
     return 0 if all(ok for ok, _ in results.values()) else 1
