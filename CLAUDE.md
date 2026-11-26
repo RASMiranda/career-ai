@@ -7,7 +7,8 @@ mid-run. If a step fails, **stop and report** — never improvise a workaround.
 
 - `career-ai` (this repo) — code. Never commit personal data here.
 - `career-data` — private. Criteria, state, queue, reports. Read
-  `authorization.yaml` first; if `active` is not `true`, stop. Who gets the
+  `profiles/<id>/authorization.yaml` first (never a root copy: the code does not read one);
+  if the file is missing or `active` is not `true`, stop. Who gets the
   email is per profile: `notify.email` in `profiles/<id>/profile.yaml`.
 
 ## What you may and may not do
@@ -28,7 +29,7 @@ read `candidates.json`, re-run steps, or open files not named here: usage is lim
    if PyYAML is missing. If the two repos are not siblings, **stop** and report
    where they are; do not guess paths.
 2. `python -m jobscan.pipeline prepare --data ../career-data`. It stops if
-   `authorization.yaml` is not active, collects (blacklisted companies already
+   `profiles/<id>/authorization.yaml` is missing or not active, collects (blacklisted companies already
    removed), auto-discards obvious rejects (`prefilter` and `languages` in `profile.yaml`), and
    prints a BRIEF of the candidates that need judgement.
    **If it prints `NOTHING TO SCORE`**, skip step 3. If no email is then listed, the run is
