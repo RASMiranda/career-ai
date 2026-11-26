@@ -1,6 +1,7 @@
 import json
 
 from jobscan.report import _bucket, build_deliveries, render_email, render_markdown
+from profile_helpers import ensure_profile
 
 CANDS = {"generated_on": "2026-09-18", "errors": [], "candidates": [
     {"candidate_key": "k1", "title": "Senior Java Engineer", "company": "Acme",
@@ -66,6 +67,7 @@ def test_each_profile_gets_its_own_email_and_recipients(tmp_path):
 
 
 def test_applications_section_only_shows_that_profiles_queue(tmp_path):
+    ensure_profile(tmp_path)
     from jobscan.apply.queue import Queue
     q = Queue(tmp_path)
     for key, prof, title in [("aaaa1111", "a", "Only-A role"), ("bbbb2222", "b", "Only-B role")]:

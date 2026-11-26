@@ -5,6 +5,7 @@ import pytest
 from jobscan import feedback, report
 from jobscan.apply import summary
 from jobscan.apply.queue import Queue
+from profile_helpers import ensure_profile
 
 CFG = {"profiles": [{"id": "p", "notify": {"email": ["me@mail.test"]}}]}
 
@@ -76,6 +77,7 @@ def test_the_email_ends_with_the_three_links_and_a_privacy_note(tmp_path):
 
 
 def test_the_repository_comes_from_config_when_it_is_set(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("fail000001", {"title": "T", "company": "C", "url": "https://jobs.lever.co/c/1", "status": "failed",
                          "error_code": "CAPTCHA", "fit": 80, "profile": "p"})
@@ -89,6 +91,7 @@ def test_the_repository_comes_from_config_when_it_is_set(tmp_path):
 
 
 def test_each_failed_application_in_the_email_has_a_report_link_that_exposes_nothing(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("fail000001", {**failed(), "candidate_key": "fail000001"})
     block = summary.render_failures(q, "p")

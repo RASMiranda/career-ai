@@ -7,15 +7,17 @@ import pytest
 
 from jobscan import decide, report
 from jobscan.apply.queue import Queue
+from profile_helpers import ensure_profile
 
 CFG = {"profiles": [{"id": "p", "notify": {"email": ["me@mail.test"]}}]}
 KEY = "76eee1ca" + "0" * 24
 
 
-def make(tmp_path, status="queued"):
-    q = Queue(tmp_path)
+def make(tmp_path, status="queued", pid="p", row_profile="p"):
+    """One queue row in profile ``pid``'s queue; ``row_profile`` is the profile the row says it belongs to."""
+    q = Queue(tmp_path, pid)
     q.add(KEY, {"title": "Senior Java", "company": "Virtual7", "url": "https://x.test/1",
-                "fit": 66, "profile": "p", "status": status, "policy_notes": ["manual mode"]})
+                "fit": 66, "profile": row_profile, "status": status, "policy_notes": ["manual mode"]})
     q.save()
     return q
 
@@ -34,6 +36,7 @@ def test_only_done_and_skip_with_an_exact_key_are_accepted(title):
 
 
 def test_done_and_skip_take_the_job_out_of_the_waiting_list(tmp_path):
+    ensure_profile(tmp_path)
     make(tmp_path)
     assert "Virtual7" in decide.apply_decision(tmp_path, "done 76eee1ca")
     assert Queue(tmp_path).items[KEY]["status"] == "done"
@@ -43,6 +46,7 @@ def test_done_and_skip_take_the_job_out_of_the_waiting_list(tmp_path):
 
 
 def test_an_application_already_submitted_is_not_overwritten(tmp_path):
+    ensure_profile(tmp_path)
     make(tmp_path, "submitted")
     with pytest.raises(ValueError):
         decide.apply_decision(tmp_path, "skip 76eee1ca")
@@ -55,6 +59,7 @@ def profiles(tmp_path, *ids):
 
 
 def test_the_command_defaults_to_the_only_profile(tmp_path, capsys):
+    ensure_profile(tmp_path)
     make(tmp_path)
     profiles(tmp_path, "p")
     assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca"]) == 0
@@ -63,24 +68,27 @@ def test_the_command_defaults_to_the_only_profile(tmp_path, capsys):
 
 
 def test_several_profiles_need_an_explicit_profile(tmp_path, capsys):
+    ensure_profile(tmp_path)
     make(tmp_path)
     profiles(tmp_path, "p", "q")
     assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca"]) == 2
     assert "--profile" in capsys.readouterr().err
-    assert Queue(tmp_path).items[KEY]["status"] == "queued"
+    assert Queue(tmp_path, "p").items[KEY]["status"] == "queued"
     assert decide.main(["--data", str(tmp_path), "--title", "done 76eee1ca", "--profile", "p"]) == 0
-    assert Queue(tmp_path).items[KEY]["status"] == "done"
+    assert Queue(tmp_path, "p").items[KEY]["status"] == "done"
 
 
 def test_a_job_of_another_profile_is_not_changed(tmp_path, capsys):
-    make(tmp_path)
+    ensure_profile(tmp_path)
+    make(tmp_path, pid="q", row_profile="p")     # a row in q's queue that says it belongs to p
     profiles(tmp_path, "p", "q")
     assert decide.main(["--data", str(tmp_path), "--title", "skip 76eee1ca", "--profile", "q"]) == 2
     assert "another profile" in capsys.readouterr().err
-    assert Queue(tmp_path).items[KEY]["status"] == "queued"
+    assert Queue(tmp_path, "q").items[KEY]["status"] == "queued"
 
 
 def test_the_waiting_item_in_the_email_carries_both_links(tmp_path):
+    ensure_profile(tmp_path)
     out = tmp_path / "out"
     out.mkdir()
     got = report.build_deliveries("2026-10-15", CFG, {"candidates": []}, [], make(tmp_path), out,

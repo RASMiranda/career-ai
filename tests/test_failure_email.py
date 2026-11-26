@@ -7,6 +7,7 @@ from pathlib import Path
 from jobscan import report
 from jobscan.apply import summary
 from jobscan.apply.queue import Queue
+from profile_helpers import ensure_profile
 
 CFG = {"profiles": [{"id": "p", "notify": {"email": ["me@mail.test"]}},
                     {"id": "q", "notify": {"email": ["you@mail.test"]}}]}
@@ -33,6 +34,7 @@ def deliver(tmp_path, q, matches=None):
 
 
 def test_a_failed_application_is_emailed_first_with_reason_link_and_cv(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path, ("failed00111", {"status": "failed", "error_code": "UNKNOWN_REQUIRED_FIELD",
                                          "cv": "tech-lead", "kit": "profiles/p/03-outputs/2026-10-09-acme-java-failed001"}))
     deliveries, out = deliver(tmp_path, q)
@@ -49,6 +51,7 @@ def test_a_failed_application_is_emailed_first_with_reason_link_and_cv(tmp_path)
 
 
 def test_an_approved_job_the_runner_never_submitted_is_reported_too(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path,
               ("stale0001", {"status": "approved", "updated": ago(60)}),
               ("fresh0001", {"status": "approved", "updated": ago(2), "title": "Fresh One"}))
@@ -61,6 +64,7 @@ def test_an_approved_job_the_runner_never_submitted_is_reported_too(tmp_path):
 
 
 def test_nothing_failed_means_nothing_changes(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path)                                                    # one plain queued job
     deliveries, _ = deliver(tmp_path, q)
     d = deliveries["p"]
@@ -70,6 +74,7 @@ def test_nothing_failed_means_nothing_changes(tmp_path):
 
 
 def test_each_profile_only_sees_its_own_failures(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path, ("mine00001", {"status": "failed", "error_code": "CAPTCHA"}),
               ("yours0001", {"status": "failed", "error_code": "CAPTCHA", "profile": "q", "title": "Their Job"}))
     deliveries, _ = deliver(tmp_path, q)
@@ -79,6 +84,7 @@ def test_each_profile_only_sees_its_own_failures(tmp_path):
 
 
 def test_failure_details_are_escaped_and_unsafe_links_are_not_linked(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path, ("evil00001", {"status": "failed", "error_code": "CAPTCHA", "title": "<script>x</script>",
                                        "company": "A&B", "url": "javascript:alert(1)"}))
     body = summary.render_failures(q, "p")
@@ -94,6 +100,7 @@ def test_all_failure_codes_have_a_plain_explanation(tmp_path):
 
 
 def test_a_resolved_failure_stops_being_reported(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path, ("failed0001", {"status": "failed", "error_code": "TIMEOUT"}))
     assert summary.count_failures(q, "p") == 1
     q.set("failed0001", "done")                                            # you applied by hand
@@ -103,6 +110,7 @@ def test_a_resolved_failure_stops_being_reported(tmp_path):
 
 
 def test_the_markdown_summary_lists_stalled_jobs_as_well(tmp_path):
+    ensure_profile(tmp_path)
     q = queue(tmp_path, ("stale0001", {"status": "approved", "updated": ago(100)}))
     md = summary.render_markdown(q)
     assert "approved but never submitted" in md and "https://jobs.lever.co/acme/1" in md

@@ -5,6 +5,7 @@ import yaml
 
 from jobscan import clip, collect
 from jobscan.state import Seen
+from profile_helpers import ensure_profile, write_profile
 
 DESC = ("&lt;p&gt;We are hiring a &lt;b&gt;Senior Java&lt;/b&gt; engineer to lead our platform team. "
         "You will own Spring Boot services and mentor four developers.&lt;/p&gt;")
@@ -114,13 +115,14 @@ def test_instructions_in_a_posting_stay_data():
 # ---------------------------------------------------------------------- inbox
 def make_root(tmp_path, *, queries=False, blacklist=(), profiles=("p",)):
     (tmp_path / "state").mkdir(exist_ok=True)
-    cfg = {"blacklist": {"companies": list(blacklist)}, "profiles": [
-        {"id": pid, "criteria": "x", "prefilter": {"reject_title": [r"\bjunior\b"]}} for pid in profiles]}
-    (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({"blacklist": {"companies": list(blacklist)}}))
+    for pid in profiles:
+        write_profile(tmp_path, pid, {"criteria": "x", "prefilter": {"reject_title": [r"\bjunior\b"]}})
     return tmp_path
 
 
 def test_add_dedupes_and_drops_what_the_scan_has_seen(tmp_path):
+    ensure_profile(tmp_path)
     root = make_root(tmp_path)
     (c,) = clip.parse(page(posting()), "p")
     added, known = clip.add(root, Seen(root), [c, c])
@@ -135,6 +137,7 @@ def test_add_dedupes_and_drops_what_the_scan_has_seen(tmp_path):
 
 
 def test_pending_ignores_junk_and_unknown_fields(tmp_path):
+    ensure_profile(tmp_path)
     root = make_root(tmp_path)
     clip.inbox_path(root).parent.mkdir()
     clip.inbox_path(root).write_text(json.dumps({"clips": [
@@ -153,6 +156,7 @@ def run_collect(root, tmp_path):
 
 
 def test_collect_scores_clips_like_any_other_source(tmp_path):
+    ensure_profile(tmp_path)
     root = make_root(tmp_path)
     (c,) = clip.parse(page(posting()), "p")
     clip.add(root, Seen(root), [c])
@@ -167,6 +171,7 @@ def test_collect_scores_clips_like_any_other_source(tmp_path):
 
 
 def test_collect_applies_the_blacklist_and_checks_the_profile(tmp_path):
+    ensure_profile(tmp_path)
     root = make_root(tmp_path, blacklist=["Acme"])
     (c,) = clip.parse(page(posting()), "p")
     (other,) = clip.parse(page(posting(identifier="9")), "ghost")

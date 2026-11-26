@@ -7,11 +7,13 @@ from jobscan.apply.queue import APPLIED, STATUSES, TRACKING, Queue
 from jobscan.blacklist import Blacklist
 
 from test_apply_core import item, make_data, run_cli
+from profile_helpers import ensure_profile
 
 TODAY = datetime.now(timezone.utc).date()      # summary.sections() reads the real clock
 
 
 def applied(tmp_path, key="k1", status="submitted", days_ago=10, **extra):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add(key, {"title": "Java Lead", "company": "Acme", "url": "https://x.test/1", "fit": 90,
                 "profile": "p", "status": "queued", **extra})
@@ -29,6 +31,7 @@ def test_tracking_statuses_are_known_and_counted_as_applied():
 
 
 def test_applying_stamps_applied_at_once(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("k", {"title": "t", "company": "c", "status": "queued"})
     q.set("k", "done")
@@ -38,6 +41,7 @@ def test_applying_stamps_applied_at_once(tmp_path):
 
 
 def test_track_records_status_and_note(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path)
     tracker.track(q, "k1", "interview", "  call on Thursday ", "2026-11-01")
     got = q.items["k1"]
@@ -47,6 +51,7 @@ def test_track_records_status_and_note(tmp_path):
 
 @pytest.mark.parametrize("status", ["queued", "approved", "filled", "failed", "skipped"])
 def test_track_refuses_what_was_never_applied_to(tmp_path, status):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("k", {"title": "t", "company": "c", "status": status})
     with pytest.raises(ValueError, match="record the application first"):
@@ -54,6 +59,7 @@ def test_track_refuses_what_was_never_applied_to(tmp_path, status):
 
 
 def test_track_rejects_bad_input(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path)
     with pytest.raises(ValueError):
         tracker.track(q, "k1", "hired")
@@ -62,12 +68,14 @@ def test_track_rejects_bad_input(tmp_path):
 
 
 def test_follow_up_due_after_the_wait_and_not_before(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, days_ago=7)
     assert [i["candidate_key"] for i in tracker.follow_ups_due(q, TODAY, days=7)] == ["k1"]
     assert tracker.follow_ups_due(q, TODAY, days=8) == []
 
 
 def test_follow_up_only_while_nobody_answered(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path / "a", days_ago=30)
     tracker.mark_followed_up(q, "k1")
     assert tracker.follow_ups_due(q, TODAY) == []
@@ -77,6 +85,7 @@ def test_follow_up_only_while_nobody_answered(tmp_path):
 
 
 def test_chosen_date_replaces_the_default_wait(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, days_ago=30)
     q.items["k1"]["follow_up_on"] = (TODAY + timedelta(days=3)).isoformat()
     assert tracker.follow_ups_due(q, TODAY) == []
@@ -85,23 +94,27 @@ def test_chosen_date_replaces_the_default_wait(tmp_path):
 
 
 def test_hand_applied_items_without_applied_at_still_get_a_date(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("k", {"title": "t", "company": "c", "status": "done", "updated": "2026-10-01T08:00:00+00:00"})
     assert len(tracker.follow_ups_due(q, TODAY)) == 1
 
 
 def test_follow_up_filters_by_profile(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, days_ago=10)
     assert tracker.follow_ups_due(q, TODAY, profile="p") and not tracker.follow_ups_due(q, TODAY, profile="x")
 
 
 def test_mark_followed_up_needs_an_unanswered_application(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, status="interview")
     with pytest.raises(ValueError, match="nobody has answered"):
         tracker.mark_followed_up(q, "k1")
 
 
 def test_funnel_and_response_rate(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     for key, status in (("a", "submitted"), ("b", "done"), ("c", "interview"), ("d", "rejected"), ("e", "withdrawn")):
         q.add(key, {"title": "t", "company": key, "status": "queued", "profile": "p"})
@@ -109,14 +122,15 @@ def test_funnel_and_response_rate(tmp_path):
     counts = tracker.funnel(q)
     assert counts["submitted"] == counts["done"] == counts["interview"] == 1
     assert tracker.response_rate(counts) == 50      # 2 of the 4 that were not withdrawn answered
-    assert tracker.funnel(Queue(tmp_path / "empty")) == {}
+    assert tracker.funnel(Queue(tmp_path, "empty")) == {}  # a profile with no queue file yet
     assert tracker.response_rate({}) is None
 
 
 def test_company_with_a_live_application_is_not_auto_approved_again(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, status="done")
     q.set("k1", "interview")
-    acfg = policy.apply_cfg({"apply": {"mode": "auto"}})
+    acfg = policy.apply_cfg({"profiles": [{"id": "p", "apply_config": {"mode": "auto"}}]}, "p")
     status, notes = policy.initial_status(item(company="Acme"), acfg,
                                           {"application_submission": {"master_switch": True,
                                                                       "acknowledged_on": "2026-10-15"}},
@@ -125,6 +139,7 @@ def test_company_with_a_live_application_is_not_auto_approved_again(tmp_path):
 
 
 def test_summary_shows_funnel_in_progress_and_follow_ups(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, "due", "submitted", days_ago=10)
     q.add("talk", {"title": "Architect", "company": "Beta", "status": "queued", "profile": "p", "fit": 80,
                    "url": "https://x.test/2"})
@@ -139,6 +154,7 @@ def test_summary_shows_funnel_in_progress_and_follow_ups(tmp_path):
 
 
 def test_in_progress_alone_does_not_make_an_email(tmp_path):
+    ensure_profile(tmp_path)
     q = applied(tmp_path, days_ago=1)
     q.set("k1", "interview")
     assert "In progress" in summary.render_markdown(q)
@@ -146,6 +162,7 @@ def test_in_progress_alone_does_not_make_an_email(tmp_path):
 
 
 def test_cli_track_and_followed_up(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
     assert run_cli(base, "track", "aaaa11", "--status", "replied") == 2        # not applied yet
@@ -162,6 +179,7 @@ def test_cli_track_and_followed_up(tmp_path, capsys):
 
 
 def test_enqueue_keeps_the_posting_for_the_kit(tmp_path):
+    ensure_profile(tmp_path)
     import json
     base = make_data(tmp_path)
     cands = json.loads((tmp_path / "c.json").read_text())
@@ -174,6 +192,7 @@ def test_enqueue_keeps_the_posting_for_the_kit(tmp_path):
 
 
 def test_waiting_matches_point_at_their_kit_or_how_to_get_one(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("with", {"title": "A", "company": "X", "status": "queued", "fit": 90, "url": "https://x.test/1",
                    "kit": "profiles/p/03-outputs/2026-10-08-x-a-with"})

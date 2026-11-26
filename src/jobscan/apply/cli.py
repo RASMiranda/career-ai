@@ -179,7 +179,7 @@ def cmd_run(args, root, cfg, auth):
     applicants = _known_applicants(root, cfg)
     secrets = [a.get(k, "") for a, _ in applicants.values()
                for k in ("first_name", "last_name", "email", "phone")]
-    only = getattr(args, "profile", None)  # None: the only profile, or the root while LEGACY
+    only = getattr(args, "profile", None)  # None: the only profile (several profiles: ConfigError)
     flog, q, store = faillog.FailureLog(root, secrets), Queue(root, only), drafted.AnswerStore(root, only)
     fstore = FileStore(root)
     runs = runlog.RunLog(fstore, file=layout.moved_name(root, runlog.FILE, only))
@@ -310,7 +310,7 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
 
 def cmd_summary(args, root, cfg, auth):
     q = Queue(root)
-    wait = policy.apply_cfg(cfg)["follow_up_days"]
+    wait = policy.apply_cfg(cfg, getattr(args, "profile", None))["follow_up_days"]
     md = summary.render_markdown(q, args.days, wait)
     if args.html:
         Path(args.html).write_text(summary.render_html(q, args.days, follow_up_days=wait), encoding="utf-8")

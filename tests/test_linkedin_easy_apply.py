@@ -11,11 +11,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from jobscan import layout
 from jobscan.apply import authz, cli, linkedin, policy
 from jobscan.apply.adapters import ApplyFailure, ApplyResult, Code, detect_ats
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
 from jobscan.store import FileStore
+from profile_helpers import ensure_profile, write_apply_config, write_profile
 
 APPLICANT = {"first_name": "Ana", "last_name": "Silva", "email": "ana.private@b.test", "phone": "+351 900 000 000"}
 LI_JOB = "https://www.linkedin.com/jobs/view/1001"
@@ -103,11 +105,10 @@ def build(tmp_path, items, *, auth=AUTH, mode="auto", caps=None, blacklist=()):
     (tmp_path / "profiles/p/01-knowledge").mkdir(parents=True)
     (tmp_path / "cv-files").mkdir()
     (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
-    (tmp_path / "config.yaml").write_text(yaml.safe_dump({
-        "blacklist": {"companies": list(blacklist)},
-        "apply": {"mode": mode, "delay_seconds": 0, "auto": caps or {}},
-        "profiles": [{"id": "p", "criteria": "x", "cv": {"dir": "cv-files"},
-                      "applicant": APPLICANT, "answers": ANSWERS}]}))
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({"blacklist": {"companies": list(blacklist)}}))
+    write_profile(tmp_path, "p", {"criteria": "x", "cv": {"dir": "cv-files"},
+                                  "applicant": APPLICANT, "answers": ANSWERS})
+    write_apply_config(tmp_path, "p", {"mode": mode, "delay_seconds": 0, "auto": caps or {}})
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({"active": True, **auth}))
     q = Queue(tmp_path)
     base = {"profile": "p", "title": "Java Lead", "company": "Acme", "fit": 90, "tier": "core",
@@ -156,6 +157,7 @@ def run(base, capsys=None):
 # ----------------------------------------------- master switch, flags, acknowledgement
 
 def test_master_switch_off_means_zero_submissions(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     off = copy.deepcopy(AUTH)
     off["application_submission"]["master_switch"] = False
     base = build(tmp_path, [("l1", {"url": LI_JOB}), lever(1, "Acme")], auth=off)
@@ -167,9 +169,10 @@ def test_master_switch_off_means_zero_submissions(tmp_path, monkeypatch, capsys)
 
 
 def test_master_switch_off_never_auto_approves_linkedin(tmp_path):
+    ensure_profile(tmp_path)
     off = copy.deepcopy(AUTH)
     off["application_submission"]["master_switch"] = False
-    acfg = policy.apply_cfg({"apply": {"mode": "auto"}})
+    acfg = policy.apply_cfg({"profiles": [{"id": "p", "apply_config": {"mode": "auto"}}]}, "p")
     status, notes = policy.initial_status({"title": "x", "company": "Acme", "fit": 90, "tier": "core",
                                            "confidence": "high", "url": LI_JOB},
                                           acfg, off, Queue(tmp_path), BL)
@@ -227,12 +230,13 @@ def test_unknown_question_consent_work_auth_captcha_login_stop_and_hand_over(cas
 
 
 def test_stop_is_logged_redacted_and_handed_back(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [("l1", {"url": LI_JOB})])
     install(monkeypatch, executor([screen([field("f1", "Describe your Kubernetes work")])]))
     assert run(base) == 0
     item = Queue(tmp_path).items["l1"]
     assert item["status"] == "failed" and item["error_code"] == Code.UNKNOWN_REQUIRED_FIELD
-    logged = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "logs/apply").glob("*.jsonl"))
+    logged = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "profiles/p/logs/apply").glob("*.jsonl"))
     assert "UNKNOWN_REQUIRED_FIELD" in logged
     assert APPLICANT["email"] not in logged and APPLICANT["phone"] not in logged
 
@@ -265,6 +269,7 @@ def test_submit_without_confirmation_is_not_a_success():
 # ------------------------------------------------------------ caps and dedup
 
 def test_caps_stop_the_run_exactly_at_the_limit(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [lever(n, f"Co{n}") for n in range(4)], caps={"max_per_day": 2, "max_per_week": 10})
     calls = install(monkeypatch, succeed)
     run(base)
@@ -274,6 +279,7 @@ def test_caps_stop_the_run_exactly_at_the_limit(tmp_path, monkeypatch):
 
 
 def test_linkedin_has_its_own_daily_cap(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [("l1", {"url": LI_JOB, "company": "A1"}),
                             ("l2", {"url": LI_JOB + "2", "company": "A2"}),
                             ("l3", {"url": LI_JOB + "3", "company": "A3"}),
@@ -285,6 +291,7 @@ def test_linkedin_has_its_own_daily_cap(tmp_path, monkeypatch):
 
 
 def test_same_company_repeat_is_refused(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [("old", {"url": "https://jobs.lever.co/acme/0", "company": "Acme", "status": "submitted"}),
                             lever(1, "Acme")])
     calls = install(monkeypatch, succeed)
@@ -295,6 +302,7 @@ def test_same_company_repeat_is_refused(tmp_path, monkeypatch, capsys):
 
 
 def test_blacklisted_company_is_refused_at_apply_time(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [("bad", {"url": "https://jobs.lever.co/proxify/1", "company": "Proxify"})],
                  blacklist=["Proxify"])
     calls = install(monkeypatch, succeed)
@@ -306,6 +314,7 @@ def test_blacklisted_company_is_refused_at_apply_time(tmp_path, monkeypatch):
 # ------------------------------------------------------ challenge: halt and cooldown
 
 def test_challenge_page_halts_the_run_and_sets_a_cooldown(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     challenge = {"url": "https://www.linkedin.com/checkpoint/challenge/abc"}
     base = build(tmp_path, [("l1", {"url": LI_JOB + "1", "company": "A1"}),
                             ("l2", {"url": LI_JOB + "2", "company": "A2"})])
@@ -320,13 +329,14 @@ def test_challenge_page_halts_the_run_and_sets_a_cooldown(tmp_path, monkeypatch)
     assert calls == [LI_JOB + "1"]                                     # the second job is never attempted
     items = Queue(tmp_path).items
     assert items["l1"]["error_code"] == Code.LINKEDIN_CHALLENGE and items["l2"]["status"] == "approved"
-    cooldown = FileStore(tmp_path).read_json(linkedin.COOLDOWN_FILE)
+    cooldown = FileStore(tmp_path).read_json(layout.moved_name(tmp_path, linkedin.COOLDOWN_FILE, "p"))
     assert cooldown and cooldown["until"] > cooldown["set_at"]
 
 
 def test_cooldown_stops_the_next_run_from_touching_linkedin(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = build(tmp_path, [("l1", {"url": LI_JOB, "company": "A1"})])
-    linkedin.start_cooldown(FileStore(tmp_path), 7)
+    linkedin.start_cooldown(FileStore(tmp_path), 7, file=layout.moved_name(tmp_path, linkedin.COOLDOWN_FILE, "p"))
     calls = install(monkeypatch, succeed)
     run(base)
     assert calls == []

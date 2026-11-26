@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 
 import pytest
@@ -6,6 +7,7 @@ import yaml
 
 from jobscan import pipeline
 from jobscan.apply.queue import Queue
+from profile_helpers import ensure_profile, write_apply_config, write_profile
 
 LONG = "We build services all day long. " * 20
 
@@ -28,11 +30,9 @@ def make_repo(tmp_path, reject_main=False):
     git(data, "checkout", "-q", "-b", "main")
     (data / "profiles/p/01-knowledge").mkdir(parents=True)
     (data / "profiles/p/01-knowledge/05-job-match.md").write_text("x")
-    for d in ("reports", "state", "applications", "logs"):
-        (data / d).mkdir(); (data / d / ".gitkeep").write_text("")
-    (data / "config.yaml").write_text(yaml.safe_dump({"profiles": [{
-        "id": "p", "notify": {"email": ["a@mail.test"]},
-        "prefilter": {"reject_title": [r"\bjunior\b"]}}]}))
+    (data / "config.yaml").write_text(yaml.safe_dump({}))
+    write_profile(data, "p", {"notify": {"email": ["a@mail.test"]},
+                              "prefilter": {"reject_title": [r"\bjunior\b"]}})
     (data / "authorization.yaml").write_text(yaml.safe_dump({"active": True}))
     git(data, "add", "-A"); git(data, "commit", "-qm", "init")
     if not reject_main:
@@ -53,6 +53,7 @@ def write_candidates(work, cands):
 
 
 def test_finish_merges_auto_and_model_decisions_and_asks_for_the_email(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, work = make_repo(tmp_path), tmp_path / "work"
     cands = [cand("k1", "Senior Java Engineer"), cand("k2", "Junior Developer")]
     write_candidates(work, cands)
@@ -80,6 +81,7 @@ def test_finish_stops_on_invalid_decisions_and_changes_nothing(tmp_path, capsys)
 
 
 def test_model_decision_overrides_the_automatic_one(tmp_path):
+    ensure_profile(tmp_path)
     data, work = make_repo(tmp_path), tmp_path / "work"
     write_candidates(work, [cand("k2", "Junior Developer")])
     (work / "auto-decisions.json").write_text(json.dumps([
@@ -94,6 +96,7 @@ def test_model_decision_overrides_the_automatic_one(tmp_path):
 
 
 def test_nothing_to_score_runs_to_the_end_with_one_command(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     data, work = make_repo(tmp_path), tmp_path / "work"
     def fake_collect(argv):
         write_candidates(work, [cand("k1", "Junior Developer")])
@@ -105,10 +108,11 @@ def test_nothing_to_score_runs_to_the_end_with_one_command(tmp_path, monkeypatch
     assert "auto-discarded by prefilter" in out
     assert "job-scan 2026-10-05" in git(data, "log", "-1", "--format=%s")
     assert "job-scan 2026-10-05" in git(tmp_path / "origin.git", "log", "-1", "--format=%s", "main")
-    assert "k1" in json.loads((data / "state/job-scan-seen.json").read_text())
+    assert "k1" in json.loads((data / "profiles/p/state/job-scan-seen.json").read_text())
 
 
 def test_nothing_to_score_still_lists_the_email_when_applications_wait(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     data, work = make_repo(tmp_path), tmp_path / "work"
     monkeypatch.setattr(pipeline.collect, "main", lambda argv: write_candidates(
         work, [cand("k1", "Junior Developer")]) or 0)
@@ -122,9 +126,9 @@ def test_nothing_to_score_still_lists_the_email_when_applications_wait(tmp_path,
 
 def test_prepare_prints_a_brief_for_the_model_and_defers_over_the_cap(tmp_path, monkeypatch, capsys):
     data, work = make_repo(tmp_path), tmp_path / "work"
-    cfg = yaml.safe_load((data / "config.yaml").read_text())
-    cfg["profiles"][0]["prefilter"]["max_to_score"] = 1
-    (data / "config.yaml").write_text(yaml.safe_dump(cfg))
+    prof = yaml.safe_load((data / "profiles/p/profile.yaml").read_text())
+    prof["prefilter"]["max_to_score"] = 1
+    (data / "profiles/p/profile.yaml").write_text(yaml.safe_dump(prof))
     monkeypatch.setattr(pipeline.collect, "main", lambda argv: write_candidates(
         work, [cand("k1", "Senior Java Engineer"), cand("k2", "Tech Lead Java"), cand("k3", "Junior Dev")]) or 0)
     assert pipeline.main(["prepare", "--data", str(data), "--work", str(work)]) == 0
@@ -143,8 +147,10 @@ def test_inactive_authorization_stops_before_collecting(tmp_path, monkeypatch, c
 
 
 def test_publish_falls_back_when_main_is_rejected(tmp_path):
+    ensure_profile(tmp_path)
     data = make_repo(tmp_path, reject_main=True)
-    (data / "reports/r.md").write_text("report")
+    (data / "profiles/p/reports").mkdir(parents=True)
+    (data / "profiles/p/reports/r.md").write_text("report")
     assert pipeline.publish(data, "job-scan test").startswith("claude/job-scan")
     assert "job-scan test" in git(tmp_path / "origin.git", "log", "-1", "--format=%s", "claude/job-scan")
 
@@ -190,14 +196,18 @@ def test_a_profile_publish_lands_under_the_profile(tmp_path):
                                        "profiles/p/state/job-scan-seen.json"]
 
 
-def test_the_root_forms_are_still_published_while_legacy_lasts(tmp_path):
+def test_a_root_form_staged_by_hand_is_refused_and_nothing_is_committed(tmp_path):
+    ensure_profile(tmp_path)
     data = make_repo(tmp_path)
     with_profiles(data, "p")
-    (data / "reports/d.md").write_text("r")
-    (data / "state/job-scan-seen.json").write_text("{}")
-    (data / "applications/queue.json").write_text("{}")
-    assert pipeline.publish(data, "scan") == "main"
-    assert sorted(committed(data)) == ["applications/queue.json", "reports/d.md", "state/job-scan-seen.json"]
+    before = git(data, "rev-parse", "HEAD")
+    for rel in ("reports/d.md", "state/job-scan-seen.json", "applications/queue.json"):
+        (data / rel).parent.mkdir(parents=True, exist_ok=True)
+        (data / rel).write_text("{}")
+    git(data, "add", "reports/d.md", "state/job-scan-seen.json", "applications/queue.json")
+    with pytest.raises(RuntimeError, match="outside the allowlist"):
+        pipeline.publish(data, "scan")
+    assert git(data, "rev-parse", "HEAD") == before
 
 
 def test_other_profile_files_changed_in_the_tree_are_not_committed(tmp_path):
@@ -263,7 +273,8 @@ def _spy_collect(monkeypatch, work, seen):
 
 def test_prepare_passes_the_only_profile_to_collect(tmp_path, monkeypatch):
     data, work, seen = make_repo(tmp_path), tmp_path / "work", []
-    _add_profiles(data, "x")                       # "p" is defined inline in config.yaml, so use other ids
+    shutil.rmtree(data / "profiles/p")            # the make_repo profile; this test wants exactly one other
+    _add_profiles(data, "x")
     _spy_collect(monkeypatch, work, seen)
     pipeline.main(["prepare", "--data", str(data), "--work", str(work)])
     assert seen[0][-2:] == ["--profile", "x"]
@@ -277,11 +288,12 @@ def test_prepare_passes_an_explicit_profile_to_collect(tmp_path, monkeypatch):
     assert seen[0][-2:] == ["--profile", "y"]
 
 
-def test_prepare_without_a_profile_folder_passes_no_profile(tmp_path, monkeypatch):
+def test_prepare_without_a_profile_folder_stops_before_writing_anything(tmp_path, monkeypatch, capsys):
     data, work, seen = make_repo(tmp_path), tmp_path / "work", []
+    shutil.rmtree(data / "profiles")                 # inline or no profiles: no folder, so no profile files
     _spy_collect(monkeypatch, work, seen)
-    pipeline.main(["prepare", "--data", str(data), "--work", str(work)])
-    assert "--profile" not in seen[0]
+    assert pipeline.main(["prepare", "--data", str(data), "--work", str(work)]) != 0
+    assert not (data / "profiles").exists() and not (data / "state").exists()
 
 
 @pytest.mark.parametrize("extra", [[], ["--profile", "nobody"]])

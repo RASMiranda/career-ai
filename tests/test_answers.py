@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import yaml
 
 from jobscan.apply import answers as ans
 from jobscan.apply import cli, faillog
@@ -8,6 +9,7 @@ from jobscan.apply.adapters import ApplyResult
 from jobscan.apply.queue import Queue
 
 from test_apply_core import make_data, run_cli
+from profile_helpers import ensure_profile
 
 KEY = "aaaa1111bbbb2222"          # the Acme job make_data() queues
 SECRETS = ("Silva", "a@b.test")
@@ -32,7 +34,7 @@ def fail(tmp_path, questions=None, fields=None, key=KEY, code="UNKNOWN_REQUIRED_
     if fields is not None:
         details["unknown_fields"] = fields
     faillog.FailureLog(tmp_path).write({"candidate_key": key, "error_code": code, "details": details,
-                                        "company": "Acme", "title": "Java", "url": "https://x.test"})
+                                        "company": "Acme", "title": "Java", "url": "https://x.test"}, "p")
 
 
 def q(label, kind="text", options=(), max_length=0):
@@ -51,6 +53,7 @@ def harvest(tmp_path, applicants=None, **kw):
 
 # ---------------------------------------------------------------------- harvest
 def test_harvest_collects_unanswered_questions_with_their_job(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, [YEARS, WHY])
     (todo, reserved), _ = harvest(tmp_path)
@@ -62,6 +65,7 @@ def test_harvest_collects_unanswered_questions_with_their_job(tmp_path):
 
 
 def test_harvest_falls_back_to_plain_labels_from_older_logs(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, fields=["Years of Java experience"])
     (todo, _), _ = harvest(tmp_path)
@@ -69,6 +73,7 @@ def test_harvest_falls_back_to_plain_labels_from_older_logs(tmp_path):
 
 
 def test_harvest_skips_what_can_already_be_answered(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, [q("First name"), q("How did you hear about us?"), YEARS])
     applicants = {"p": ({"first_name": "Ana"}, {"how did you hear": "Job board"})}
@@ -77,6 +82,7 @@ def test_harvest_skips_what_can_already_be_answered(tmp_path):
 
 
 def test_harvest_ignores_other_errors_unknown_jobs_and_files(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, [YEARS], code="CAPTCHA")
     fail(tmp_path, [YEARS], key="not-in-queue")
@@ -91,6 +97,7 @@ def test_harvest_ignores_other_errors_unknown_jobs_and_files(tmp_path):
     ("Earliest start date", "date"), ("Please confirm", "checkbox"), ("Email confirmation", "email"),
 ])
 def test_questions_reserved_for_the_owner_are_never_sent_to_a_model(tmp_path, label, kind):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, [q(label, kind, ["Yes", "No"] if kind in ("radio", "select") else [])])
     (todo, reserved), store = harvest(tmp_path)
@@ -100,6 +107,7 @@ def test_questions_reserved_for_the_owner_are_never_sent_to_a_model(tmp_path, la
 
 
 def test_harvest_dedupes_across_jobs_and_never_asks_twice(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     q2 = Queue(tmp_path)
     q2.add("second00", {"title": "Other", "company": "Beta", "profile": "p", "status": "queued", "url": "https://x"})
@@ -116,6 +124,7 @@ def test_harvest_dedupes_across_jobs_and_never_asks_twice(tmp_path):
 
 
 def test_harvest_respects_the_limit(tmp_path):
+    ensure_profile(tmp_path)
     setup(tmp_path)
     fail(tmp_path, [q(f"Question number {i}") for i in range(5)])
     assert len(harvest(tmp_path, limit=2)[0][0]) == 2
@@ -123,6 +132,7 @@ def test_harvest_respects_the_limit(tmp_path):
 
 # ------------------------------------------------------------------------ brief
 def test_brief_has_no_personal_data_and_marks_untrusted_text(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     fail(tmp_path, [YEARS, WHY])
     assert run_cli(base, "questions", "prepare", "--work", str(tmp_path / "w")) == 0
@@ -137,6 +147,7 @@ def test_brief_has_no_personal_data_and_marks_untrusted_text(tmp_path, capsys):
 
 
 def test_prepare_says_so_when_there_is_nothing(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     assert run_cli(base, "questions", "prepare", "--work", str(tmp_path / "w")) == 0
     assert "NOTHING TO DRAFT" in capsys.readouterr().out
@@ -220,6 +231,7 @@ def stored(d):
 
 
 def test_drafts_are_proposed_and_job_answers_are_keyed_to_their_job(tmp_path):
+    ensure_profile(tmp_path)
     store = ans.AnswerStore(tmp_path)
     added, kept, reserved = ans.store_drafts(store, [
         stored({}), stored({"question": "k2", "scope": "job", "label": "Why us?", "kind": "textarea"}),
@@ -230,6 +242,7 @@ def test_drafts_are_proposed_and_job_answers_are_keyed_to_their_job(tmp_path):
 
 
 def test_a_decision_you_made_is_never_overwritten(tmp_path):
+    ensure_profile(tmp_path)
     store = ans.AnswerStore(tmp_path)
     ans.store_drafts(store, [stored({})])
     store.items["k1"].update(status="approved", answer="3-5")
@@ -242,6 +255,7 @@ def test_a_decision_you_made_is_never_overwritten(tmp_path):
 
 # ------------------------------------------------------------------ precedence
 def test_your_own_answers_win_and_only_approved_ones_count(tmp_path):
+    ensure_profile(tmp_path)
     store = ans.AnswerStore(tmp_path)
     for key, label, answer, status in [("a", "Years of Java experience", "6+", "approved"),
                                        ("b", "Favourite editor please", "vim", "proposed"),
@@ -258,6 +272,7 @@ def test_your_own_answers_win_and_only_approved_ones_count(tmp_path):
 
 
 def test_job_answers_apply_to_their_job_only_and_profiles_stay_apart(tmp_path):
+    ensure_profile(tmp_path)
     store = ans.AnswerStore(tmp_path)
     store.put("j", question="j", profile="p", label="Why do you want to work here?", kind="textarea", options=[],
               max_length=0, scope="job", candidate_key=KEY, status="approved", answer="Platform work.")
@@ -280,6 +295,7 @@ def drafted_flow(tmp_path, base, capsys, drafts):
 
 
 def test_the_whole_loop_from_failure_to_an_approved_answer(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     fail(tmp_path, [YEARS, WHY, q("Salary expectations")])
     work, request = drafted_flow(tmp_path, base, capsys, [
@@ -307,6 +323,7 @@ def test_the_whole_loop_from_failure_to_an_approved_answer(tmp_path, capsys):
 
 
 def test_finish_fails_closed_and_stores_nothing(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     fail(tmp_path, [YEARS, WHY])
     work, _ = drafted_flow(tmp_path, base, capsys, [
@@ -319,6 +336,7 @@ def test_finish_fails_closed_and_stores_nothing(tmp_path, capsys):
 
 
 def test_reject_and_set(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     fail(tmp_path, [YEARS, q("Are you authorized to work in the EU?", "radio", ["Yes", "No"])])
     work, _ = drafted_flow(tmp_path, base, capsys, [{"answer": "0-2", "scope": "reusable", "basis": "cv"}])
@@ -338,6 +356,7 @@ def test_reject_and_set(tmp_path, capsys):
 
 
 def test_list_filters_and_unknown_keys(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = setup(tmp_path)
     assert run_cli(base, "questions", "list") == 0
     assert "nothing here" in capsys.readouterr().out
@@ -348,13 +367,14 @@ def test_list_filters_and_unknown_keys(tmp_path, capsys):
 
 # ----------------------------------------------------------------------- runner
 def test_the_runner_hands_the_form_only_approved_answers_and_yours_win(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
     import yaml
-    cfg_path = tmp_path / "config.yaml"
-    config = yaml.safe_load(cfg_path.read_text())
-    config["profiles"][0]["answers"] = {"years of java": "10+"}
-    cfg_path.write_text(yaml.safe_dump(config))
+    prof_path = tmp_path / "profiles/p/profile.yaml"
+    prof = yaml.safe_load(prof_path.read_text())
+    prof["answers"] = {"years of java": "10+"}
+    prof_path.write_text(yaml.safe_dump(prof))
     store = ans.AnswerStore(tmp_path)
     for key, label, answer, status in [("a", "Years of Java experience", "6+", "approved"),
                                        ("b", "Why do you want to work here?", "Drafted only.", "proposed"),
