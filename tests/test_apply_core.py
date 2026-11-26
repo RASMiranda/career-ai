@@ -17,6 +17,7 @@ from jobscan.apply.adapters import (
 from jobscan.apply.queue import Queue
 from jobscan.blacklist import Blacklist
 from jobscan.config import ConfigError
+from profile_helpers import ensure_profile, write_apply_config, write_profile
 
 BL = Blacklist(["Proxify"])
 AUTH_ON = {"application_submission": {"master_switch": True, "acknowledged_on": "2026-10-15"}}
@@ -30,7 +31,7 @@ def item(**o):
 
 
 def cfg(mode="auto", **auto):
-    return policy.apply_cfg({"apply": {"mode": mode, "auto": auto}})
+    return policy.apply_cfg({"profiles": [{"id": "p", "apply_config": {"mode": mode, "auto": auto}}]}, "p")
 
 
 # ------------------------------------------------------------------- detection
@@ -62,10 +63,12 @@ def test_answers_never_guess():
 
 # ----------------------------------------------------------------------- policy
 def test_manual_mode_never_auto_approves(tmp_path):
+    ensure_profile(tmp_path)
     assert policy.initial_status(item(), cfg("manual"), AUTH_ON, Queue(tmp_path), BL)[0] == "queued"
 
 
 def test_auto_approves_only_when_everything_passes(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     assert policy.initial_status(item(), cfg(), AUTH_ON, q, BL)[0] == "approved"
 
@@ -77,11 +80,13 @@ def test_auto_approves_only_when_everything_passes(tmp_path):
     ({"url": "https://www.linkedin.com/jobs/view/1"}, "adapter"),
 ])
 def test_auto_holds_back_weak_matches(tmp_path, override, why):
+    ensure_profile(tmp_path)
     status, notes = policy.initial_status(item(**override), cfg(), AUTH_ON, Queue(tmp_path), BL)
     assert status == "queued" and any(why in n for n in notes)
 
 
 def test_master_switch_must_be_on_and_dated(tmp_path):
+    ensure_profile(tmp_path)
     status, notes = policy.initial_status(item(), cfg(), AUTH_OFF, Queue(tmp_path), BL)
     assert status == "queued" and any("master switch" in n for n in notes)
     half = {"application_submission": {"master_switch": True, "acknowledged_on": ""}}
@@ -89,11 +94,13 @@ def test_master_switch_must_be_on_and_dated(tmp_path):
 
 
 def test_blacklist_wins_over_everything(tmp_path):
+    ensure_profile(tmp_path)
     status, notes = policy.initial_status(item(company="Proxify AB"), cfg(), AUTH_ON, Queue(tmp_path), BL)
     assert status == "skipped" and "blacklisted" in notes[0]
 
 
 def test_one_application_per_company_window(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("old", item(status="submitted"))
     q.set("old", "submitted")
@@ -102,6 +109,7 @@ def test_one_application_per_company_window(tmp_path):
 
 
 def test_caps_count_recent_submissions(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     c = cfg(max_per_day=2, max_per_week=3)
     assert policy.remaining_quota(c, q) == 2
@@ -114,6 +122,7 @@ def test_caps_count_recent_submissions(tmp_path):
 
 # ---------------------------------------------------------------------- queue
 def test_queue_prefix_resolution_and_persistence(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("abcdef123456", item(status="queued")); q.add("abcxyz999999", item(status="queued"))
     q.save()
@@ -127,10 +136,11 @@ def test_queue_prefix_resolution_and_persistence(tmp_path):
 
 # --------------------------------------------------------------------- faillog
 def test_failure_log_redacts_personal_data(tmp_path):
+    ensure_profile(tmp_path)
     log = faillog.FailureLog(tmp_path, secrets=["Ana", "Silva"])
     path = log.write({"candidate_key": "k", "error_code": "VALIDATION_ERROR",
                       "message": "Ana Silva rejected: ana.silva@mail.test +351 912 345 678",
-                      "details": {"visible_errors": ["Invalid phone +66 81 234 5678", "ana@x.test"]}})
+                      "details": {"visible_errors": ["Invalid phone +66 81 234 5678", "ana@x.test"]}}, "p")
     text = path.read_text()
     for leaked in ("Ana", "Silva", "ana.silva@mail.test", "912 345 678", "81 234 5678", "ana@x.test"):
         assert leaked not in text
@@ -151,11 +161,10 @@ def test_bundle_strips_company_title_and_path(tmp_path):
 # ------------------------------------------------------------------------ CLI
 def make_data(tmp_path, mode="manual", switch=False):
     (tmp_path / "profiles/p/01-knowledge").mkdir(parents=True)
-    (tmp_path / "config.yaml").write_text(yaml.safe_dump({
-        "blacklist": {"companies": ["Proxify"]},
-        "apply": {"mode": mode},
-        "profiles": [{"id": "p", "criteria": "x", "cv": {"dir": "cv-files"},
-                      "applicant": {"first_name": "Ana", "last_name": "Silva", "email": "a@b.test"}}]}))
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({"blacklist": {"companies": ["Proxify"]}}))
+    write_profile(tmp_path, "p", {"criteria": "x", "cv": {"dir": "cv-files"},
+                                  "applicant": {"first_name": "Ana", "last_name": "Silva", "email": "a@b.test"}})
+    write_apply_config(tmp_path, "p", {"mode": mode})
     (tmp_path / "cv-files").mkdir()
     (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
@@ -179,6 +188,7 @@ def run_cli(base, *args):
 
 
 def test_cli_manual_flow(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path)
     assert run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"),
                    "--decisions", str(tmp_path / "d.json")) == 0
@@ -195,6 +205,7 @@ def test_cli_manual_flow(tmp_path, capsys):
 
 
 def test_cli_enqueue_is_idempotent(tmp_path):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path)
     args = ["enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json")]
     run_cli(base, *args); run_cli(base, *args)
@@ -202,18 +213,21 @@ def test_cli_enqueue_is_idempotent(tmp_path):
 
 
 def test_cli_off_mode_queues_nothing(tmp_path):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="off")
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
     assert Queue(tmp_path).items == {}
 
 
 def test_auto_run_refuses_without_master_switch(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=False)
     assert run_cli(base, "run") == 2
     assert "Refusing" in capsys.readouterr().err
 
 
 def test_auto_run_records_failure_and_hands_to_human(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["status"] == "approved"   # passed auto policy
@@ -230,7 +244,7 @@ def test_auto_run_records_failure_and_hands_to_human(tmp_path, monkeypatch, caps
     md = summary.render_markdown(Queue(tmp_path))
     assert "Apply manually" in md and "https://jobs.lever.co/acme/1" in md
     assert "required questions" in md                      # plain-language reason
-    logged = list((tmp_path / "logs/apply").glob("*.jsonl"))
+    logged = list((tmp_path / "profiles/p/logs/apply").glob("*.jsonl"))
     assert logged and "UNKNOWN_REQUIRED_FIELD" in logged[0].read_text()
 
     assert run_cli(base, "bundle", "--out", str(tmp_path / "f.md")) == 0
@@ -238,6 +252,7 @@ def test_auto_run_records_failure_and_hands_to_human(tmp_path, monkeypatch, caps
 
 
 def test_auto_run_success_and_cap(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
 
@@ -251,6 +266,7 @@ def test_auto_run_success_and_cap(tmp_path, monkeypatch):
 
 
 def test_dry_run_failure_is_logged_but_status_unchanged(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
 
@@ -260,7 +276,7 @@ def test_dry_run_failure_is_logged_but_status_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "pick_adapter", lambda url, allowed=None: Boom())
     assert run_cli(base, "run", "--dry-run") == 0
     assert Queue(tmp_path).items["aaaa1111bbbb2222"]["status"] == "approved"
-    assert list((tmp_path / "logs/apply").glob("*.jsonl"))
+    assert list((tmp_path / "profiles/p/logs/apply").glob("*.jsonl"))
 
 
 def test_missing_cv_is_a_clean_failure(tmp_path):
@@ -311,6 +327,7 @@ def test_old_applicant_files_are_not_silently_used(tmp_path):
 
 
 def test_run_skips_a_profile_without_applicant_but_runs_the_rest(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="assisted")
     q = Queue(tmp_path)
     for key, prof in (("aaaa1111bbbb2222", "p"), ("eeee5555ffff6666", "ghost")):
@@ -330,6 +347,7 @@ def test_run_skips_a_profile_without_applicant_but_runs_the_rest(tmp_path, monke
 
 
 def test_run_exits_nonzero_when_no_approved_job_has_an_applicant(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="assisted")
     q = Queue(tmp_path)
     q.add("eeee5555ffff6666", {"profile": "ghost", "title": "Java", "company": "X",
@@ -339,6 +357,7 @@ def test_run_exits_nonzero_when_no_approved_job_has_an_applicant(tmp_path, monke
 
 
 def test_consent_pending_is_handed_to_the_human_with_the_link(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
 
@@ -356,7 +375,7 @@ def test_consent_pending_is_handed_to_the_human_with_the_link(tmp_path, monkeypa
     assert summary.count_failures(q) == 1                    # the daily email still goes out
     md = summary.render_markdown(q)
     assert "Apply manually" in md and "https://jobs.lever.co/acme/1" in md and "consent" in md.lower()
-    logged = [json.loads(line) for p in (tmp_path / "logs/apply").glob("*.jsonl")
+    logged = [json.loads(line) for p in (tmp_path / "profiles/p/logs/apply").glob("*.jsonl")
               for line in p.read_text(encoding="utf-8").splitlines()]
     assert logged[-1]["error_code"] == "consent_pending"
 
@@ -383,6 +402,7 @@ def test_a_submitted_result_needs_a_confirmation_page_and_is_stamped_in_utc():
 
 
 def test_a_confirmed_submit_is_recorded_on_the_queue_and_the_attempt(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
 
@@ -402,6 +422,7 @@ def test_a_confirmed_submit_is_recorded_on_the_queue_and_the_attempt(tmp_path, m
 
 
 def test_dedup_an_applied_record_is_never_submitted_again(tmp_path, monkeypatch, capsys):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="auto", switch=True)
     run_cli(base, "enqueue", "--candidates", str(tmp_path / "c.json"), "--decisions", str(tmp_path / "d.json"))
     calls = []
@@ -422,6 +443,7 @@ def test_dedup_an_applied_record_is_never_submitted_again(tmp_path, monkeypatch,
 
 
 def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     base = make_data(tmp_path, mode="assisted")
     plan = {                                   # what the fake adapter does for each approved job
         "https://jobs.lever.co/acme/1": "submitted",
@@ -464,6 +486,7 @@ def test_run_log_counts_match_a_fake_run(tmp_path, monkeypatch):
 
 
 def test_apply_stage_refuses_an_approved_job_from_a_blacklisted_company(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     """ADR-005, third stage: the list changed after the job was approved, so the runner must refuse."""
     base = make_data(tmp_path, mode="assisted")
     config = tmp_path / "config.yaml"

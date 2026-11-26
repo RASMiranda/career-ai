@@ -26,17 +26,15 @@ from .apply.queue import Queue
 from .apply.summary import count_failures
 from .config import ConfigError, data_root, load_authorization, load_config
 
-# What the routine may commit, relative to a profile folder or, while layout's LEGACY window lasts, to the
-# data repo root (ADR-075). An explicit allowlist: never ``profiles`` or ``profiles/<id>`` as a whole, so the
-# answer bank, ``profile.yaml`` and ``authorization.yaml`` are never published, and never ``logs`` or
-# ``answers.json`` (owner-run sessions write those).
+# What the routine may commit, relative to a profile folder (ADR-075 b, c). An explicit allowlist: never
+# ``profiles`` or ``profiles/<id>`` as a whole, so the answer bank, ``profile.yaml`` and ``authorization.yaml``
+# are never published, and never ``logs`` or ``answers.json`` (owner-run sessions write those).
 PUBLISH_PATHS = ("reports", "state", "applications/queue.json")
 
 
 def publish_paths(root: Path) -> list[str]:
-    """Every path ``publish`` may stage: the allowlist under each profile, then the root forms (LEGACY)."""
-    return [f"{layout.PROFILES}/{pid}/{p}" for pid in layout.profile_ids(root) for p in PUBLISH_PATHS] \
-        + list(PUBLISH_PATHS)
+    """Every path ``publish`` may stage: the allowlist under each profile (ADR-075 b). No root form."""
+    return [f"{layout.PROFILES}/{pid}/{p}" for pid in layout.profile_ids(root) for p in PUBLISH_PATHS]
 
 
 def _allowed(path: str, allowed: list[str]) -> bool:

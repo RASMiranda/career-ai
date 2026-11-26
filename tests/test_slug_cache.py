@@ -13,6 +13,7 @@ from jobscan.apply.greenhouse import GreenhouseRef
 from jobscan.apply.queue import Queue
 from jobscan.apply.slug_cache import FILE, SlugCache, locate, verify
 from jobscan.store import FileStore
+from profile_helpers import ensure_profile
 
 REF = GreenhouseRef("examplecorp", "4001", "us")
 
@@ -80,6 +81,7 @@ def test_verify_fetches_the_form_url_and_records_only_on_200(tmp_path):
 
 
 def test_a_miss_ends_in_not_found_on_the_queue(tmp_path):
+    ensure_profile(tmp_path)
     q = Queue(tmp_path)
     q.add("kkkk1111aaaa2222", {"title": "Java Lead", "company": "Examplecorp",
                                "url": "https://job-boards.greenhouse.io/examplecorp/jobs/4001",

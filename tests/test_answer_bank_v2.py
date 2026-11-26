@@ -4,6 +4,7 @@ import pytest
 
 from jobscan import bank
 from jobscan.bank import ApplyOutcome, AnswerBankError, ApplyOutcomeError
+from profile_helpers import ensure_profile
 
 HEADER = "version: 2\nanswers:\n"
 
@@ -297,8 +298,9 @@ def outcome(**kw):
 
 
 def test_outcome_appends_to_site_and_date_file(tmp_path):
+    ensure_profile(tmp_path)
     path = bank.append_outcome(outcome(), data=str(tmp_path))
-    assert path == tmp_path / "logs" / "apply" / "greenhouse-2026-11-04.jsonl"
+    assert path == tmp_path / "profiles" / "p" / "logs" / "apply" / "greenhouse-2026-11-04.jsonl"
     bank.append_outcome(outcome(job_id="5678"), data=str(tmp_path))
     lines = path.read_text(encoding="utf-8").splitlines()
     assert [json.loads(line)["job_id"] for line in lines] == ["1234", "5678"]
@@ -306,6 +308,7 @@ def test_outcome_appends_to_site_and_date_file(tmp_path):
 
 
 def test_outcome_redacts_query_strings_and_fragments(tmp_path):
+    ensure_profile(tmp_path)
     path = bank.append_outcome(
         outcome(role="see https://example.com/confirm?token=SECRET123#frag now",
                 employer="Ex", ts="2026-11-04T10:00:00Z"),
@@ -329,16 +332,18 @@ def test_outcome_rejects_bad_fields(tmp_path, kw, message):
 
 
 def test_non_submitted_outcome_needs_no_verifier(tmp_path):
+    ensure_profile(tmp_path)
     path = bank.append_outcome(outcome(status="SKIPPED", verified_by=""), data=str(tmp_path))
     assert json.loads(path.read_text(encoding="utf-8"))["status"] == "SKIPPED"
 
 
 def test_arc_applied_list_is_an_accepted_verifier(tmp_path):
+    ensure_profile(tmp_path)
     # ADR-047: Arc gives no confirmation URL; the run reads Arc's own Applied list after the submit.
     o = outcome(site="arc", verified_by="site_applied_list", ts="2026-11-05")
     assert bank.validate_outcome(o) is o
     path = bank.append_outcome(o, data=str(tmp_path))
-    assert path == tmp_path / "logs" / "apply" / "arc-2026-11-05.jsonl"
+    assert path == tmp_path / "profiles" / "p" / "logs" / "apply" / "arc-2026-11-05.jsonl"
     line = json.loads(path.read_text(encoding="utf-8"))
     assert set(line) == {"job_id", "employer", "role", "site", "status", "verified_by", "ts"}
     assert line["verified_by"] == "site_applied_list"

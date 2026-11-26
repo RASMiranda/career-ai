@@ -7,6 +7,7 @@ from jobscan import collect
 from jobscan.blacklist import Blacklist, canon
 from jobscan.models import Candidate
 from jobscan.validate import validate
+from profile_helpers import ensure_profile, write_apply_config, write_profile
 
 DEFAULT = [
     {"name": "Micro1", "aliases": ["Micro 1"], "domains": ["micro1.ai"]},
@@ -84,12 +85,12 @@ def test_validate_rejects_blacklisted_job_that_was_not_discarded():
 
 
 def test_collect_drops_blacklisted_jobs_before_the_model_sees_them(tmp_path, monkeypatch):
+    ensure_profile(tmp_path)
     (tmp_path / "profiles/p/01-knowledge").mkdir(parents=True)
     (tmp_path / "profiles/p/01-knowledge/05-job-match.md").write_text("x")
-    (tmp_path / "config.yaml").write_text(yaml.safe_dump({
-        "blacklist": {"companies": DEFAULT},
-        "profiles": [{"id": "p", "criteria": "profiles/p/01-knowledge/05-job-match.md",
-                      "daily_queries": [{"source": "fake", "query": "java"}]}]}))
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({"blacklist": {"companies": DEFAULT}}))
+    write_profile(tmp_path, "p", {"criteria": "profiles/p/01-knowledge/05-job-match.md",
+                                  "daily_queries": [{"source": "fake", "query": "java"}]})
 
     def fake(query, profile, secrets=None):
         mk = lambda i, co, url: Candidate(  # noqa: E731

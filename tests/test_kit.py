@@ -5,6 +5,7 @@ import yaml
 
 from jobscan import kit
 from jobscan.apply.queue import Queue
+from profile_helpers import ensure_profile, write_apply_config, write_profile
 
 SECRETS = ("Silva", "ana.private@mail.test", "+351 912 345 678")
 KEY_A, KEY_B = "aaaa1111bbbb2222", "cccc3333dddd4444"
@@ -37,10 +38,11 @@ def make_root(tmp_path, languages=None):
     (tmp_path / "profiles/p/cv").mkdir()
     (tmp_path / "profiles/p/01-knowledge/01-profile.md").write_text("profile")
     (tmp_path / "profiles/p/cv/general.md").write_text("card")
-    (tmp_path / "config.yaml").write_text(yaml.safe_dump({"profiles": [{
-        "id": "p", "display_name": "Ana", "criteria": "x", "languages": languages,
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({}))
+    write_profile(tmp_path, "p", {
+        "display_name": "Ana", "criteria": "x", "languages": languages,
         "cv": {"default": "general"},
-        "applicant": {"first_name": "Ana", "last_name": "Silva", "email": SECRETS[1], "phone": SECRETS[2]}}]}))
+        "applicant": {"first_name": "Ana", "last_name": "Silva", "email": SECRETS[1], "phone": SECRETS[2]}})
     q = Queue(tmp_path)
     q.add(KEY_A, {"title": "Java Lead", "company": "Acme Corp, Inc.", "url": "https://x.test/1", "fit": 90,
                   "profile": "p", "status": "queued", "cv": "general", "why": "stack matches",
@@ -78,6 +80,7 @@ def test_slug_is_filesystem_safe():
 
 # ----------------------------------------------------------------------- brief
 def test_brief_carries_the_posting_as_untrusted_data_and_no_personal_details(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     assert prepare(base, "aaaa11") == 0
     out = capsys.readouterr().out
@@ -92,23 +95,27 @@ def test_brief_carries_the_posting_as_untrusted_data_and_no_personal_details(tmp
 
 
 def test_brief_admits_a_missing_description(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     prepare(base, "cccc33")
     assert "no description was stored" in capsys.readouterr().out
 
 
 def test_prepare_only_for_matches_still_to_apply_to(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     assert prepare(base, "dddd") == 2
     assert "still to be applied to" in capsys.readouterr().err
 
 
 def test_prepare_needs_a_target(tmp_path, capsys):
+    ensure_profile(tmp_path)
     assert prepare(make_root(tmp_path)) == 2
     assert "--waiting" in capsys.readouterr().err
 
 
 def test_prepare_waiting_takes_the_best_without_a_kit(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     q = Queue(tmp_path)
     q.items[KEY_A]["kit"] = "profiles/p/03-outputs/x"
@@ -121,6 +128,7 @@ def test_prepare_waiting_takes_the_best_without_a_kit(tmp_path, capsys):
 
 
 def test_prepare_discards_stale_drafts(tmp_path):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     (tmp_path / "work").mkdir()
     (tmp_path / "work/kit.json").write_text("[]")
@@ -137,6 +145,7 @@ def errors_for(tmp_path, entry, key=KEY_A):
 
 
 def test_a_good_draft_passes(tmp_path):
+    ensure_profile(tmp_path)
     assert errors_for(tmp_path, draft()) == []
 
 
@@ -163,16 +172,19 @@ def test_a_good_draft_passes(tmp_path):
     ("gaps", ["x"] * 7, "7 items, expected 0-6"),
 ])
 def test_bad_drafts_are_named(tmp_path, field, value, fragment):
+    ensure_profile(tmp_path)
     errs = errors_for(tmp_path, draft(**{field: value}))
     assert any(fragment in e for e in errs), errs
 
 
 def test_links_in_the_prep_are_caught_too(tmp_path):
+    ensure_profile(tmp_path)
     bad = draft(interview_prep=[{"question": "q", "outline": "go to www.evil.test"}] * 3)
     assert any("a link" in e for e in errors_for(tmp_path, bad))
 
 
 def test_one_draft_per_requested_key(tmp_path):
+    ensure_profile(tmp_path)
     make_root(tmp_path)
     cfg = {"profiles": [{"id": "p"}]}
     q = Queue(tmp_path)
@@ -189,6 +201,7 @@ def test_one_draft_per_requested_key(tmp_path):
 
 
 def test_no_declared_languages_accepts_any_code(tmp_path):
+    ensure_profile(tmp_path)
     make_root(tmp_path, languages={})
     cfg = {"profiles": [{"id": "p"}]}
     assert kit.validate([draft(language="de")], {"keys": [KEY_A]}, cfg, Queue(tmp_path))[1] == []
@@ -196,6 +209,7 @@ def test_no_declared_languages_accepts_any_code(tmp_path):
 
 # --------------------------------------------------------------------- finish
 def test_finish_writes_the_four_documents_and_marks_the_queue(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     prepare(base, "aaaa11")
     assert finish(base, [draft()]) == 0
@@ -217,6 +231,7 @@ def test_finish_writes_the_four_documents_and_marks_the_queue(tmp_path, capsys):
 
 
 def test_finish_is_all_or_nothing(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     prepare(base, "aaaa11", "cccc33")
     capsys.readouterr()
@@ -229,6 +244,7 @@ def test_finish_is_all_or_nothing(tmp_path, capsys):
 
 
 def test_finish_never_replaces_a_kit_unless_told(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     prepare(base, "aaaa11")
     assert finish(base, [draft()]) == 0
@@ -246,6 +262,7 @@ def test_finish_never_replaces_a_kit_unless_told(tmp_path, capsys):
 
 
 def test_finish_needs_a_request_and_valid_json(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     assert kit.main(["finish", *base]) == 2
     assert "kit prepare" in capsys.readouterr().err
@@ -256,6 +273,7 @@ def test_finish_needs_a_request_and_valid_json(tmp_path, capsys):
 
 
 def test_list_shows_which_matches_have_a_kit(tmp_path, capsys):
+    ensure_profile(tmp_path)
     base = make_root(tmp_path)
     prepare(base, "aaaa11")
     finish(base, [draft()])
@@ -266,6 +284,7 @@ def test_list_shows_which_matches_have_a_kit(tmp_path, capsys):
 
 
 def test_follow_up_summary_points_at_the_draft(tmp_path):
+    ensure_profile(tmp_path)
     from jobscan.apply import summary
     make_root(tmp_path)
     q = Queue(tmp_path)

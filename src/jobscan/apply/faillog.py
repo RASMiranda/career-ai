@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import __version__, layout
+from ..config import ConfigError
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<![\w])\+?\d[\d\s().-]{7,}\d(?![\w])")
@@ -58,11 +59,11 @@ def host_of(url: str) -> str:
 
 
 class FailureLog:
-    """Failure lines under ``profiles/<id>/logs/apply/`` (ADR-071 (c), issue #118).
+    """Failure lines under ``profiles/<id>/logs/apply/`` (ADR-071 (c), ADR-075 c).
 
-    With no profile folder at all the root ``logs/apply/`` is kept. Otherwise a line goes to the
-    profile of the failed job; a line with no known profile is skipped with one warning and never
-    written to the root.
+    A line goes to the profile of the failed job. With no profile folder at all, ``write`` is a
+    ConfigError; a line with no known profile is skipped with one warning and never written anywhere.
+    ``read_since`` reads profile folders only, and returns nothing when there are none.
     """
 
     def __init__(self, root: Path, secrets=()):
@@ -73,7 +74,7 @@ class FailureLog:
     def _dir(self, profile: str | None) -> Path | None:
         ids = layout.profile_ids(self.root)
         if not ids:
-            return self.root / "logs" / "apply"
+            raise ConfigError(f"no profile: expected {layout.PROFILES}/<id>/{layout.PROFILE_FILE}")
         if profile in ids:
             return self.root / layout.PROFILES / profile / "logs" / "apply"
         return None
@@ -98,13 +99,12 @@ class FailureLog:
         return path
 
     def read_since(self, days: int, profile: str | None = None) -> list[dict]:
-        """One profile's lines, or with no profile every profile's (and the root's, if present)."""
+        """One profile's lines, or with no profile every profile's. No profile folder: nothing."""
         if profile:
             folders = [self.root / layout.PROFILES / profile / "logs" / "apply"]
         else:
             folders = [self.root / layout.PROFILES / pid / "logs" / "apply"
                        for pid in layout.profile_ids(self.root)]
-            folders.append(self.root / "logs" / "apply")
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         out = []
         for folder in folders:

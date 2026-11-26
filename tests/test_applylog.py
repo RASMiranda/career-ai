@@ -7,7 +7,7 @@ from jobscan import applylog
 
 @pytest.fixture
 def log(tmp_path):
-    return tmp_path / "apply" / "log.csv"
+    return tmp_path / "profiles" / "p" / "apply" / "log.csv"
 
 
 def add(log, **kw):
@@ -118,6 +118,7 @@ def test_already_applied_is_valid_in_the_csv(log):
 # ---- CLI: upsert / outcome / check (ADR-050) ----
 
 import json
+from profile_helpers import ensure_profile
 
 HEADER = "date,site,employer,role,job_id,status"
 
@@ -200,10 +201,11 @@ def test_upsert_invalid_does_not_create_file(tmp_path):
 
 
 def test_outcome_writes_redacted_jsonl_line(tmp_path):
+    ensure_profile(tmp_path)
     assert run("outcome", "--data", str(tmp_path), "--site", "example", "--job-id", "abc", "--employer", "Example",
                "--role", "see https://example.com/ok?token=SECRET#f", "--status", "SUBMITTED",
                "--ts", "2026-11-12", "--verified-by", "confirmation_url") == 0
-    f = tmp_path / "logs" / "apply" / "example-2026-11-12.jsonl"
+    f = tmp_path / "profiles" / "p" / "logs" / "apply" / "example-2026-11-12.jsonl"
     lines = f.read_text().splitlines()
     assert len(lines) == 1
     d = json.loads(lines[0])
@@ -215,7 +217,7 @@ def test_outcome_unknown_verifier_exits_2(tmp_path):
         run("outcome", "--data", str(tmp_path), "--site", "example", "--job-id", "abc", "--employer", "E",
             "--role", "R", "--status", "SUBMITTED", "--ts", "2026-11-12", "--verified-by", "foo")
     assert e.value.code == 2
-    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "profiles" / "p" / "logs").exists()
 
 
 # ---- batch / check hardening (ADR-053). Fake employers, fake job IDs; no ID-shaped literals ----
@@ -231,6 +233,7 @@ FAKE_DOC_DIGITS = "1" * 11
 def make_data(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
+    ensure_profile(data)
     return data
 
 
@@ -239,26 +242,27 @@ def write_rows(path, *lines):
 
 
 def batch(data, rows, capsys=None):
-    return run("batch", "--log", str(data / "apply" / "log.csv"), "--data", str(data), "--file", str(rows))
+    return run("batch", "--log", str(data / "profiles" / "p" / "apply" / "log.csv"), "--data", str(data), "--file", str(rows))
 
 
 def test_batch_writes_log_rows_and_jsonl_outcomes(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
     rows = tmp_path / "rows.csv"
     write_rows(rows, ROW_A, ROW_B)
     assert batch(data, rows) == 0
     out = capsys.readouterr().out
     assert "2 new, 0 updated, 0 unchanged" in out
-    log = (data / "apply" / "log.csv").read_text(encoding="utf-8").splitlines()
+    log = (data / "profiles" / "p" / "apply" / "log.csv").read_text(encoding="utf-8").splitlines()
     assert log[0] == "date,site,employer,role,job_id,status"
     assert log[1] == "2026-11-11,greenhouse,Acme Labs,Software Engineer,1000001,SUBMITTED"
     assert log[2] == "2026-11-12,greenhouse,Beta Works,Tech Lead,1000002,BLOCKED"
-    recs = [json.loads(x) for x in (data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").read_text().splitlines()]
+    recs = [json.loads(x) for x in (data / "profiles" / "p" / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").read_text().splitlines()]
     assert recs == [{"employer": "Acme Labs", "job_id": "1000001", "role": "Software Engineer",
                      "site": "greenhouse", "status": "SUBMITTED", "ts": "2026-11-11",
                      "verified_by": "confirmation_url"}]
     # BLOCKED with no verifier writes no outcome
-    assert not (data / "logs" / "apply" / "greenhouse-2026-11-12.jsonl").exists()
+    assert not (data / "profiles" / "p" / "logs" / "apply" / "greenhouse-2026-11-12.jsonl").exists()
 
 
 def test_batch_is_all_or_nothing_on_one_bad_row(tmp_path, capsys):
@@ -268,28 +272,30 @@ def test_batch_is_all_or_nothing_on_one_bad_row(tmp_path, capsys):
     write_rows(rows, ROW_A, bad)
     assert batch(data, rows) == 2
     assert "error: row 2:" in capsys.readouterr().err
-    assert not (data / "apply" / "log.csv").exists()
-    assert not (data / "logs").exists()
+    assert not (data / "profiles" / "p" / "apply" / "log.csv").exists()
+    assert not (data / "profiles" / "p" / "logs").exists()
 
 
 def test_batch_second_run_changes_nothing(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
     rows = tmp_path / "rows.csv"
     write_rows(rows, ROW_A, ROW_B)
     assert batch(data, rows) == 0
-    log_before = (data / "apply" / "log.csv").read_bytes()
-    jsonl = data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl"
+    log_before = (data / "profiles" / "p" / "apply" / "log.csv").read_bytes()
+    jsonl = data / "profiles" / "p" / "logs" / "apply" / "greenhouse-2026-11-11.jsonl"
     jsonl_before = jsonl.read_bytes()
     capsys.readouterr()
     assert batch(data, rows) == 0
     out = capsys.readouterr().out
     assert "0 new, 0 updated, 2 unchanged" in out
     assert "outcomes: 0 written" in out
-    assert (data / "apply" / "log.csv").read_bytes() == log_before
+    assert (data / "profiles" / "p" / "apply" / "log.csv").read_bytes() == log_before
     assert jsonl.read_bytes() == jsonl_before
 
 
 def test_batch_updates_an_existing_row_in_place(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
     rows = tmp_path / "rows.csv"
     write_rows(rows, ROW_B)
@@ -314,7 +320,7 @@ def test_batch_rejects_already_applied_without_a_site_or_human_verifier(tmp_path
     assert batch(data, rows) == 2
     err = capsys.readouterr().err
     assert "error: row 2:" in err and reason in err
-    assert not (data / "apply" / "log.csv").exists()
+    assert not (data / "profiles" / "p" / "apply" / "log.csv").exists()
 
 
 def test_batch_refuses_a_duplicate_site_and_job_id_inside_the_file(tmp_path, capsys):
@@ -326,6 +332,7 @@ def test_batch_refuses_a_duplicate_site_and_job_id_inside_the_file(tmp_path, cap
 
 
 def test_batch_refuses_an_id_number_in_a_field(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
     rows = tmp_path / "rows.csv"
     write_rows(rows, ROW_A.replace("Software Engineer", f"documento {FAKE_DOC_DIGITS}"))
@@ -333,7 +340,7 @@ def test_batch_refuses_an_id_number_in_a_field(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "government ID number" in err
     assert FAKE_DOC_DIGITS not in err
-    assert not (data / "apply" / "log.csv").exists()
+    assert not (data / "profiles" / "p" / "apply" / "log.csv").exists()
 
 
 def test_check_rejects_a_formatted_cpf_without_echoing_it(tmp_path, capsys):
@@ -346,6 +353,7 @@ def test_check_rejects_a_formatted_cpf_without_echoing_it(tmp_path, capsys):
 
 
 def test_check_rejects_a_documento_label_and_its_jsonl_twin(tmp_path, capsys):
+    ensure_profile(tmp_path)
     log = tmp_path / "log.csv"
     log.write_text(f"{HEADER}\n2026-11-11,example,Acme,documento {FAKE_DOC_DIGITS},1000001,SKIPPED\n",
                    encoding="utf-8")
@@ -353,8 +361,9 @@ def test_check_rejects_a_documento_label_and_its_jsonl_twin(tmp_path, capsys):
     assert FAKE_DOC_DIGITS not in capsys.readouterr().err
 
     data = tmp_path / "data"
-    (data / "logs" / "apply").mkdir(parents=True)
-    jl = data / "logs" / "apply" / "example-2026-11-11.jsonl"
+    ensure_profile(data)
+    (data / "profiles" / "p" / "logs" / "apply").mkdir(parents=True)
+    jl = data / "profiles" / "p" / "logs" / "apply" / "example-2026-11-11.jsonl"
     jl.write_text(json.dumps({"job_id": "1", "role": f"passport {FAKE_DOC_DIGITS}", "site": "example",
                               "status": "SKIPPED", "ts": "2026-11-11", "verified_by": "",
                               "employer": "Acme"}) + "\n", encoding="utf-8")
@@ -364,9 +373,10 @@ def test_check_rejects_a_documento_label_and_its_jsonl_twin(tmp_path, capsys):
 
 
 def test_check_warns_on_a_submitted_row_without_an_outcome_and_strict_fails(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
-    (data / "apply").mkdir()
-    log = data / "apply" / "log.csv"
+    (data / "profiles" / "p" / "apply").mkdir()
+    log = data / "profiles" / "p" / "apply" / "log.csv"
     log.write_text(f"{HEADER}\n2026-11-11,greenhouse,Acme Labs,Dev,1000001,SUBMITTED\n", encoding="utf-8")
     capsys.readouterr()
     assert run("check", "--log", str(log), "--data", str(data)) == 0
@@ -382,9 +392,10 @@ def test_check_warns_on_a_submitted_row_without_an_outcome_and_strict_fails(tmp_
 
 
 def test_batch_keeps_comments_and_unrelated_lines_byte_identical(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data = make_data(tmp_path)
-    (data / "apply").mkdir()
-    log = data / "apply" / "log.csv"
+    (data / "profiles" / "p" / "apply").mkdir()
+    log = data / "profiles" / "p" / "apply" / "log.csv"
     original = (f"# TODO-RUI: batch 1 rows are elsewhere\n{HEADER}\n# another note\n"
                 "2026-11-01,example,Acme,Dev,1,SKIPPED\n"
                 "2026-11-02,greenhouse,Acme Labs,Dev,1000001,CANDIDATE\n"
@@ -413,15 +424,16 @@ LEGACY_HEADER = "site,job_id,reason"
 
 def legacy_setup(tmp_path, log_rows, allow=None, outcome_for=()):
     data = tmp_path / "data"
-    (data / "apply").mkdir(parents=True)
-    log = data / "apply" / "log.csv"
+    (data / "profiles" / "p" / "apply").mkdir(parents=True)
+    ensure_profile(data)
+    log = data / "profiles" / "p" / "apply" / "log.csv"
     log.write_text(HEADER + "\n" + "".join(r + "\n" for r in log_rows), encoding="utf-8")
     if allow is not None:
-        (data / "apply" / "legacy-outcomes.csv").write_text(
+        (data / "profiles" / "p" / "apply" / "legacy-outcomes.csv").write_text(
             LEGACY_HEADER + "\n" + "".join(a + "\n" for a in allow), encoding="utf-8")
     for job_id in outcome_for:
-        (data / "logs" / "apply").mkdir(parents=True, exist_ok=True)
-        with (data / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").open("a", encoding="utf-8") as fh:
+        (data / "profiles" / "p" / "logs" / "apply").mkdir(parents=True, exist_ok=True)
+        with (data / "profiles" / "p" / "logs" / "apply" / "greenhouse-2026-11-11.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"employer": "Acme Labs", "job_id": job_id, "role": "Dev",
                                  "site": "greenhouse", "status": "SUBMITTED", "ts": "2026-11-11",
                                  "verified_by": "confirmation_url"}) + "\n")
@@ -433,6 +445,7 @@ def strict(data, log):
 
 
 def test_legacy_row_passes_strict_and_is_counted(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test"])
     capsys.readouterr()
     assert strict(data, log) == 0
@@ -441,6 +454,7 @@ def test_legacy_row_passes_strict_and_is_counted(tmp_path, capsys):
 
 
 def test_unlisted_missing_outcome_still_fails_strict(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, log = legacy_setup(tmp_path, [SUB_1, SUB_2], allow=["greenhouse,1000001,legacy: test"])
     capsys.readouterr()
     assert strict(data, log) == 2
@@ -451,6 +465,7 @@ def test_unlisted_missing_outcome_still_fails_strict(tmp_path, capsys):
 
 
 def test_listed_row_that_now_has_an_outcome_warns_and_exits_0(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test"],
                              outcome_for=["1000001"])
     capsys.readouterr()
@@ -461,6 +476,7 @@ def test_listed_row_that_now_has_an_outcome_warns_and_exits_0(tmp_path, capsys):
 
 
 def test_listed_key_without_a_row_warns_and_does_not_echo_the_id(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, log = legacy_setup(tmp_path, [SUB_1], allow=["greenhouse,1000001,legacy: test",
                                                        "greenhouse,9000009,legacy: stale"])
     capsys.readouterr()
@@ -471,6 +487,7 @@ def test_listed_key_without_a_row_warns_and_does_not_echo_the_id(tmp_path, capsy
 
 
 def test_missing_allowlist_file_behaves_as_before(tmp_path, capsys):
+    ensure_profile(tmp_path)
     data, log = legacy_setup(tmp_path, [SUB_1])  # no legacy file
     capsys.readouterr()
     assert strict(data, log) == 2
@@ -488,12 +505,13 @@ def test_missing_allowlist_file_behaves_as_before(tmp_path, capsys):
 ])
 def test_allowlist_header_and_entries_are_validated(tmp_path, capsys, content):
     data, log = legacy_setup(tmp_path, [SUB_1])
-    (data / "apply" / "legacy-outcomes.csv").write_text(content, encoding="utf-8")
+    (data / "profiles" / "p" / "apply" / "legacy-outcomes.csv").write_text(content, encoding="utf-8")
     assert strict(data, log) == 2
     assert "error:" in capsys.readouterr().err
 
 
 def test_allowlist_reason_with_an_id_number_is_refused_without_echo(tmp_path, capsys):
+    ensure_profile(tmp_path)
     fake = "-".join([".".join(["111", "222", "333"]), "44"])
     data, log = legacy_setup(tmp_path, [SUB_1], allow=[f"greenhouse,1000001,legacy {fake}"])
     capsys.readouterr()
@@ -503,6 +521,7 @@ def test_allowlist_reason_with_an_id_number_is_refused_without_echo(tmp_path, ca
 
 
 def test_legacy_count_is_per_row_when_a_key_repeats(tmp_path, capsys):
+    ensure_profile(tmp_path)
     # several log rows can share a site and job ID (the Glassdoor rows with no job ID); each row counts
     data, log = legacy_setup(tmp_path, [SUB_1, SUB_1.replace("Dev", "Other role")],
                              allow=["greenhouse,1000001,legacy: test"])
@@ -581,7 +600,7 @@ def test_seen_cli_no_match_exits_0_and_prints_nothing(log, capsys):
 
 
 def test_check_flags_cr_and_conflict_markers(tmp_path):
-    log = tmp_path / "apply" / "log.csv"
+    log = tmp_path / "profiles" / "p" / "apply" / "log.csv"
     log.parent.mkdir(parents=True)
     log.write_bytes(b"date,site,employer,role,job_id,status\r\n2026-11-19,greenhouse,A,R,1,SUBMITTED\r\n")
     errors, *_ = applylog.check_log(log)
@@ -596,10 +615,11 @@ def test_check_flags_cr_and_conflict_markers(tmp_path):
 
 
 def test_check_warns_on_outcome_without_log_row(tmp_path):
-    log = tmp_path / "apply" / "log.csv"
+    ensure_profile(tmp_path)
+    log = tmp_path / "profiles" / "p" / "apply" / "log.csv"
     add(log, job_id="1", status="SUBMITTED")
     data = tmp_path
-    out = data / "logs" / "apply"
+    out = data / "profiles" / "p" / "logs" / "apply"
     out.mkdir(parents=True)
     (out / "greenhouse-2026-11-19.jsonl").write_text(
         '{"site": "glassdoor", "job_id": "1"}\n{"site": "glassdoor", "job_id": "99"}\n', encoding="utf-8")

@@ -55,7 +55,39 @@ def load_profiles(root: Path, inline: list | None = None) -> list[dict]:
     return list(profiles.values())
 
 
+# ADR-075 c: data that moved under profiles/<id>/. A non-empty root copy is stale and is refused before
+# anything is read or written. Relative names: a folder ("reports") or a file ("logs/runs.jsonl").
+STALE_ROOT = ("reports", "state", "applications", "logs/runs.jsonl")
+
+
+def stale_root_error(root_rel: str, profile_rel: str, what: str = "data") -> ConfigError:
+    """The one message for a stale root copy (ADR-075 c, d): names the root path and the profile path."""
+    return ConfigError(f"{what} at the data repo root ({root_rel}) is stale: it moved to {profile_rel} "
+                       "(ADR-075). Move it there, or remove the root copy. Nothing was read or written.")
+
+
+def _non_empty(path: Path) -> bool:
+    """A folder with any entry (a .gitkeep counts) or a file with bytes in it."""
+    if path.is_dir():
+        return any(path.iterdir())
+    if path.is_file():
+        return path.stat().st_size > 0
+    return False
+
+
+def _check_stale_root(root: Path) -> None:
+    base = root / "profiles"
+    ids = sorted(p.parent.name for p in base.glob(f"*/{PROFILE_FILE}") if p.is_file()) if base.is_dir() else []
+    pid = ids[0] if len(ids) == 1 else "<id>"
+    for rel in STALE_ROOT:
+        path = root / rel
+        if _non_empty(path):
+            shown = f"{rel}/" if path.is_dir() else rel
+            raise stale_root_error(shown, f"profiles/{pid}/{shown}")
+
+
 def load_config(root: Path) -> dict:
+    _check_stale_root(root)
     cfg_path = root / "config.yaml"
     if not cfg_path.is_file():
         raise ConfigError(f"Missing {cfg_path}")
