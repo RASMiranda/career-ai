@@ -40,6 +40,8 @@ from .queue import TRACKING, Queue
 
 
 DESCRIPTION_CHARS = 2500
+# Subcommands that act on one profile's queue or answers; main() resolves args.profile for them.
+PROFILE_CMDS = {"approve", "skip", "done", "track", "followed-up", "questions", "run", "summary"}
 
 
 def _applicant(root: Path, profile: dict) -> tuple[dict, dict]:
@@ -85,42 +87,67 @@ def _cv_for(item: dict, root: Path, cfg: dict) -> str | None:
 
 
 def cmd_enqueue(args, root, cfg, auth):
+    """Queue the emailable decisions. A row's own profile is authoritative; --profile never overrides it.
+
+    Every row is resolved and checked before any queue is read for writing, so a refusal writes nothing.
+    Authorization is read per row, for that row's profile (ADR-042, ADR-075 d, ADR-078 e).
+    """
+    flag = getattr(args, "profile", None)
     if all(policy.apply_cfg(cfg, p["id"])["mode"] == "off" for p in cfg["profiles"]):
         print("apply.mode is off — nothing queued")
         return 0
+    if flag:
+        policy.apply_cfg(cfg, flag)                     # an unknown id is a ConfigError
     cands = {c["candidate_key"]: c for c in
              json.loads(Path(args.candidates).read_text(encoding="utf-8"))["candidates"]}
     decisions = json.loads(Path(args.decisions).read_text(encoding="utf-8"))
     decisions = decisions.get("decisions", []) if isinstance(decisions, dict) else decisions
-    q, added = Queue(root), {"approved": 0, "queued": 0, "skipped": 0}
 
+    rows = []                                           # (profile id, decision, candidate)
     for d in decisions:
         key = d["candidate_key"]
-        if d["disposition"] != "email" or q.has(key) or key not in cands:
+        if d["disposition"] != "email" or key not in cands:
             continue
         c = cands[key]
-        acfg = policy.apply_cfg(cfg, c.get("profile"))
+        own = c.get("profile")
+        if flag and own and own != flag:
+            raise ConfigError(f"candidate {key} names profile {own!r} but --profile is {flag!r}: "
+                              "refusing the whole file, nothing queued")
+        pid = own or flag or layout.default_profile(root)   # several profiles, no id: ConfigError
+        policy.apply_cfg(cfg, pid)                      # an unknown row profile is a ConfigError
+        rows.append((pid, d, c))
+
+    queues, auths, added = {}, {}, {"approved": 0, "queued": 0, "skipped": 0}
+    for pid, d, c in rows:
+        key = d["candidate_key"]
+        acfg = policy.apply_cfg(cfg, pid)
         if acfg["mode"] == "off":
             continue
+        q = queues.setdefault(pid, Queue(root, pid))
+        if q.has(key):
+            continue
+        if pid not in auths:
+            auths[pid] = load_authorization(root, pid)
         item = {"title": c["title"], "company": c["company"], "url": c["url"],
                 "source": c["source"], "fit": d["fit"], "tier": d["tier"],
-                "confidence": d["confidence"], "profile": c.get("profile"),
+                "confidence": d["confidence"], "profile": pid,
                 "cv": d.get("cv") or ""}
         # Kept so `jobscan.kit` can draft from the posting later, without a new collect.
         extra = {"description": clean(c.get("description"))[:DESCRIPTION_CHARS],
                  "why": d.get("why", ""), "caution": d.get("caution", "")}
-        bl = Blacklist.from_config(cfg, c.get("profile"))
-        status, notes = policy.initial_status(item, acfg, auth, q, bl)
+        bl = Blacklist.from_config(cfg, pid)
+        status, notes = policy.initial_status(item, acfg, auths[pid], q, bl)
         q.add(key, {**item, **extra, "status": status, "policy_notes": notes,
                     "approval": "policy" if status == "approved" else None})
         added[status] += 1
-    q.save()
+    for q in queues.values():
+        q.save()
     print(f"enqueued: {added}")
     return 0
 
 
 def _mark(args, root, status):
-    q = Queue(root)
+    q = Queue(root, args.profile)
     for prefix in args.keys:
         key = q.resolve(prefix)
         extra = {"approval": "user"} if status == "approved" else {}
@@ -131,7 +158,7 @@ def _mark(args, root, status):
 
 
 def cmd_track(args, root, cfg, auth):
-    q = Queue(root)
+    q = Queue(root, args.profile)
     key = q.resolve(args.key)
     try:
         item = tracker.track(q, key, args.status, args.note or "", args.follow_up or "")
@@ -144,7 +171,7 @@ def cmd_track(args, root, cfg, auth):
 
 
 def cmd_followed_up(args, root, cfg, auth):
-    q, status = Queue(root), 0
+    q, status = Queue(root, args.profile), 0
     for prefix in args.keys:
         try:
             item = tracker.mark_followed_up(q, q.resolve(prefix))
@@ -309,12 +336,12 @@ def _record_failure(flog, q, item, fail, mode, run_id, t0, dry_run):
 
 
 def cmd_summary(args, root, cfg, auth):
-    q = Queue(root)
-    wait = policy.apply_cfg(cfg, getattr(args, "profile", None))["follow_up_days"]
+    q = Queue(root, args.profile)
+    wait = policy.apply_cfg(cfg, args.profile)["follow_up_days"]
     md = summary.render_markdown(q, args.days, wait)
     if args.html:
         Path(args.html).write_text(summary.render_html(q, args.days, follow_up_days=wait), encoding="utf-8")
-    out = layout.moved_path(root, "reports/applications.md")
+    out = layout.moved_path(root, "reports/applications.md", args.profile)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
     print(md)
@@ -348,34 +375,37 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    # --profile on every subcommand that acts on one profile's queue or answers (issue: apply --profile).
+    prof = argparse.ArgumentParser(add_help=False)
+    prof.add_argument("--profile", help="the profile to act on (default: the only profile; required with several)")
 
-    p = sub.add_parser("enqueue")
+    p = sub.add_parser("enqueue", parents=[prof])
     p.add_argument("--candidates", default="candidates.json")
     p.add_argument("--decisions", default="decisions.json")
     for name in ("approve", "skip", "done"):
-        sub.add_parser(name).add_argument("keys", nargs="+")
-    p = sub.add_parser("track")
+        sub.add_parser(name, parents=[prof]).add_argument("keys", nargs="+")
+    p = sub.add_parser("track", parents=[prof])
     p.add_argument("key")
     p.add_argument("--status", required=True, choices=list(TRACKING))
     p.add_argument("--note", help="one line for yourself, e.g. 'recruiter call Thursday'")
     p.add_argument("--follow-up", metavar="YYYY-MM-DD", help="remind me on this date instead of the default wait")
-    sub.add_parser("followed-up").add_argument("keys", nargs="+")
+    sub.add_parser("followed-up", parents=[prof]).add_argument("keys", nargs="+")
     p = sub.add_parser("questions")
     qs = p.add_subparsers(dest="action", required=True)
     work = argparse.ArgumentParser(add_help=False)
     work.add_argument("--work", default="/tmp", help="where questions-request.json and answers-draft.json live")
-    q = qs.add_parser("prepare", parents=[work])
+    q = qs.add_parser("prepare", parents=[work, prof])
     q.add_argument("--days", type=int, default=30, help="failures from the last N days (default %(default)s)")
     q.add_argument("--limit", type=int, default=drafted.DEFAULT_LIMIT)
-    qs.add_parser("finish", parents=[work])
-    q = qs.add_parser("list")
+    qs.add_parser("finish", parents=[work, prof])
+    q = qs.add_parser("list", parents=[prof])
     q.add_argument("--status", choices=[*drafted.STATUSES, "waiting", "all"], default="waiting",
                    help="waiting = proposed + needs_owner (default)")
-    q = qs.add_parser("approve")
+    q = qs.add_parser("approve", parents=[prof])
     q.add_argument("keys", nargs="*")
     q.add_argument("--all", action="store_true", help="approve every proposed answer")
-    qs.add_parser("reject").add_argument("keys", nargs="+")
-    q = qs.add_parser("set")
+    qs.add_parser("reject", parents=[prof]).add_argument("keys", nargs="+")
+    q = qs.add_parser("set", parents=[prof])
     q.add_argument("key")
     q.add_argument("text", help="your own answer")
     p = sub.add_parser("run")
@@ -384,7 +414,7 @@ def main(argv=None) -> int:
     p.add_argument("--headed", action="store_true", help="show the browser")
     p.add_argument("--limit", type=int)
     p.add_argument("--profile", help="run this profile's queue only (default: the only profile)")
-    p = sub.add_parser("summary")
+    p = sub.add_parser("summary", parents=[prof])
     p.add_argument("--html")
     p.add_argument("--days", type=int, default=7)
     p = sub.add_parser("bundle")
@@ -400,7 +430,13 @@ def main(argv=None) -> int:
     try:
         root = data_root(args.data)
         cfg = load_config(root)
-        auth = load_authorization(root, layout.default_profile(root, getattr(args, "profile", None)))
+        pid = None
+        if args.cmd in PROFILE_CMDS:                    # one id, or ConfigError with several
+            pid = layout.default_profile(root, getattr(args, "profile", None))
+            if args.cmd != "run":                       # run keeps its own None-means-all-approved semantics
+                args.profile = pid
+        # Only run reads authorization here. enqueue reads it per row; blacklist and bundle need no profile.
+        auth = load_authorization(root, pid) if args.cmd == "run" else None
         if args.cmd in ("approve", "skip", "done"):
             return _mark(args, root, {"approve": "approved", "skip": "skipped", "done": "done"}[args.cmd])
         return {"enqueue": cmd_enqueue, "run": cmd_run, "summary": cmd_summary,
