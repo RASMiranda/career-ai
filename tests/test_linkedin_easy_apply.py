@@ -109,7 +109,7 @@ def build(tmp_path, items, *, auth=AUTH, mode="auto", caps=None, blacklist=()):
     write_profile(tmp_path, "p", {"criteria": "x", "cv": {"dir": "cv-files"},
                                   "applicant": APPLICANT, "answers": ANSWERS})
     write_apply_config(tmp_path, "p", {"mode": mode, "delay_seconds": 0, "auto": caps or {}})
-    (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({"active": True, **auth}))
+    (tmp_path / "profiles/p/authorization.yaml").write_text(yaml.safe_dump({"active": True, **auth}))
     q = Queue(tmp_path)
     base = {"profile": "p", "title": "Java Lead", "company": "Acme", "fit": 90, "tier": "core",
             "confidence": "high", "source": "s", "cv": "", "approval": "policy"}

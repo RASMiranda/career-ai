@@ -102,11 +102,45 @@ def load_config(root: Path) -> dict:
     return cfg
 
 
-def load_authorization(root: Path) -> dict:
-    auth_path = root / "authorization.yaml"
-    if not auth_path.is_file():
-        raise ConfigError(f"Missing {auth_path}")
-    return yaml.safe_load(auth_path.read_text(encoding="utf-8")) or {}
+AUTH_FILE = "authorization.yaml"
+
+
+def _profile_folder_ids(root: Path) -> list[str]:
+    """Folder names under profiles/ that hold a profile.yaml, sorted (the folder name is the id)."""
+    base = root / "profiles"
+    if not base.is_dir():
+        return []
+    return sorted(p.parent.name for p in base.glob(f"*/{PROFILE_FILE}") if p.is_file())
+
+
+def load_authorization(root: Path, pid: str | None) -> dict:
+    """``profiles/<id>/authorization.yaml``: the only file ever read (ADR-075 d, issue #125).
+
+    ``pid`` None means the only profile; no profile, or several without ``pid``, is a ConfigError. A root
+    ``authorization.yaml`` is never read, with or without a profile copy. A missing or unreadable file is a
+    ConfigError, so nothing is authorized by accident (ADR-042).
+    """
+    ids = _profile_folder_ids(root)
+    if pid is None:
+        if not ids:
+            raise ConfigError(f"no profile: expected profiles/<id>/{PROFILE_FILE}")
+        if len(ids) > 1:
+            raise ConfigError(f"several profiles ({', '.join(ids)}): pass --profile <id> to choose one")
+        pid = ids[0]
+    rel = f"profiles/{pid}/{AUTH_FILE}"
+    path = root / rel
+    if not path.is_file():
+        raise ConfigError(f"Missing {rel}. Authorization is read from the profile folder only: the root "
+                          "copy is not read (ADR-075 d). Nothing was authorized.")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        raise ConfigError(f"{rel} cannot be read. Nothing was authorized.") from None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError(f"{rel} must be a mapping. Nothing was authorized.")
+    return data
 
 
 def recipients(profile: dict) -> list[str]:

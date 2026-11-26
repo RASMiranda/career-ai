@@ -97,13 +97,13 @@ def _setup(args):
     try:
         root = data_root(args.data)
         cfg = load_config(root)
-        auth = load_authorization(root)
         pid = _profile(root, getattr(args, "profile", None))
+        auth = load_authorization(root, pid)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return None
     if not auth.get("active"):
-        print("authorization.yaml: active is not true. STOP: nothing was run.", file=sys.stderr)
+        print(f"profiles/{pid}/authorization.yaml: active is not true. STOP: nothing was run.", file=sys.stderr)
         return None
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
@@ -181,7 +181,7 @@ def _finish(root: Path, cfg: dict, work: Path, pid: str | None, commit_if_no_ema
     _write(p["all"], merged)
 
     data = ["--data", str(root)]
-    rc = validate.main([*data, "--candidates", str(p["candidates"]), "--decisions", str(p["all"])])
+    rc = validate.main([*data, *_opt(pid), "--candidates", str(p["candidates"]), "--decisions", str(p["all"])])
     if rc:
         print("STOP: validation failed. Nothing was enqueued, sent or saved.", file=sys.stderr)
         return rc

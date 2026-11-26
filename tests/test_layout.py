@@ -336,7 +336,8 @@ def _two_profile_repo(tmp_path):
             {"daily_queries": [{"source": "fake", "query": pid}]}))
         touch(tmp_path, f"profiles/{pid}/01-knowledge/05-job-match.md")
     touch(tmp_path, "config.yaml", "budgets: {fake: 5}\n")
-    touch(tmp_path, "authorization.yaml", "active: true\n")
+    for pid in ("ana", "bruno"):
+        touch(tmp_path, f"profiles/{pid}/authorization.yaml", "active: true\n")
 
 
 def test_collect_with_a_profile_uses_only_its_queries_seen_set_and_budget(tmp_path, monkeypatch):
