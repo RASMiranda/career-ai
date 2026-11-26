@@ -1,4 +1,4 @@
-"""One line per application run in ``logs/runs.jsonl``, appended through the Store.
+"""One line per application run in ``profiles/<id>/logs/runs.jsonl``, appended through the Store.
 
 A run here is one job's pass through the apply runner: the site it went to, the posting link it started
 from, and how it ended. Each line carries 0 or 1 in each counter; a day's totals are the sums. Lines are
