@@ -83,7 +83,7 @@ def owner_only(label: str, kind: str) -> str:
 
 
 class AnswerStore:
-    """``applications/answers.json``: every drafted or owner-written answer and its status."""
+    """``profiles/<id>/applications/answers.json``: every drafted or owner-written answer and its status."""
 
     def __init__(self, root: Path, pid: str | None = None):
         self.path = moved_path(root, "applications/answers.json", pid)

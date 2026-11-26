@@ -154,7 +154,7 @@ questions, pay, notice period, start date, dates, emails or phone numbers. Those
 `needs_owner` for you to `set` (or write in `profile.yaml → answers`). A draft with a link, address,
 number, markup or placeholder, an answer that is not one of a dropdown's options, or one that overruns
 its field is rejected. Approved answers are passed to the form after your own `answers`, which always
-win. Answers live in `applications/answers.json` (private).
+win. Answers live in `profiles/<id>/applications/answers.json` (private).
 
 ### Share a saved page safely
 
@@ -182,8 +182,7 @@ python -m jobscan.kit finish  --data ../career-data          # fails closed; --f
 
 Drafts with a link, address, phone number, HTML, an unfilled placeholder, a language the
 profile does not speak, or a letter that never names the company are rejected and nothing
-is written. Read every letter before it goes anywhere, then commit `profiles/` and
-`applications/` in `career-data`.
+is written. Read every letter before it goes anywhere, then commit `profiles/` in `career-data`.
 
 The LLM never drives the browser; adapters are deterministic code that answers
 only from the profile's `applicant` and `answers` in `profiles/<id>/profile.yaml`. Unknown required question, CAPTCHA, login wall
@@ -204,11 +203,11 @@ python -m jobscan.cv --data ../career-data   # variants found: cards vs files
 ### Apply log commands (ADR-050)
 Browser-apply runs write `profiles/<id>/apply/log.csv` rows and `profiles/<id>/logs/apply/<site>-<date>.jsonl` outcomes in career-data through the CLI, never by hand. With `--data` and no `--log`, the profile's log is used (`--profile` when there are several; ADR-071). An explicit `--log` still wins:
 ```bash
-python -m jobscan.applylog upsert --log apply/log.csv --date 2026-11-12 --site example --employer Example --role "Engineer, Java" --job-id abc --status SUBMITTED
+python -m jobscan.applylog upsert --data . --profile rui --date 2026-11-12 --site example --employer Example --role "Engineer, Java" --job-id abc --status SUBMITTED
 python -m jobscan.applylog outcome --data . --site example --job-id abc --employer Example --role "Engineer, Java" --status SUBMITTED --ts 2026-11-12 --verified-by confirmation_url
 python -m jobscan.applylog check --data .
-python -m jobscan.applylog seen --log apply/log.csv --employer Example --role "Senior Engineer (m/f/n) - Remote"   # exit 1 + rows if already applied on any site (ADR-056)
-python -m jobscan.applylog reconcile --log apply/log.csv --file applied.csv   # site Applied list (employer,role) entries no APPLIED row covers; exit 1 if any (ADR-062)
+python -m jobscan.applylog seen --data . --profile rui --employer Example --role "Senior Engineer (m/f/n) - Remote"   # exit 1 + rows if already applied on any site (ADR-056)
+python -m jobscan.applylog reconcile --data . --profile rui --file applied.csv   # site Applied list (employer,role) entries no APPLIED row covers; exit 1 if any (ADR-062)
 ```
 `upsert` replaces the row with the same site and job ID in place, or appends; other lines stay byte-identical. Errors exit 2.
 

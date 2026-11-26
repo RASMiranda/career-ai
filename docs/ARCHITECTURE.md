@@ -91,7 +91,7 @@ is P2 work.
 ## 2c. After a match: kit and tracker
 
 ```
-queue (applications/queue.json)           profiles/<id>/03-outputs/<date>-<company>-<title>-<key>/
+queue (profiles/<id>/applications/queue.json)  profiles/<id>/03-outputs/<date>-<company>-<title>-<key>/
   queued → approved → submitted | done       cover-letter.md  cv-tailoring.md
                           └→ replied → interview → offer       follow-up-email.md  interview-prep.md
                           └→ rejected | withdrawn
@@ -108,12 +108,12 @@ queue (applications/queue.json)           profiles/<id>/03-outputs/<date>-<compa
   what is in progress, and what is due a follow-up (`apply.follow_up_days`, default 7;
   a profile may override with `follow_up_days`). Nothing here contacts anyone.
 - The scan routine does not run the kit (usage is limited); the owner does, on request,
-  and commits `profiles/` and `applications/` in `career-data` afterwards.
+  and commits `profiles/` in `career-data` afterwards.
 
 **Form answers (ADR-019).** The adapter's `UNKNOWN_REQUIRED_FIELD` failure now carries each
 unanswered question's `kind`, `options` and `max_length`. `apply questions prepare` turns recent
 failures into a brief, a model drafts, `finish` validates and stores `proposed` answers in
-`applications/answers.json`, and **the owner approves each one** (`approve`, `reject`, `set`). Only
+`profiles/<id>/applications/answers.json`, and **the owner approves each one** (`approve`, `reject`, `set`). Only
 `approved` ones reach a form, through `answers_for`, after the owner's explicit `profile.yaml →
 answers`. Questions in `OWNER_ONLY` (legal, consent, demographic, pay, notice, start date, any
 checkbox, date, email or phone field) never reach the model: they are stored as `needs_owner`.
