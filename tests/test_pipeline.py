@@ -33,7 +33,8 @@ def make_repo(tmp_path, reject_main=False):
     (data / "config.yaml").write_text(yaml.safe_dump({}))
     write_profile(data, "p", {"notify": {"email": ["a@mail.test"]},
                               "prefilter": {"reject_title": [r"\bjunior\b"]}})
-    (data / "authorization.yaml").write_text(yaml.safe_dump({"active": True}))
+    (data / "profiles/p").mkdir(parents=True, exist_ok=True)
+    (data / "profiles/p/authorization.yaml").write_text(yaml.safe_dump({"active": True}))
     git(data, "add", "-A"); git(data, "commit", "-qm", "init")
     if not reject_main:
         git(data, "push", "-q", "origin", "main")
@@ -141,7 +142,7 @@ def test_prepare_prints_a_brief_for_the_model_and_defers_over_the_cap(tmp_path, 
 
 def test_inactive_authorization_stops_before_collecting(tmp_path, monkeypatch, capsys):
     data = make_repo(tmp_path)
-    (data / "authorization.yaml").write_text(yaml.safe_dump({"active": False}))
+    (data / "profiles/p/authorization.yaml").write_text(yaml.safe_dump({"active": False}))
     monkeypatch.setattr(pipeline.collect, "main", lambda argv: pytest.fail("collected"))
     assert pipeline.main(["prepare", "--data", str(data), "--work", str(tmp_path / "w")]) == 2
 
@@ -261,6 +262,7 @@ def _add_profiles(data, *ids):
     for pid in ids:
         (data / f"profiles/{pid}").mkdir(parents=True, exist_ok=True)
         (data / f"profiles/{pid}/profile.yaml").write_text("display_name: Synthetic\n")
+        (data / f"profiles/{pid}/authorization.yaml").write_text("active: true\n")
 
 
 def _spy_collect(monkeypatch, work, seen):

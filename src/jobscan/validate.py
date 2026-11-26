@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .blacklist import Blacklist
 from .cv import catalog
+from . import layout
 from .config import ConfigError, data_root, load_authorization, load_config, recipient_problems
 from .models import CONFIDENCE, DISPOSITION, Decision
 from .normalize import is_http_url
@@ -95,12 +96,13 @@ def main(argv=None) -> int:
     ap.add_argument("--data")
     ap.add_argument("--candidates", default="candidates.json")
     ap.add_argument("--decisions", default="decisions.json")
+    ap.add_argument("--profile", help="profile id (default: the only profile; several need this option)")
     args = ap.parse_args(argv)
 
     try:
         root = data_root(args.data)
-        auth = load_authorization(root)
         cfg = load_config(root)
+        auth = load_authorization(root, layout.default_profile(root, args.profile))
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2

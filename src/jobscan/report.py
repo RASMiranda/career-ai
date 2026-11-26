@@ -16,7 +16,7 @@ from .apply.policy import apply_cfg
 from .decide import repo_slug
 from .apply.summary import count_failures, render_failures
 from .apply.summary import render_html as render_applications
-from . import feedback
+from . import feedback, layout
 from .config import ConfigError, data_root, load_authorization, load_config, recipients
 from .layout import moved_path
 from .normalize import is_http_url
@@ -176,7 +176,7 @@ def main(argv=None) -> int:
     try:
         root = data_root(args.data)
         cfg = load_config(root)
-        load_authorization(root)
+        load_authorization(root, layout.default_profile(root, args.profile))
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2

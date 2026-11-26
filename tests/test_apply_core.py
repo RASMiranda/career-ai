@@ -167,7 +167,7 @@ def make_data(tmp_path, mode="manual", switch=False):
     write_apply_config(tmp_path, "p", {"mode": mode})
     (tmp_path / "cv-files").mkdir()
     (tmp_path / "cv-files" / "general.pdf").write_bytes(b"%PDF-1.4")
-    (tmp_path / "authorization.yaml").write_text(yaml.safe_dump({
+    (tmp_path / "profiles/p/authorization.yaml").write_text(yaml.safe_dump({
         "active": True,
         "application_submission": {"master_switch": switch,
                                    "acknowledged_on": "2026-10-15" if switch else ""}}))

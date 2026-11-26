@@ -399,7 +399,8 @@ def main(argv=None) -> int:
 
     try:
         root = data_root(args.data)
-        cfg, auth = load_config(root), load_authorization(root)
+        cfg = load_config(root)
+        auth = load_authorization(root, layout.default_profile(root, getattr(args, "profile", None)))
         if args.cmd in ("approve", "skip", "done"):
             return _mark(args, root, {"approve": "approved", "skip": "skipped", "done": "done"}[args.cmd])
         return {"enqueue": cmd_enqueue, "run": cmd_run, "summary": cmd_summary,
