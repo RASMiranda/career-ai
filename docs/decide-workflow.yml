@@ -33,7 +33,8 @@ jobs:
       - if: steps.apply.outputs.code == '0'
         run: |
           git config user.name "job-scan"; git config user.email "job-scan@users.noreply.github.com"
-          git add applications/queue.json
+          # ADR-075: the queue lives under the profile folder.
+          git add -- 'profiles/*/applications/queue.json'
           git commit -m "Decision from email link: $TITLE"
           git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"
       - run: |
