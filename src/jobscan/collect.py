@@ -16,10 +16,28 @@ from .blacklist import Blacklist
 from .cv import catalog
 from .layout import moved_path
 from .normalize import is_http_url
-from .sources import REGISTRY
+from .sources import REGISTRY, blocked_reason
 from .state import Budget, Seen
 
 SECRET_NAMES = ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "RAPIDAPI_KEY")
+HEALTH_OK, HEALTH_EMPTY, HEALTH_FAILED, HEALTH_NOT_RUN = "ok", "empty-unexpectedly", "failed", "not-run"
+
+
+def source_health(outcomes: list) -> str:
+    """One status per source from its query outcomes (ARCHITECTURE §2b).
+
+    Each outcome is the number of candidates a query returned, or "failed", or "not-run" (blocked,
+    or the monthly budget was spent). ok: some query returned something. failed: a query raised and
+    none returned anything. empty-unexpectedly: every query ran and returned zero (a silent zero
+    breaks "fewer, better", so it is shown, not hidden). not-run: nothing ran.
+    """
+    if any(isinstance(o, int) and o > 0 for o in outcomes):
+        return HEALTH_OK
+    if "failed" in outcomes:
+        return HEALTH_FAILED
+    if any(isinstance(o, int) for o in outcomes):
+        return HEALTH_EMPTY
+    return HEALTH_NOT_RUN
 
 
 def proxied_sources(cfg: dict) -> set[str]:
@@ -88,6 +106,7 @@ def main(argv=None) -> int:
 
     collected, skipped_seen, errors = {}, 0, []
     blocked: dict[str, int] = {}
+    outcomes: dict[str, list] = {}  # source -> one entry per query: result count, "failed" or "not-run"
 
     def consider(cand, blacklist) -> None:
         nonlocal skipped_seen
@@ -110,15 +129,23 @@ def main(argv=None) -> int:
             if not fetch:
                 errors.append(f"unknown source: {source}")
                 continue
+            why = blocked_reason(source)
+            if why:
+                errors.append(f"{source}: {why}")
+                outcomes.setdefault(source, []).append(HEALTH_NOT_RUN)
+                continue
             if budget.remaining(source) <= 0:
                 errors.append(f"{source}: monthly budget exhausted, skipped")
+                outcomes.setdefault(source, []).append(HEALTH_NOT_RUN)
                 continue
             try:
                 results = fetch(query, profile["id"], secrets)
             except Exception as exc:  # a broken source degrades, never aborts
                 errors.append(f"{source}: {type(exc).__name__}")
+                outcomes.setdefault(source, []).append("failed")
                 continue
             budget.spend(source)
+            outcomes.setdefault(source, []).append(len(results))
             for cand in results:
                 consider(cand, blacklist)
 
@@ -137,6 +164,7 @@ def main(argv=None) -> int:
                    "blacklisted": sum(blocked.values()), "clipped": len(clipped)},
         "blocked_by": blocked,
         "errors": errors,
+        "source_health": {name: source_health(o) for name, o in sorted(outcomes.items())},
         "candidates": [c.to_dict() for c in collected.values()],
         # CV variants per profile: the AI picks one per match from profiles/<id>/cv/<variant>.md
         "cv_variants": {p["id"]: sorted(catalog(root, p)) for p in cfg["profiles"]},
@@ -150,6 +178,8 @@ def main(argv=None) -> int:
         print(f"  - blocked {n} from {name}")
     for err in errors:
         print(f"  ! {err}")
+    if outcomes:
+        print("sources: " + " · ".join(f"{n} {source_health(o)}" for n, o in sorted(outcomes.items())))
     print(f"wrote {args.out}")
     return 0
 

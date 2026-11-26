@@ -27,10 +27,12 @@ def fake(monkeypatch, status, payload=None, error=""):
 def test_everything_ok_exits_zero_and_never_prints_a_key(env, monkeypatch, capsys):
     monkeypatch.setenv("ADZUNA_APP_ID", SECRET_ID); monkeypatch.setenv("ADZUNA_APP_KEY", SECRET_KEY)
     monkeypatch.setenv("RAPIDAPI_KEY", SECRET_RAPID)
-    fake(monkeypatch, 200, {"results": [1], "data": [1, 2]})
+    fake(monkeypatch, 200, {"results": [1], "data": [1, 2], "jobs": [1]})
     assert doctor.main(["--data", str(env)]) == 0
     out = capsys.readouterr().out
     assert "adzuna   OK, HTTP 200, 1 result(s)" in out and "jsearch  OK, HTTP 200, 2 result(s)" in out
+    assert "remotive OK, HTTP 200, 1 result(s)" in out
+    assert "workingnomads DISABLED: terms not reviewed (ADR-080)" in out
     assert not any(s in out for s in (SECRET_ID, SECRET_KEY, SECRET_RAPID))
 
 
@@ -119,3 +121,21 @@ def test_get_json_retries_only_transient_failures(monkeypatch):
     assert run([urllib.error.HTTPError("u", 503, "x", {}, None)], 1) == ({"ok": 1}, 2)
     assert run([urllib.error.HTTPError("u", 403, "x", {}, None)], 1) == (None, 1)
     assert run([TimeoutError("t"), TimeoutError("t")], 1) == (None, 2)
+
+
+def test_remotive_without_a_jobs_list_fails(env, monkeypatch):
+    fake(monkeypatch, 200, {"results": [1]})
+    ok, msg = doctor.check_remotive()
+    assert not ok and "FAILED, HTTP 200" in msg
+
+
+def test_remotive_unreachable_says_so(env, monkeypatch):
+    fake(monkeypatch, None, None, "URLError: <urlopen error timed out>")
+    ok, msg = doctor.check_remotive()
+    assert not ok and "timed out" in msg
+
+
+def test_workingnomads_is_not_probed_while_its_terms_are_unreviewed(env, monkeypatch):
+    sent = fake(monkeypatch, 200, [])
+    ok, msg = doctor.check_workingnomads()
+    assert ok and msg.startswith("DISABLED") and sent == []

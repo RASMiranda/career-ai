@@ -88,6 +88,16 @@ is P2 work.
 | smartrecruiters | manual_channel | registered; owner-run browser session, no adapter (ADR-050) |
 | malt, toptal, shakers, turing | manual_channel | listed in `config.yaml → manual_channels` |
 
+**Status as of 2026-11-26** (ADR-080, ADR-081)
+
+| Source | Method | State |
+|---|---|---|
+| remotive | public_api | implemented, in use; per-skill queries added (java, angular, spring boot); doctor probes it |
+| workingnomads | public_api | adapter built and tested on a hand-trimmed fixture; **not run**: `terms_reviewed` unset, so collect refuses it. Enable only after the terms are read and a recorded response matches |
+| jobgether | public_api | pending: no adapter; waits for a sample response and terms; repost rule in ADR-081 |
+
+SourceHealth is implemented in `collect` (per source: ok, empty-unexpectedly, failed, not-run) and shown in the RUN SUMMARY, the report and the email.
+
 ## 2c. After a match: kit and tracker
 
 ```

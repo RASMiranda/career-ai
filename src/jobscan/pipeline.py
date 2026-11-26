@@ -204,6 +204,8 @@ def _finish(root: Path, cfg: dict, work: Path, pid: str | None, commit_if_no_ema
     print("\nRUN SUMMARY")
     print(f"  collected new: {counts.get('new', '?')} · already seen: {counts.get('already_seen', '?')}"
           f" · blacklisted: {counts.get('blacklisted', '?')} · source errors: {len(payload.get('errors', []))}")
+    if report.health_text(payload.get("source_health")):
+        print("  " + report.health_text(payload.get("source_health")))
     print(f"  auto-discarded: {payload.get('triage', {}).get('auto_discarded', 0)}"
           f" · deferred: {payload.get('triage', {}).get('deferred', 0)}"
           f" · scored by the model: {len(model)}")

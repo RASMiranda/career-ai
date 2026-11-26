@@ -47,7 +47,7 @@ matches, and hands you ready-to-act applications. You stay in control."
 
 ## Sources
 Sources are configuration. Each is enabled per profile and declares how it is
-reached. Registered today: Remotive, Arbeitnow, Adzuna, JSearch (in use);
+reached. Registered today: Remotive, Arbeitnow, Adzuna, JSearch (in use); Working Nomads (adapter built, not run until its terms are reviewed, ADR-080); Jobgether (pending, ADR-080, ADR-081);
 Greenhouse, Lever, Ashby, Hacker News "Who is hiring" (planned, P2); LinkedIn,
 Indeed, Glassdoor, Braintrust (registered; alert emails or manual channel);
 Malt, Toptal, Shakers, Turing (manual checklist). Direct access to the closed
