@@ -195,9 +195,21 @@ def test_the_caller_has_no_steps_and_one_job_that_calls_the_stage_workflow():
     assert all("steps" not in job for job in wf["jobs"].values())
     assert list(wf["jobs"]) == ["stage"]
     assert ENGINE_CALL.fullmatch(wf["jobs"]["stage"]["uses"]), wf["jobs"]["stage"]["uses"]   # a full SHA, never a branch or tag
-    text = (WF / "sdlc.yml").read_text()
-    pin = re.search(r"sdlc-stage\.yml@([0-9a-f]{40})", text).group(1)
-    assert f"sdlc-engine@{pin}" in (WF / "tests.yml").read_text()   # the same SHA in tests.yml: always bumped together
+
+
+def test_the_engine_pin_is_one_sha_with_a_version_comment_and_tests_yml_reads_it_from_the_caller():
+    """Single pin (ADR-083): the `uses:` line of sdlc.yml is the only place the engine version is written. Dependabot
+    needs the trailing `# vX.Y.Z` comment to propose a bump; tests.yml derives the SHA from that line."""
+    lines = [l for l in (WF / "sdlc.yml").read_text().splitlines() if "RASMiranda/sdlc-engine" in l and "uses:" in l]
+    assert len(lines) == 1, lines
+    assert re.fullmatch(r"\s*uses: RASMiranda/sdlc-engine/\.github/workflows/sdlc-stage\.yml@[0-9a-f]{40} # v\d+\.\d+\.\d+", lines[0]), lines[0]
+    tests_yml = (WF / "tests.yml").read_text()
+    assert not re.search(r"sdlc-engine@[0-9a-f]{40}", tests_yml)              # no second copy of the SHA
+    step = next(s for s in yaml.safe_load(tests_yml)["jobs"]["pytest"]["steps"] if "check-project" in s.get("run", ""))["run"]
+    assert ".github/workflows/sdlc.yml" in step and "grep" in step            # the SHA comes from the caller
+    assert '{40}$' in step and "exit 1" in step                               # and a pin that is not 40 hex fails the step
+    assert 'pip install "git+https://github.com/RASMiranda/sdlc-engine@$SHA"' in step
+    assert step.index("unset PYTHONPATH") < step.index("python -m sdlc_engine check-project --root .")
 
 
 def test_the_caller_passes_only_the_named_secrets_and_never_inherits():

@@ -224,25 +224,27 @@ library only, it does not import the engine). The folders `engine/` and `project
 deletes and re-creates them in the workspace, so this repository must never have them (`check-project` rule `reserved`).
 
 **The pin rule.** The engine is referenced only by a full 40-hex commit SHA with the version in a comment, never a branch or
-a tag. The SHA is in two places and they are always bumped together: the `uses:` line of `.github/workflows/sdlc.yml`
-and the `pip install git+https://github.com/RASMiranda/sdlc-engine@<sha>` step of `.github/workflows/tests.yml`.
-`tests/test_sdlc_config.py` fails if the two differ. There is no `engine` input, so the `uses:` line is the only version.
+a tag, and there is **one** pin: the `uses:` line of `.github/workflows/sdlc.yml`, for example
+`RASMiranda/sdlc-engine/.github/workflows/sdlc-stage.yml@<40 hex> # v0.2.1`. The comment is required: Dependabot reads it,
+and it can only track tagged releases. `tests.yml` has no copy: its check step reads the SHA from that line, fails unless
+there is exactly one match of 40 hex characters, installs that engine and runs `python -m sdlc_engine check-project --root .`.
+`tests/test_sdlc_config.py` pins the line's shape. There is no `engine` input, so this line is the only version.
 
 **How to bump.**
-1. Dependabot opens a pull request for the `sdlc-engine` group (weekly). It changes the `uses:` line only; it never merges.
-2. Read the engine's `CHANGELOG.md` between the two versions. A BREAKING entry (for example a change of `config_version`)
-   needs the config change in the same pull request.
-3. Put the same SHA in `tests.yml`, and change the `# vX.Y.Z` comment.
-4. Run `pip install git+https://github.com/RASMiranda/sdlc-engine@<sha>` and
-   `python -m sdlc_engine check-project --root .` (unset `PYTHONPATH` first; it must print `ok:`), then `python -m pytest -q`.
-5. Merge it yourself. The first run after a bump is its canary: watch the stage workflow's job summary, which names the engine
-   commit it ran.
+1. Normally: merge the Dependabot pull request (weekly, group `sdlc-engine`, never auto-merged). It edits the `uses:` line
+   and its comment. Its `tests` check runs `check-project` against the new version, so a config that no longer fits fails
+   there. Read the engine's `CHANGELOG.md` first; a BREAKING entry (for example a new `config_version`) needs the config
+   change pushed to the Dependabot branch before you merge.
+2. By hand: edit the SHA and the `# vX.Y.Z` comment on that one line together, in one pull request, and wait for the `tests` check.
+3. Locally: `pip install git+https://github.com/RASMiranda/sdlc-engine@<sha>`, then (with `PYTHONPATH` unset)
+   `python -m sdlc_engine check-project --root .` must print `ok:`, then `python -m pytest -q`.
+4. The first run after a bump is its canary: the stage workflow's job summary names the engine commit it ran.
+Third-party actions come in the `actions-third-party` group, 7 days after their release (`cooldown`); the engine is not delayed.
 
-**How to roll back.** Repoint both pins (`sdlc.yml` and `tests.yml`) to the previous SHA in one pull request: that is the
-rollback for an engine problem, and it needs no other change unless the previous engine rejects a newer `config_version`.
-To return to an engine inside this repository, revert the whole change (ADR-083), not only its second commit: the second
-commit alone removes the local copy and its tests, and restoring them without the first commit's deleted `sdlc-stage.yml` and
-older config leaves tests that cannot run.
+**How to roll back.** Revert the whole pull request that made the change (ADR-083), or repoint the `uses:` SHA (and its
+comment) to the previous release in a new pull request: `tests.yml` follows by itself. The pull request's commits are not
+independently green: the old tests assert the old layout (the in-repository engine and `sdlc-stage.yml`), so reverting
+only the second commit leaves a suite that cannot run. A previous engine release also needs the `config_version` it reads.
 
 **Agent commits** carry the committer name `sdlc-engine-bot`, set by the engine's workflow, not `career-ai-sdlc`.
 

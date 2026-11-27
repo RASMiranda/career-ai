@@ -59,7 +59,8 @@ def test_the_file_holds_the_projects_values_and_the_project_text_the_engines_def
         assert s.get("checkout", False) is (name in ("review", "release")), name
     assert c["protected_paths"] == PROTECTED              # in full; the engine's folder left in S3 step h, so its entry is gone
     assert "src/sdlc_engine/**" not in c["protected_paths"]
-    assert not any((ROOT / d).exists() for d in ("src/sdlc_engine", "engine", "project-config"))   # `engine/` and `project-config/` are the stage workflow's
+    # `engine/` and `project-config/` are the stage workflow's; a leftover __pycache__ of the old package is not a copy of it
+    assert not list((ROOT / "src" / "sdlc_engine").rglob("*.py")) and not (ROOT / "engine").exists() and not (ROOT / "project-config").exists()
     assert c["limits"] == {"max_files": 60, "max_added_bytes": 400000}
     assert c["budget"] == {"cap_24h": 60, "cap_7d": 240, "min_run_seconds": 30, "mention": "@RASMiranda"}
     assert c["secret_patterns_extra"] == [RAPIDAPI_PATTERN]
@@ -99,7 +100,8 @@ def test_the_values_the_yaml_holds_match_the_file():
     assert f"- run: {test['command']}" in tests_yml
     assert re.search(rf"^  {re.escape(test['check_name'])}:$", tests_yml, re.M)
     assert (ROOT / ".github" / "workflows" / test["workflow"]).is_file()
-    assert set(c["git_identity"]) == {"name", "email"}
+    # The engine's stage workflow commits as sdlc-engine-bot; its CONFIG.md says to keep this equal (engine D-003).
+    assert c["git_identity"] == {"name": "sdlc-engine-bot", "email": "41898282+github-actions[bot]@users.noreply.github.com"}
     on = yaml.safe_load(tests_yml); on = on.get("on", on.get(True))      # PyYAML reads a bare `on:` key as True
     assert "workflow_dispatch" in on       # the stage workflow dispatches it on agent branches
 

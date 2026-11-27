@@ -1,7 +1,6 @@
-# Keeps the SDLC engine pin (the `uses:` line of .github/workflows/sdlc.yml) and the other pinned actions current.
-# A version update is a pull request for the owner to read and merge: no auto-merge is configured anywhere.
-# The same SHA is also in .github/workflows/tests.yml (the check-project step). Dependabot does not know that line,
-# so the bump pull request must update both (docs/SDLC.md, "Engine").
+# Keeps the SDLC engine pin (the `uses:` line of .github/workflows/sdlc.yml, the only pin; tests.yml reads it from there)
+# and the other pinned actions current. A version update is a pull request for the owner to read and merge: no
+# auto-merge is configured anywhere. Its tests run check-project against the new engine version.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -10,7 +9,16 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+    # A new third-party release waits 7 days. The engine is the owner's own repository and is not delayed.
+    cooldown:
+      default-days: 7
+      exclude:
+        - "RASMiranda/sdlc-engine*"
+    # A dependency joins the first group it matches, so the engine group stays first.
     groups:
       sdlc-engine:
         patterns:
           - "RASMiranda/sdlc-engine*"
+      actions-third-party:
+        patterns:
+          - "*"

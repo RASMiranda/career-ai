@@ -11,10 +11,24 @@ jobs:
       - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt pytest
-      # The SDLC engine lives in RASMiranda/sdlc-engine. This pin and the `uses:` line of sdlc.yml are the same SHA
-      # and are always bumped together (docs/SDLC.md, "Engine").
+      # The engine pin is the `uses:` line of .github/workflows/sdlc.yml and nowhere else (docs/SDLC.md, "Engine"). This
+      # step reads the SHA from there, installs that engine and checks the project against it. Dependabot's bump of that
+      # line therefore runs check-project against the new version in its own pull request.
       - name: Check the SDLC setup against the pinned engine
         run: |
-          pip install git+https://github.com/RASMiranda/sdlc-engine@5eb4034de66084e17d2b653ea3680565bd950fd4
+          set -euo pipefail
+          unset PYTHONPATH
+          pins=$(grep -E '^[[:space:]]*uses:[[:space:]]*RASMiranda/sdlc-engine/\.github/workflows/sdlc-stage\.yml@' .github/workflows/sdlc.yml || true)
+          if [ "$(printf '%s' "$pins" | grep -c .)" != 1 ]; then
+            echo "expected exactly one engine pin in .github/workflows/sdlc.yml, found: $pins" >&2
+            exit 1
+          fi
+          SHA=$(printf '%s' "$pins" | sed -E 's/.*sdlc-stage\.yml@([^[:space:]]*).*/\1/')
+          if ! printf '%s' "$SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "the engine pin is not a full 40-hex commit SHA: $SHA" >&2
+            exit 1
+          fi
+          echo "engine pin: $SHA"
+          pip install "git+https://github.com/RASMiranda/sdlc-engine@$SHA"
           python -m sdlc_engine check-project --root .
       - run: pytest -q
