@@ -1,4 +1,5 @@
 {
+  "config_version": 1,
   "default_branch": "main",
   "agent_branch_prefix": "agent/",
   "artifact_dir": "docs/intents/{n}-{slug}",

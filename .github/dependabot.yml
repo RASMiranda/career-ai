@@ -1,0 +1,16 @@
+# Keeps the SDLC engine pin (the `uses:` line of .github/workflows/sdlc.yml) and the other pinned actions current.
+# A version update is a pull request for the owner to read and merge: no auto-merge is configured anywhere.
+# The same SHA is also in .github/workflows/tests.yml (the check-project step). Dependabot does not know that line,
+# so the bump pull request must update both (docs/SDLC.md, "Engine").
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    groups:
+      sdlc-engine:
+        patterns:
+          - "RASMiranda/sdlc-engine*"

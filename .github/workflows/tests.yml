@@ -11,4 +11,10 @@ jobs:
       - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt pytest
+      # The SDLC engine lives in RASMiranda/sdlc-engine. This pin and the `uses:` line of sdlc.yml are the same SHA
+      # and are always bumped together (docs/SDLC.md, "Engine").
+      - name: Check the SDLC setup against the pinned engine
+        run: |
+          pip install git+https://github.com/RASMiranda/sdlc-engine@5eb4034de66084e17d2b653ea3680565bd950fd4
+          python -m sdlc_engine check-project --root .
       - run: pytest -q
