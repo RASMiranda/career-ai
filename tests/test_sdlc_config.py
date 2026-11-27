@@ -1,4 +1,9 @@
-"""The agentic SDLC's controls are files; these tests keep them from being quietly loosened."""
+"""career-ai's own SDLC files: the caller, the labels and forms, the agents, the settings, CODEOWNERS.
+
+The engine and its stage workflow live in RASMiranda/sdlc-engine (ADR-083); its tests run there against a fixture project.
+These tests keep THIS repository's files from being quietly loosened. They read files only (no engine import, no
+network), so `python -m pytest -q` needs nothing installed beyond requirements.txt. Whether the files fit the pinned engine
+is `python -m sdlc_engine check-project --root .`, run by tests.yml."""
 
 import json
 import re
@@ -7,29 +12,35 @@ from pathlib import Path
 import pytest
 import yaml
 
-import sdlc_engine as sdlc
-
 ROOT = Path(__file__).resolve().parents[1]
 WF = ROOT / ".github" / "workflows"
+CONFIG = json.loads((ROOT / ".github/sdlc-config.json").read_text())
 LABELS = {l["name"] for l in json.loads((ROOT / ".github/labels.json").read_text())}
-
-
-EVENT_FOR_PROMPTS = {"action": "labeled", "label": {"name": "agent:build"}, "sender": {"type": "User", "login": "o"},
-                     "issue": {"number": 7, "title": "t", "state": "open", "labels": [], "user": {"login": "o"}}}
+SETTINGS = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]
+STAGES = CONFIG["stages"]
 
 
 def workflow(name):
     return yaml.safe_load((WF / f"{name}.yml").read_text())
 
 
-def steps(name):
-    # S2: the caller job has no steps; the stage job (sdlc-stage.yml) holds them all. A job without steps is skipped.
-    return [s for job in workflow(name)["jobs"].values() if "steps" in job for s in job["steps"]]
-
-
 def on(name):
     d = workflow(name)
     return d.get("on", d.get(True))                      # PyYAML reads a bare `on:` key as True
+
+
+def matches(path, patterns):
+    """The subset of path patterns the protected list uses: `dir/**`, `**/name`, a plain path, `name*.ext`."""
+    for p in patterns:
+        if p.endswith("/**") and path.startswith(p[:-2]):
+            return True
+        if p.startswith("**/") and (path == p[3:] or path.endswith("/" + p[3:])):
+            return True
+        if "*" not in p and path == p:
+            return True
+        if "*" in p and not p.startswith("**/") and not p.endswith("/**") and re.fullmatch(p.replace(".", r"\.").replace("*", "[^/]*"), path):
+            return True
+    return False
 
 
 # -------------------------------------------------------------------- workflows
@@ -54,84 +65,21 @@ def test_permissions_start_empty_and_are_granted_per_job_without_admin():
     assert workflow("labels")["permissions"] == {"issues": "write", "contents": "read"}
 
 
-def test_untrusted_github_context_never_appears_inside_a_run_script():
-    """Titles and bodies reach scripts only through env vars, never by `${{ }}` interpolation into shell."""
-    for s in steps("sdlc-stage"):
-        if "run" in s:
-            assert "${{" not in s["run"], s.get("name")
-    risky = re.compile(r"github\.event\.(issue|comment|pull_request|label)\.(title|body|name)|head_ref")
-    for s in steps("sdlc-stage"):
-        for key, value in (s.get("with") or {}).items():
-            assert not risky.search(str(value)), (s.get("name"), key)
-
-
-def test_the_checkout_leaves_no_token_for_the_agent_to_read():
-    first = steps("sdlc-stage")[0]
-    assert first["uses"].startswith("actions/checkout@") and first["with"]["persist-credentials"] is False
-
-
-def test_agents_run_with_no_web_and_no_push_or_github_tools():
-    runs = [s for s in steps("sdlc-stage") if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")]
-    assert len(runs) == 3                                              # the stage agents, the post-build review and the optional verifier (ADR-068)
-    for s in runs:
-        args = s["with"]["claude_args"]
-        assert "--disallowedTools" in args and "WebFetch" in args and "WebSearch" in args
-        assert "--allowedTools" in args
-    given = [re.search(r'--allowedTools "([^"]*)"', s["with"]["claude_args"]).group(1) for s in runs]
-    allowed = " ".join(given + [sdlc.STAGES[x]["tools"] for x in sdlc.STAGES])
-    for banned in ("gh ", "git push", "git commit", "curl", "wget", "ssh", "WebFetch", "WebSearch", "Bash(*)", "Bash)"):
-        assert banned not in allowed, banned
-    assert not re.search(r"(^|,)Bash(,|$)", allowed)                   # never a bare, unrestricted Bash
-
-
-def test_only_the_workflow_pushes_and_never_to_main_or_with_force():
-    pushes = [s["run"] for s in steps("sdlc-stage") if "git push" in s.get("run", "")]
-    assert len(pushes) == 1
-    assert 'HEAD:refs/heads/$BRANCH' in pushes[0] and "--force" not in pushes[0] and "main" not in pushes[0].split("git push")[1].split("\n")[0]
-    assert all("gh pr merge" not in s.get("run", "") for s in steps("sdlc-stage"))
-
-
-def test_the_check_runs_before_anything_is_committed_and_the_review_cannot_change_files():
-    names = [s.get("name", "") for s in steps("sdlc-stage")]
-    assert names.index("Check what the agent changed") < names.index("Commit and push the artifact, open the draft PR, start the tests")
-    reject = next(s for s in steps("sdlc-stage") if s.get("name") == "Reject any change the reviewers made")
-    assert "check --as review" in reject["run"]
-
-
-def test_no_stage_allows_pytest_pip_or_any_repo_code_and_the_action_steps_do_not_either():
-    given = [re.search(r'--allowedTools "([^"]*)"', s["with"]["claude_args"]).group(1) for s in agent_steps()]
-    for tools in given + [sdlc.STAGES[x]["tools"] for x in sdlc.STAGES] + [sdlc.BUILD_TOOLS, sdlc.DOC_TOOLS, sdlc.READ_TOOLS]:
-        assert not re.search(r"pytest|\bpip\b|python|poetry|\buv\b|\bmake\b|\bnpm\b", tools, re.I), tools
-    for x in sdlc.STAGES:                                                   # every Bash rule left is a read-only git one
-        for rule in re.findall(r"Bash\(([^)]*)\)", sdlc.STAGES[x]["tools"]):
-            assert rule in ("git status:*", "git diff:*", "git log:*"), (x, rule)
-    assert sdlc.STAGES["build"]["tools"] == sdlc.DOC_TOOLS                  # nothing else changed for build
-
-
 def test_the_proc_read_deny_is_in_the_project_settings_and_on_both_agent_steps():
-    deny = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]["deny"]
-    assert "Read(//proc/**)" in deny                                         # `//path` = absolute path from the filesystem root
-    for s in agent_steps():
-        assert "Read(//proc/**)" in re.search(r'--disallowedTools "([^"]*)"', s["with"]["claude_args"]).group(1)
+    # The agent steps' own --disallowedTools are in the engine's stage workflow (tested there); the project settings are here.
+    assert "Read(//proc/**)" in SETTINGS["deny"]                             # `//path` = absolute path from the filesystem root
 
 
 def test_the_agent_cannot_read_the_checkout_git_dir_and_file_reads_stay_in_the_workspace():
     """ADR-051: the action writes its token into .git/config before the agent starts, and a bare Read, Grep or Glob could
-    read it. The deny is in the project settings and, because a later stage checks out the issue branch, also on both
-    agent steps. Verified on 11 Nov 2026 with a before/after probe that used a fake token."""
-    permissions = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]
-    assert "Read(**/.git/**)" in permissions["deny"]
-    assert permissions.get("blockReadsOutsideWorkingDirectories") is True    # file tools stay inside the checkout
-    assert not any(".git" in r for r in permissions.get("allow", []))        # nothing re-opens it
-    for s in agent_steps():
-        assert "Read(**/.git/**)" in re.search(r'--disallowedTools "([^"]*)"', s["with"]["claude_args"]).group(1)
+    read it. The deny is in the project settings (the engine's stage workflow repeats it on its agent steps)."""
+    assert "Read(**/.git/**)" in SETTINGS["deny"]
+    assert SETTINGS.get("blockReadsOutsideWorkingDirectories") is True       # file tools stay inside the checkout
+    assert not any(".git" in r for r in SETTINGS.get("allow", []))           # nothing re-opens it
 
 
 def test_the_build_and_review_prompts_say_tests_are_written_but_not_run():
-    build = sdlc.render_prompt(sdlc.decide(json.loads(json.dumps(EVENT_FOR_PROMPTS)), ["agent/7-x"]))
-    assert "cannot run tests" in build and "NOT run" in build and "pytest -q" not in build
-    review = sdlc.render_prompt(sdlc.as_stage(sdlc.decide(EVENT_FOR_PROMPTS, ["agent/7-x"]), "review"))
-    assert "cannot run tests" in review and ".sdlc/checks.txt" in review
+    # The engine renders the prompts (golden files in the engine's tests); the role files are this project's.
     for name in ("developer", "tester"):
         text = (ROOT / ".claude/agents" / f"{name}.md").read_text()
         assert "never run them" in text and "NOT run" in text and "`pytest` check" in text
@@ -139,15 +87,14 @@ def test_the_build_and_review_prompts_say_tests_are_written_but_not_run():
 
 
 def test_agent_branches_start_the_tests_workflow_explicitly():
-    assert "workflow_dispatch" in on("tests")
-    push = next(s for s in steps("sdlc-stage") if s.get("id") == "push")
-    assert "gh workflow run tests.yml" in push["run"]
+    assert "workflow_dispatch" in on("tests")                                # the stage workflow runs `gh workflow run tests.yml`
+    assert CONFIG["test"]["workflow"] == "tests.yml"
 
 
 # ----------------------------------------------------------------------- labels
 def test_every_label_the_workflow_and_forms_use_exists():
-    needed = set(sdlc.LABEL_TO_STAGE) | {f"stage:{s}" for s in ("intake", "intent", "spec", "plan", "build", "review", "release")}
-    needed |= sdlc.REQUESTABLE_LABELS | {"type:bug", "type:feature", "type:support"}
+    needed = set(CONFIG["label_to_stage"]) | {f"stage:{s}" for s in ("intake", "intent", "spec", "plan", "build", "review", "release")}
+    needed |= set(CONFIG["requestable_labels"]) | {"type:bug", "type:feature", "type:support"}
     assert needed <= LABELS, needed - LABELS
     for form in (ROOT / ".github/ISSUE_TEMPLATE").glob("*.yml"):
         d = yaml.safe_load(form.read_text())
@@ -155,17 +102,9 @@ def test_every_label_the_workflow_and_forms_use_exists():
 
 
 def test_every_stage_the_workflow_applies_has_a_label():
-    """The stage label is applied as ``stage:$STAGE`` for every stage in sdlc.STAGES; each must exist."""
-    apply = next(s for s in steps("sdlc-stage") if "--add-label \"stage:$STAGE\"" in s.get("run", ""))
-    assert "--add-label \"stage:$STAGE\"" in apply["run"]
-    missing = sorted(f"stage:{stage}" for stage in sdlc.STAGES if f"stage:{stage}" not in LABELS)
+    """The stage label is applied as ``stage:$STAGE`` for every stage in the config; each must exist."""
+    missing = sorted(f"stage:{stage}" for stage in STAGES if f"stage:{stage}" not in LABELS)
     assert not missing, missing
-
-
-def test_the_workflow_only_applies_labels_agents_are_allowed_to_ask_for():
-    post = next(s for s in steps("sdlc-stage") if s.get("name", "").startswith("Post the report"))["run"]
-    allowed = set(re.search(r"case \"\$l\" in ([^)]*)\)", post).group(1).split("|"))
-    assert allowed == sdlc.REQUESTABLE_LABELS
 
 
 # ------------------------------------------------------------------ issue forms
@@ -195,7 +134,7 @@ def front(path):
 
 
 def test_every_role_the_workflow_uses_has_an_agent_and_the_requested_roles_exist():
-    used = {r for spec in sdlc.STAGES.values() for r in spec["roles"]}
+    used = {r for spec in STAGES.values() for r in spec["roles"]}
     assert used <= set(AGENTS), used - set(AGENTS)
     assert {"stakeholder", "product-owner", "scrum-master", "tech-lead", "developer", "tester",
             "l1-support", "l2-support", "l3-support", "reviewer", "release-manager"} <= set(AGENTS)
@@ -225,342 +164,21 @@ def test_codeowners_cover_the_governance_paths():
 def test_the_protected_list_covers_what_adr_024_reserves_for_the_owner():
     for path in (".github/workflows/sdlc.yml", ".claude/settings.json", "scripts/hooks/guard.py", "CLAUDE.md",
                  "REVIEW.md", "routine-prompt.md", "docs/managed-settings.example.json"):
-        assert sdlc.matches(path, sdlc.PROTECTED), path
+        assert matches(path, CONFIG["protected_paths"]), path
     assert ".sdlc/" in (ROOT / ".gitignore").read_text()
 
 
 # ---------------------------------------------------------------- token exposure
-FAKE_TOKEN = "sk-ant-oat01-" + "FAKE" * 8                 # obviously fake
-
-
-def agent_steps():
-    return [s for s in steps("sdlc-stage") if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")]
-
-
-def test_the_action_is_pinned_to_a_commit_and_does_not_set_the_subprocess_env_scrub():
-    runs = agent_steps()
-    assert len(runs) == 3                  # ADR-068: the verifier is pinned exactly like the two agents before it
-    for s in runs:
-        assert s["uses"] == "anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9"
-        # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap, which the runner lacks: it failed the first run (ADR-033).
-        assert "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" not in s.get("env", {})
-    assert all(re.search(r"@[0-9a-f]{40} # v1$", line.strip())
-               for line in (WF / "sdlc-stage.yml").read_text().splitlines() if "claude-code-action@" in line)
-
-
 def test_project_settings_deny_the_runner_files_that_hold_credentials():
-    deny = json.loads((ROOT / ".claude/settings.json").read_text())["permissions"]["deny"]
+    deny = SETTINGS["deny"]
     for rule in ("Read(//proc/**)", "Read(//home/runner/.ssh/**)", "Read(//home/runner/.config/**)",
                  "Bash(git diff --no-index:*)", "Bash(git diff *--no-index*)"):
         assert rule in deny, rule
     assert not any(r in ("Read(//home/**)", "Read(//home/runner/**)", "Read") for r in deny)   # the checkout lives there
 
 
-def run_post_step(tmp_path, env_extra, files):
-    """Run the workflow's real post step with a fake `gh`, and return the body it would post."""
-    import os
-    import shutil
-    import subprocess
-    if not shutil.which("bash"):
-        pytest.skip("needs bash")
-    step = next(s for s in steps("sdlc-stage") if str(s.get("name", "")).startswith("Post the report"))
-    (tmp_path / "src").symlink_to(ROOT / "src")                            # the step runs from the repository root
-    (tmp_path / ".sdlc").mkdir()
-    for name, text in files.items():
-        (tmp_path / ".sdlc" / name).write_text(text)
-    bin_ = tmp_path / "bin"
-    bin_.mkdir()
-    fake = bin_ / "gh"
-    fake.write_text('#!/bin/sh\n[ "$1 $2" = "pr list" ] && { [ -n "$FAKE_PR" ] && echo "$FAKE_PR"; exit 0; }\nwhile [ $# -gt 0 ]; do [ "$1" = --body-file ] && cat "$2" >> "$POSTED"; shift; done\n')
-    fake.chmod(0o755)
-    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "POSTED": str(tmp_path / "posted.txt"),
-           "NUMBER": "7", "TRIGGER_LABEL": "", "STAGE": "build", "ROLES": "[]",
-           "REJECTED": "success", "BRANCH": "agent/7-x", "FAKE_PR": "",
-           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"), **env_extra}
-    env.pop("blocked", None) if "blocked" not in env_extra else None
-    env.pop("PYTHONPATH", None)
-    env.setdefault("TRUSTED_SRC", str(tmp_path / "src"))                  # ADR-036: the post step imports sdlc_engine from here
-    subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
-    return (tmp_path / "posted.txt").read_text()
-
-
-FIXED = "Blocked by the safety check. See the run log."
-
-
-def leaky():
-    return {"comment.md": f"report {FAKE_TOKEN}", "build-report.md": f"built {FAKE_TOKEN}",
-            "review.md": f"finding {FAKE_TOKEN}", "pytest.txt": f"2 passed {FAKE_TOKEN}", "labels.txt": "needs-info\n"}
-
-
-def test_a_blocked_run_posts_only_the_fixed_message(tmp_path):
-    body = run_post_step(tmp_path, {"blocked": "true"}, leaky())
-    assert FIXED in body and FAKE_TOKEN not in body and "Review" not in body and "passed" not in body
-
-
-def test_a_failed_review_reject_step_also_posts_only_the_fixed_message(tmp_path):
-    body = run_post_step(tmp_path, {"REJECTED": "failure"}, leaky())
-    assert FIXED in body and FAKE_TOKEN not in body and "Review" not in body
-
-
-def test_text_written_after_the_first_check_is_scanned_again_before_posting(tmp_path):
-    body = run_post_step(tmp_path, {}, leaky())                            # no `blocked` flag: the final scan catches it
-    assert FIXED in body and FAKE_TOKEN not in body
-
-
-def test_a_normal_run_still_posts_the_report_review_and_test_result(tmp_path):
-    # ADR-037: an agent-written .sdlc/pytest.txt is no longer posted; the workflow's own line says tests were not run.
-    body = run_post_step(tmp_path, {}, {"comment.md": "built it", "review.md": "Nothing to fix.\n",
-                                        "pytest.txt": "12 passed"})
-    assert "built it" in body and "Nothing to fix." in body and "12 passed" not in body and FIXED not in body
-    assert "Tests were NOT run by the agent" in body and "`pytest` check on the PR" in body
-    assert "Next gate (yours)" in body
-
-
-def test_the_report_names_the_open_pr_near_the_top_and_only_then(tmp_path):
-    files = {"comment.md": "built it"}
-    body = run_post_step(tmp_path, {"FAKE_PR": "12"}, files)
-    assert body.splitlines()[1] == "PR: #12"
-    (tmp_path / "b").mkdir()
-    body = run_post_step(tmp_path / "b", {}, files)
-    assert "PR:" not in body and "built it" in body
-
-
-def test_a_blocked_run_has_no_pr_line(tmp_path):
-    assert "PR:" not in run_post_step(tmp_path, {"blocked": "true", "FAKE_PR": "12"}, leaky())
-
-
-# ------------------------------------------- the build report survives the reviewers (ADR-052)
-def step_named(prefix):
-    return next(s for s in steps("sdlc-stage") if str(s.get("name", "")).startswith(prefix))
-
-
-def test_the_build_report_is_copied_aside_before_the_review_agents_start():
-    names = [s.get("name", "") for s in steps("sdlc-stage")]
-    assert names.index(step_named("Review the build")["name"]) < names.index("Run the review agents")
-
-
-def test_the_copy_aside_copies_the_build_report_or_writes_a_fixed_line(tmp_path):
-    import os
-    import subprocess
-
-    lines = step_named("Review the build")["run"].splitlines()
-    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if l.startswith("DIFF_BASE="))])   # before the diff and the reviewers (ADR-068)
-    (tmp_path / ".sdlc").mkdir()
-    (tmp_path / ".sdlc" / "comment.md").write_text("built it\n")
-    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=os.environ, check=True, capture_output=True)
-    assert (tmp_path / ".sdlc" / "build-report.md").read_text() == "built it\n"
-    (tmp_path / ".sdlc" / "comment.md").unlink()
-    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=os.environ, check=True, capture_output=True)
-    assert (tmp_path / ".sdlc" / "build-report.md").read_text() == "The build agent wrote no report.\n"
-
-
-def test_the_build_stage_posts_the_build_report_not_a_reviewers_comment_then_the_review_then_the_tests_note(tmp_path):
-    body = run_post_step(tmp_path, {}, {"comment.md": "reviewer overwrote this", "build-report.md": "built it",
-                                        "review.md": "Verdict: no Important findings"})
-    assert "built it" in body and "reviewer overwrote this" not in body
-    order = [body.index(p) for p in ("built it", "**Review**", sdlc.tests_note("build"), "**Next gate (yours):**")]
-    assert order == sorted(order)
-
-
-def test_without_a_build_report_the_stage_report_is_posted(tmp_path):
-    body = run_post_step(tmp_path, {}, {"comment.md": "no push, so no review"})
-    assert "no push, so no review" in body
-
-
-def test_the_build_report_is_in_the_secrets_scan_and_a_fake_secret_in_it_is_flagged(tmp_path):
-    import os
-    import subprocess
-    import sys
-
-    assert ".sdlc/build-report.md" in sdlc.SDLC_OUTPUT
-    assert sdlc.scan_problems({".sdlc/build-report.md": f"report {FAKE_TOKEN}"})
-    (tmp_path / ".sdlc").mkdir()
-    (tmp_path / ".sdlc" / "build-report.md").write_text(f"report {FAKE_TOKEN}\n")
-    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    run = subprocess.run([sys.executable, "-P", "-m", "sdlc_engine", "scan"], cwd=tmp_path, env=env,
-                         capture_output=True, text=True)
-    assert run.returncode == 1 and "build-report.md" in run.stderr
-
-
-def test_a_blocked_run_removes_the_build_report_so_no_agent_text_is_left_to_post(tmp_path):
-    body = run_post_step(tmp_path, {"blocked": "true"}, {"build-report.md": f"built {FAKE_TOKEN}"})
-    assert FIXED in body and FAKE_TOKEN not in body
-    assert not (tmp_path / ".sdlc" / "build-report.md").exists()
-
-
-def test_the_draft_pr_body_comes_from_the_tested_function_and_only_type_labels_are_copied():
-    text = (WF / "sdlc-stage.yml").read_text()
-    assert "Refs #" not in text and '-m sdlc_engine --config "$TRUSTED_SRC/../.github/sdlc-config.json" pr-body' in text
-    assert 'type:*) gh pr edit "$PR_NEW" --add-label "$l"' in text
-    assert "agent:*) gh pr edit" not in text and "stage:*) gh pr edit" not in text
-
-
-def test_a_stop_for_another_reason_still_posts_the_workflows_own_message(tmp_path):
-    body = run_post_step(tmp_path, {"stop": "true"}, {"comment.md": "No branch for this issue yet: run the intent stage first."})
-    assert "No branch for this issue yet" in body and FIXED not in body
-
-
-def test_the_workflow_never_writes_agent_output_to_the_job_summary():
-    # The Budget gate prints only its own numbers (ADR-032). The post step writes one line, the denial summary built
-    # by trusted code from tool names and counts (ADR-055); nothing else reaches the job summary.
-    text = (WF / "sdlc-stage.yml").read_text()
-    start = text.index("      - name: Budget gate")
-    end = text.index("      - name: Check out the issue's branch")
-    # ADR-067: the review step also writes one summary: tags, line numbers and changed-file names, built by trusted code.
-    rest = (text[:start] + text[end:]).replace('cat .sdlc/denial-summary.txt >> "$GITHUB_STEP_SUMMARY"', "") \
-        .replace('cat .sdlc/review-summary.txt >> "$GITHUB_STEP_SUMMARY"', "")
-    assert "GITHUB_STEP_SUMMARY" not in rest
-    assert ".sdlc/post.md" not in text[start:end]
-
-
-# ------------------------------------------- the agents' execution files and last message (ADR-055)
-def test_each_agent_step_has_an_id_and_its_execution_file_is_copied_right_after_the_step_before_the_post():
-    # The action overwrites its execution file on every run, so each copy must run before the next agent starts.
-    # The token-reset steps must stay straight after each agent (test_sdlc_token_scope), so the copies follow the
-    # check (stage) step, and the review copy follows the trusted reload that comes after the review agent (ADR-068 moved
-    # it there, before the verifier runs).
-    all_steps = steps("sdlc-stage")
-    names = [s.get("name", "") for s in all_steps]
-    stage_agent, review_agent = names.index("Run the stage agents"), names.index("Run the review agents")
-    assert all_steps[stage_agent]["id"] == "agent" and all_steps[review_agent]["id"] == "review"
-    for step_id, keep_name, kept, previous in (
-            ("agent", "Keep the stage agent's execution file (ADR-055)", "exec-stage.json", "Check what the agent changed"),
-            ("review", "Keep the review agents' execution file (ADR-055)", "exec-review.json",
-             "Trusted engine code, again after the reviewers (3 of 3) use it (ADR-036)")):
-        k = names.index(keep_name)
-        keep = all_steps[k]
-        assert names[k - 1] == previous
-        assert keep["if"] == "always() && steps.d.outputs.run == 'true'"
-        assert keep["env"] == {"SRC": "${{ steps.%s.outputs.execution_file }}" % step_id}
-        assert f".sdlc/{kept}" in keep["run"] and "${{" not in keep["run"]
-    assert names.index("Keep the stage agent's execution file (ADR-055)") < review_agent
-    assert names.index("Keep the review agents' execution file (ADR-055)") < names.index("Post the report, apply the stage label")
-
-
-def test_the_execution_file_copies_run_only_when_the_action_wrote_one(tmp_path):
-    import os
-    import subprocess
-
-    keep = next(s for s in steps("sdlc-stage") if str(s.get("name", "")).startswith("Keep the stage agent"))
-    (tmp_path / ".sdlc").mkdir()
-    (tmp_path / "from-action.json").write_text('[{"type": "result"}]')
-    subprocess.run(["bash", "-e", "-c", keep["run"]], cwd=tmp_path, env={**os.environ, "SRC": "from-action.json"},
-                   check=True, capture_output=True)
-    assert (tmp_path / ".sdlc" / "exec-stage.json").read_text() == '[{"type": "result"}]'
-    for src in ("", "no-such-file.json"):
-        (tmp_path / ".sdlc" / "exec-stage.json").unlink(missing_ok=True)
-        subprocess.run(["bash", "-e", "-c", keep["run"]], cwd=tmp_path, env={**os.environ, "SRC": src},
-                       check=True, capture_output=True)
-        assert not (tmp_path / ".sdlc" / "exec-stage.json").exists()
-
-
-def test_the_report_flag_is_read_from_comment_md_before_the_fallback_is_written(tmp_path):
-    import os
-    import subprocess
-
-    run = step_named("Check what the agent changed")["run"]
-    lines = run.splitlines()
-    script = "\n".join(lines[:next(i for i, l in enumerate(lines) if "PYTHONPATH" in l)])   # before the check
-    (tmp_path / ".sdlc").mkdir()
-    env = {**os.environ, "GITHUB_ENV": str(tmp_path / "env.txt")}
-    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, check=True, capture_output=True)
-    assert (tmp_path / "env.txt").read_text().strip() == "agent_report=false"
-    (tmp_path / ".sdlc" / "comment.md").write_text("built it\n")
-    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, check=True, capture_output=True)
-    assert (tmp_path / "env.txt").read_text().splitlines()[-1] == "agent_report=true"
-
-
-EXEC_OK = [{"type": "assistant", "message": {"content": "work"}},
-           {"type": "result", "result": "I ran out of ideas", "permission_denials": [
-               {"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "echo " + FAKE_TOKEN}}]}]
-
-
-def exec_file(messages):
-    return {"exec-stage.json": json.dumps(messages)}
-
-
-def test_a_denial_line_is_in_the_comment_and_the_summary_only_when_something_was_denied(tmp_path):
-    body = run_post_step(tmp_path, {}, {"comment.md": "built it", **exec_file(EXEC_OK)})
-    line = "Permission denials: stage agent 1 (Bash); reviewers 0"
-    assert line in body and body.index(line) < body.index("built it")
-    assert line in (tmp_path / "summary.md").read_text()
-    (tmp_path / "b").mkdir()
-    quiet = [{"type": "result", "result": "done", "permission_denials": []}]
-    body = run_post_step(tmp_path / "b", {}, {"comment.md": "built it", **exec_file(quiet)})
-    assert "Permission denials" not in body and "Permission denials: none" in (tmp_path / "b" / "summary.md").read_text()
-
-
-def test_with_no_report_the_last_message_is_posted_under_its_untrusted_heading(tmp_path):
-    fallback = "The stage ended without a report from the agent."
-    body = run_post_step(tmp_path, {"AGENT_REPORT": "false"}, {"comment.md": fallback, **exec_file(EXEC_OK)})
-    assert "**Agent's last message (untrusted, not reviewed)**" in body and "I ran out of ideas" in body
-    assert body.index(fallback) < body.index("I ran out of ideas")
-    assert FAKE_TOKEN not in body                                           # the tool input is never shown
-
-
-def test_a_report_is_posted_without_the_last_message(tmp_path):
-    body = run_post_step(tmp_path, {"AGENT_REPORT": "true"}, {"comment.md": "built it", **exec_file(EXEC_OK)})
-    assert "Agent's last message" not in body and "I ran out of ideas" not in body
-
-
-def test_a_fake_token_in_the_last_message_is_withheld_from_the_comment(tmp_path):
-    messages = [{"type": "result", "result": f"I used {FAKE_TOKEN}", "permission_denials": []}]
-    body = run_post_step(tmp_path, {"AGENT_REPORT": "false"}, {"comment.md": "x", **exec_file(messages)})
-    assert "withheld by the safety check" in body and FAKE_TOKEN not in body and "I used" not in body
-
-
-def test_a_blocked_run_posts_neither_the_denial_line_nor_the_last_message_and_removes_the_execution_files(tmp_path):
-    files = {**leaky(), **exec_file(EXEC_OK)}
-    body = run_post_step(tmp_path, {"blocked": "true", "AGENT_REPORT": "false"}, files)
-    assert FIXED in body and "Permission denials" not in body and "Agent's last message" not in body
-    assert FAKE_TOKEN not in body and "I ran out of ideas" not in body
-    assert not (tmp_path / ".sdlc" / "exec-stage.json").exists()
-    assert not (tmp_path / ".sdlc" / "agent-message.md").exists()
-    assert "Permission denials: stage agent 1 (Bash)" in (tmp_path / "summary.md").read_text()   # names only, job summary
-
-
-def test_the_execution_files_themselves_are_never_scanned_or_posted_and_tool_input_never_appears(tmp_path):
-    body = run_post_step(tmp_path, {}, {"comment.md": "built it", **exec_file(EXEC_OK)})
-    summary = (tmp_path / "summary.md").read_text()
-    assert FAKE_TOKEN not in body and FAKE_TOKEN not in summary and "tool_input" not in body + summary
-
-
-# ------------------------------------------------------- the commit step's shell
-def test_the_push_step_stages_and_commits_with_an_ignored_sdlc_dir(tmp_path):
-    """Run the step's real add/commit lines in a scratch repo where .sdlc is gitignored (run 40297305744)."""
-    import os
-    import subprocess
-
-    step = next(s for s in steps("sdlc-stage") if s.get("id") == "push")
-    lines = step["run"].splitlines()
-    start = next(i for i, l in enumerate(lines) if l.startswith("git add"))
-    end = next(i for i, l in enumerate(lines) if l.strip().startswith("git push"))
-    script = "\n".join(lines[start:end]) + "\nfi\n"               # up to the commit; close the if/else
-
-    def git(*a):
-        return subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True).stdout
-
-    git("init", "-q")
-    git("config", "user.name", "t")
-    git("config", "user.email", "t@example.invalid")
-    (tmp_path / ".gitignore").write_text(".sdlc/\n")
-    (tmp_path / "tracked.txt").write_text("one\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    (tmp_path / "tracked.txt").write_text("two\n")
-    (tmp_path / ".sdlc").mkdir()
-    (tmp_path / ".sdlc" / "comment.md").write_text("x\n")
-
-    env = {**os.environ, "NUMBER": "7", "STAGE": "intent", "GIT_CONFIG_GLOBAL": os.devnull}
-    run = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True)
-    assert run.returncode == 0, run.stderr
-    assert git("show", "--name-only", "--format=", "HEAD").split() == ["tracked.txt"]
-    assert not [l for l in git("ls-files").splitlines() if l.startswith(".sdlc")]
-    assert git("diff", "--cached", "--name-only").strip() == ""
-
-
-# ------------------------------------------------- S2: the thin caller (sdlc.yml) and the stage workflow (sdlc-stage.yml)
-STAGE_CALL = "./.github/workflows/sdlc-stage.yml"
+# ------------------------------------------------- the thin caller (sdlc.yml) calls the engine's stage workflow (ADR-083)
+ENGINE_CALL = re.compile(r"RASMiranda/sdlc-engine/\.github/workflows/sdlc-stage\.yml@[0-9a-f]{40}")
 CALLED_SECRETS = {"CLAUDE_CODE_OAUTH_TOKEN"}
 
 
@@ -569,46 +187,33 @@ def test_the_caller_has_exactly_the_triggers_it_had_on_main():
 
 
 def test_the_caller_keeps_the_name_the_budget_gate_queries():
-    assert workflow("sdlc")["name"] == "sdlc"                        # actions/workflows/sdlc.yml/runs in budget.py
+    assert workflow("sdlc")["name"] == "sdlc"                        # actions/workflows/sdlc.yml/runs in the engine's budget gate
 
 
 def test_the_caller_has_no_steps_and_one_job_that_calls_the_stage_workflow():
     wf = workflow("sdlc")
     assert all("steps" not in job for job in wf["jobs"].values())
     assert list(wf["jobs"]) == ["stage"]
-    assert wf["jobs"]["stage"]["uses"] == STAGE_CALL
+    assert ENGINE_CALL.fullmatch(wf["jobs"]["stage"]["uses"]), wf["jobs"]["stage"]["uses"]   # a full SHA, never a branch or tag
+
+
+def test_the_engine_pin_is_one_sha_with_a_version_comment_and_tests_yml_reads_it_from_the_caller():
+    """Single pin (ADR-083): the `uses:` line of sdlc.yml is the only place the engine version is written. Dependabot
+    needs the trailing `# vX.Y.Z` comment to propose a bump; tests.yml derives the SHA from that line."""
+    lines = [l for l in (WF / "sdlc.yml").read_text().splitlines() if "RASMiranda/sdlc-engine" in l and "uses:" in l]
+    assert len(lines) == 1, lines
+    assert re.fullmatch(r"\s*uses: RASMiranda/sdlc-engine/\.github/workflows/sdlc-stage\.yml@[0-9a-f]{40} # v\d+\.\d+\.\d+", lines[0]), lines[0]
+    tests_yml = (WF / "tests.yml").read_text()
+    assert not re.search(r"sdlc-engine@[0-9a-f]{40}", tests_yml)              # no second copy of the SHA
+    step = next(s for s in yaml.safe_load(tests_yml)["jobs"]["pytest"]["steps"] if "check-project" in s.get("run", ""))["run"]
+    assert ".github/workflows/sdlc.yml" in step and "grep" in step            # the SHA comes from the caller
+    assert '{40}$' in step and "exit 1" in step                               # and a pin that is not 40 hex fails the step
+    assert 'pip install "git+https://github.com/RASMiranda/sdlc-engine@$SHA"' in step
+    assert step.index("unset PYTHONPATH") < step.index("python -m sdlc_engine check-project --root .")
 
 
 def test_the_caller_passes_only_the_named_secrets_and_never_inherits():
     job = workflow("sdlc")["jobs"]["stage"]
     assert job["secrets"] == {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}
+    assert set(job["secrets"]) == CALLED_SECRETS
     assert "inherit" not in json.dumps(job)
-
-
-def test_the_stage_workflow_declares_workflow_call_with_each_secret_it_uses():
-    declared = on("sdlc-stage")["workflow_call"]["secrets"]
-    assert set(declared) == CALLED_SECRETS
-    assert all(s["required"] is True for s in declared.values())
-    used = {m for s in steps("sdlc-stage") for m in re.findall(r"secrets\.([A-Z_]+)", json.dumps(s))}
-    assert used == CALLED_SECRETS                                    # every secret the steps read is declared
-
-
-def test_the_stage_job_asks_for_no_more_than_the_caller_grants():
-    assert workflow("sdlc-stage")["jobs"]["stage"]["permissions"] == workflow("sdlc")["jobs"]["stage"]["permissions"]
-    assert workflow("sdlc")["permissions"] == {}                    # top level stays empty; the grants are per job
-
-
-def test_the_post_step_drops_a_finding_outside_the_diff_and_names_the_gate_from_the_engine(tmp_path):
-    # ADR-067: the real post step, run with a diff whose only hunk is src/x.py:1-1; the finding is on line 40.
-    diff = "diff --git a/src/x.py b/src/x.py\n--- a/src/x.py\n+++ b/src/x.py\n@@ -1,1 +1,1 @@\n-a\n+b\n"
-    files = {"review.md": "1 findings (1 important, 0 nit, 0 pre-existing)\nIMPORTANT src/x.py:40 - far away\n",
-             "diff.patch": diff}
-    body = run_post_step(tmp_path, {"CHECKS_LINE": "commit: abc"}, files)
-    assert "**Review**" in body and "Nothing to fix." in body and "Checks: commit: abc" in body
-    # ADR-067 (follow-up): the finding's own text is absent, and the posted review says how many were dropped, by count.
-    assert "far away" not in body
-    assert "Dropped (not on a changed line): 1 important, 0 nit. See the run summary." in body
-    assert "**Next gate (yours):** No Important finding kept; 1 dropped (see the run summary)" in body
-    summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
-    assert "Dropped, not on a changed line: IMPORTANT at src/x.py:40." in summary   # a changed file, so named
-    assert "far away" not in summary

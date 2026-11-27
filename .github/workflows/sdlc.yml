@@ -26,6 +26,6 @@ jobs:
       pull-requests: write   # open the draft PR
       actions: write         # start the tests workflow on the pushed branch
       id-token: write        # claude-code-action
-    uses: ./.github/workflows/sdlc-stage.yml
+    uses: RASMiranda/sdlc-engine/.github/workflows/sdlc-stage.yml@5eb4034de66084e17d2b653ea3680565bd950fd4 # v0.2.1
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

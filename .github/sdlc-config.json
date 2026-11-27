@@ -1,4 +1,5 @@
 {
+  "config_version": 1,
   "default_branch": "main",
   "agent_branch_prefix": "agent/",
   "artifact_dir": "docs/intents/{n}-{slug}",
@@ -155,8 +156,7 @@
     "**/authorization*.yaml",
     "**/.env*",
     "scripts/**",
-    ".gitignore",
-    "src/sdlc_engine/**"
+    ".gitignore"
   ],
   "limits": {
     "max_files": 60,
@@ -191,7 +191,7 @@
     "python": "3.12"
   },
   "git_identity": {
-    "name": "career-ai-sdlc",
+    "name": "sdlc-engine-bot",
     "email": "41898282+github-actions[bot]@users.noreply.github.com"
   },
   "commit_title": "[#$NUMBER] sdlc: $STAGE",

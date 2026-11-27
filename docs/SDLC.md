@@ -44,13 +44,14 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
 - **What an agent can do.** Edit files in the checkout for its stage and write a report. It cannot push, merge, label,
   close, call GitHub or reach the web. `python -m sdlc_engine check` rejects anything outside the stage, any protected
   path (`.github/`, `.claude/`, `CLAUDE.md`, `REVIEW.md`, `routine-prompt.md`, `docs/DECISIONS.md`, dependency files,
-  authorization, config and profiles, scripts, the `src/sdlc_engine/` package), and any credential, email or phone number in an added line. Only then does
+  authorization, config and profiles, scripts), and any credential, email or phone number in an added line. Only then does
   the workflow commit, push to `agent/*`, open the draft PR, start the tests and post the report. **No agent and no step of the
   privileged job runs the repository's tests** (ADR-037): see below.
-- **Which code runs.** The steps that decide, skip, frame the issue and write the prompt run `sdlc_engine` from a second
-  checkout of the trigger commit's `src/`, taken before any agent and again after each agent run, never from the issue's
-  branch (ADR-036, ADR-058). The `src/sdlc_engine/` package is protected, so only a human PR can change the stage rules or
-  the check. The workflow file itself takes effect only once it is merged to `main`.
+- **Which code runs.** The engine is not in this repository (ADR-083, "Engine" below). The steps that decide, skip, frame
+  the issue and write the prompt run the engine from a checkout of the pinned engine commit, taken before any agent and again
+  after each agent run, never from the issue's branch (ADR-036, ADR-058, engine D-004). The pin is in `sdlc.yml`, a
+  protected path, so only a human PR can change the stage rules or the check. The caller file takes effect only once it
+  is merged to `main`.
 - **Review.** Every build is followed by a reviewer and a security-reviewer pass (`REVIEW.md`), read only; apply
   `agent:review` to run them again after your own pushes. Findings never approve or block by themselves.
   The reviewers write `.sdlc/comment.md` too, so a trusted step copies the build agent's report to
@@ -68,7 +69,7 @@ issue (form)  →  intent  →  spec  →  plan  →  build  →  review  →  P
 The issue forms apply `type:*` and `stage:intake` at creation, so one new issue fires `opened` plus one `labeled` per form
 label within about a second. All of them used to share the group `sdlc-issue-N`; with `cancel-in-progress: false` a newer
 *pending* run replaces an older pending one, so a no-op `labeled type:bug` could replace the real `opened` run (#50).
-Now the group key and the job `if` use the same condition, which is `sdlc_engine.decide` written as an expression:
+Now the group key and the job `if` use the same condition, which is the engine's `decide` written as an expression:
 
 | Event | Starts a stage | Concurrency group | Job |
 |---|---|---|---|
@@ -79,21 +80,21 @@ Now the group key and the job `if` use the same condition, which is `sdlc_engine
 
 Two real events for the same issue still share `sdlc-issue-N` and queue as before. A no-op run still appears in the
 Actions list (the trigger cannot filter by label) but finishes at once and takes no group a real run needs.
-`decide` stays the authority inside the job; `tests/test_sdlc_concurrency.py` keeps the YAML condition equal to it.
+`decide` stays the authority inside the job. Here `tests/test_sdlc_concurrency.py` keeps the caller's condition and lists equal to the config; the engine's own tests check it against `decide`.
 
 ### A stage whose output is already on the branch does not run (ADR-057)
 `intent`, `spec` and `plan` each write one file (`intent.md`, `spec.md`, `plan.md`). When that file is already on the
 checked-out branch, the run starts no agent, posts one line naming the file and how to redo the stage, and removes only
 the trigger label. It adds no `stage:*` label and no next gate. To redo a stage, delete the file on the branch and apply
 the label again. `build`, `review`, `release` and the support stages are never skipped. The check is trusted code
-(`sdlc_engine skipped`), tested in `tests/test_sdlc_skip.py`.
+(`sdlc_engine skipped`), tested in the engine's `tests/test_sdlc_skip.py`.
 
 ### Label sets and concurrency (i.F4, ADR-039)
 One agent label starts one stage. Two agent labels added together in the same second run one after the other, not as a
 cancellation: they share the issue's group, and `cancel-in-progress` is false. GitHub keeps one pending run per group
 and replaces an older pending run with a newer one, so with three or more queued events the middle one can be dropped;
 that is documented GitHub behaviour and was not seen in a real run here. `needs-info`, `type:*`, `stage:*` and
-`support:*` labels start nothing and never take the issue's group (`tests/test_sdlc_concurrency.py`).
+`support:*` labels start nothing and never take the issue's group (the engine's `tests/test_sdlc_concurrency.py`).
 
 ### Workflow hygiene (i.F5)
 - **Concurrency wording** (ADR-039 comment in `sdlc.yml`): checked against GitHub's replacement rule and left as written.
@@ -123,13 +124,13 @@ throwaway chain. To make `pytest` required, a human adds a required status check
 app only if the docs confirm the matching rule. No change to the fork-PR approval setting.
 
 ### Project values in one file (ADR-060)
-The values the engine uses, such as the trusted author associations, the label-to-stage map, each stage's roles, outputs and turn limit, the protected paths, the size limits, the budget caps, the agent branch prefix and the model, live in `.github/sdlc-config.json`. The engine reads it with `--config` from the trigger commit (ADR-036), so a change takes effect only once a human merges it to main; it is a protected path, so no agent can write it. The built-in values in `src/sdlc_engine/` apply only when the file is absent, and a malformed file stops the run. `tests/test_sdlc_config_file.py` keeps the file equal to the built-in values and to the workflow text. The project's prompt text (the files a stage must never touch, the docs it reads first, the support sources, the bundle command), the owner's handle in the budget comment and the project's own credential shape are the optional `prompt` object and `budget.mention` of the same file (ADR-065): the built-in values are generic, and a second project supplies its own block in its own config. `tests/golden/` holds the rendered stage prompts and the blocked comment, compared byte for byte.
+The values the engine uses, such as the trusted author associations, the label-to-stage map, each stage's roles, outputs and turn limit, the protected paths, the size limits, the budget caps, the agent branch prefix and the model, live in `.github/sdlc-config.json`. The engine reads it with `--config` from the trigger commit (ADR-036), so a change takes effect only once a human merges it to main; it is a protected path, so no agent can write it. The engine's built-in values apply only when the file is absent, and a malformed file stops the run; the file carries `config_version` 1, which the pinned engine requires. `tests/test_sdlc_config_file.py` pins this project's values and keeps those that also appear in `tests.yml` equal to it. The project's prompt text (the files a stage must never touch, the docs it reads first, the support sources, the bundle command), the owner's handle in the budget comment and the project's own credential shape are the optional `prompt` object and `budget.mention` of the same file (ADR-065): the built-in values are generic, and a second project supplies its own block in its own config. The engine's `tests/golden/` holds the rendered stage prompts and the blocked comment, compared byte for byte (ADR-083: career-ai's own goldens are gone).
 
 ### A thin caller around the stage workflow (ADR-066)
-`sdlc.yml` is the caller: it owns the name, the triggers, the concurrency group, the permissions each job is granted and the call. Its one job `stage` calls `sdlc-stage.yml`, a reusable workflow that holds every step and receives `CLAUDE_CODE_OAUTH_TOKEN` by name. The budget gate still counts the caller's runs. The steps are pinned byte for byte by `tests/golden/sdlc-steps.txt`. The job-level keys a caller may set, and how `github.*` resolves in a called workflow, are not yet checked against the GitHub docs (ADR-066).
+`sdlc.yml` is the caller: it owns the name, the triggers, the concurrency group, the permissions each job is granted and the call. Its one job `stage` calls `sdlc-stage.yml` of `RASMiranda/sdlc-engine`, pinned by commit (ADR-083), a reusable workflow that holds every step and receives `CLAUDE_CODE_OAUTH_TOKEN` by name. The budget gate still counts the caller's runs. The steps are pinned byte for byte by the engine's `tests/golden/sdlc-steps.txt`. The job-level keys a caller may set, and how `github.*` resolves in a called workflow, are not yet checked against the GitHub docs (ADR-066).
 
 ### The review stage (ADR-067)
-The reviewers answer in a fixed shape, parsed by the engine (`src/sdlc_engine/review.py`), not in free text. Line 1 is
+The reviewers answer in a fixed shape, parsed by the engine (`review.py` in sdlc-engine), not in free text. Line 1 is
 `Nothing to fix.` or `N findings (I important, M nit, P pre-existing)`. Then one line per finding:
 `IMPORTANT|NIT|PRE-EXISTING path:line - text`, with `line` a number or a range such as `10-20`. The review never gives a
 verdict line; `IMPORTANT` findings are what block the next gate, and nothing else does.
@@ -208,11 +209,44 @@ CLAUDE_CODE_OAUTH_TOKEN was created 2026-10-23 and expires 2027-10-23. The expir
 
 The subprocess env scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is not used: it needs bubblewrap and failed the first run (ADR-033). Since ADR-035 the repository token is no longer in that environment (see below).
 
-**Where `GH_TOKEN` lives (ADR-035).** It is set per step, never on the job: only "Budget gate", "Fetch the issue and PR comments (gh)", "Commit and push the artifact, open the draft PR, start the tests" and "Post the report, apply the stage label" carry it, because those call `gh` or `git push`. The agent steps and the safety `check` run without it and without `ANTHROPIC*` or `CLAUDE_CODE_OAUTH_TOKEN` variables (the OAuth token reaches only the action's `with:`). `anthropics/claude-code-action` writes the token into the `origin` URL in `.git/config` (`src/github/operations/git-config.ts`, `git remote set-url origin https://x-access-token:...`), so a step after each action run resets `origin` before any agent-written code runs. `tests/test_sdlc_token_scope.py` pins all of this by parsing the workflow. Not verified by a real run. ADR-036: the steps that import jobscan after an agent (check, push, review prompt, reject, post) run `python -P -m sdlc_engine` with `PYTHONPATH="$TRUSTED_SRC"`, a second `actions/checkout` of the trigger commit (`github.sha`, `path: trusted`, sparse `src`), fetched after each agent run, so code the agents wrote never runs in a step that holds the token. Git in those steps runs with hooks and fsmonitor off and ignores the global and system git config. The agents' own `Write` and `Edit` to `.git/` are refused by `scripts/hooks/guard.py`, and the reset steps strip anything else from `.git/config` and `.git/hooks`. That closes the gap for jobscan and for hooks and config. Still open: `.git/HEAD`, refs and objects are not reset, and the `claude` process environment still holds the token (the action sets it).
+**Where `GH_TOKEN` lives (ADR-035).** It is set per step, never on the job: only "Budget gate", "Fetch the issue and PR comments (gh)", "Commit and push the artifact, open the draft PR, start the tests" and "Post the report, apply the stage label" carry it, because those call `gh` or `git push`. The agent steps and the safety `check` run without it and without `ANTHROPIC*` or `CLAUDE_CODE_OAUTH_TOKEN` variables (the OAuth token reaches only the action's `with:`). `anthropics/claude-code-action` writes the token into the `origin` URL in `.git/config` (`src/github/operations/git-config.ts`, `git remote set-url origin https://x-access-token:...`), so a step after each action run resets `origin` before any agent-written code runs. The engine's `tests/test_sdlc_token_scope.py` pins all of this by parsing the stage workflow. Not verified by a real run. ADR-036: the steps that import jobscan after an agent (check, push, review prompt, reject, post) run `python -P -m sdlc_engine` from the engine checkout (the stage workflow's own repository and commit, into `engine/`, verified against `job.workflow_sha`; engine D-004), fetched after each agent run, so code the agents wrote never runs in a step that holds the token. Git in those steps runs with hooks and fsmonitor off and ignores the global and system git config. The agents' own `Write` and `Edit` to `.git/` are refused by `scripts/hooks/guard.py`, and the reset steps strip anything else from `.git/config` and `.git/hooks`. That closes the gap for jobscan and for hooks and config. Still open: `.git/HEAD`, refs and objects are not reset, and the `claude` process environment still holds the token (the action sets it).
 
 **Tests never run in the privileged job (ADR-037).** The `claude` process holds `GH_TOKEN`, `GITHUB_TOKEN` and the Claude GitHub App token, and job permissions do not limit the App token. A `conftest.py` or test the build agent wrote would run in that process, so the build stage no longer allows `Bash(python -m pytest:*)` (or pip, or any `python -m` of repo code), and the workflow has no dependency install and no "run the tests once more" step. Tests run only in `tests.yml` (read-only token, no secrets), dispatched by the push step with `gh workflow run tests.yml`. The build agent writes tests and does not run them; the build report carries a fixed line saying so, written by the workflow, not the agent: the `pytest` check on the PR is the evidence. If it is red, fix and re-apply `agent:build`. The review stage cannot run tests either: it reads `.sdlc/checks.txt`, which a workflow step (with `GH_TOKEN` on that step only) writes after the push for the commit just pushed, or before the agent for a `review` or `release` stage on the current HEAD, so the build agent cannot write it. First line `commit: <sha>`, then `name: status conclusion` per check run; if the call fails or returns nothing the file says `Could not read check results for <sha>: <reason>`. The Checks line of the review quotes the commit line (ADR-067), and the reviewers say "not known" when the check is queued, in_progress or unreadable (a review right after a build usually finds it unfinished), and claim passing tests only for a `pytest` check that is completed success. Whether the job token needs `checks: read` for this call is not verified: the first real run must show it (the repository is public). `Read(//proc/**)` is denied in `.claude/settings.json` and also passed as `--disallowedTools` to both agent steps, so a change to the checked-out settings cannot lift it; it covers the Read tool and file commands Claude Code recognises in Bash (`cat`, `head`), not a script that opens files itself, and Bash is limited by the allow-list. Still open: the `claude` process holds the tokens (the two-job split, a future ADR, is the remaining step).
 
 **The agent cannot read the checkout's `.git` (ADR-051).** Before the agent starts, `claude-code-action` writes its token into `remote.origin.url` in `.git/config`, and a bare `Read`, `Grep` or `Glob` could read it. `Read(**/.git/**)` is denied in `.claude/settings.json` and in `--disallowedTools` on both agent steps (a later stage checks out the issue branch, so the flag is the rule that always applies), and `permissions.blockReadsOutsideWorkingDirectories` keeps the file tools inside the checkout. Checked with a before/after probe and a fake token: before, Read, Grep and Glob all read `.git/config`; after, Read and Grep are denied, Glob returns nothing, a read of `/etc/hostname` is denied and a read of `README.md` still works. Not closed by this: the OAuth token stays in the `claude` process, and a deny rule is a pattern match, not a sandbox. The agent/publish job split (i.H7 in the setup guide) stays optional and is deferred to before multi-user use.
+
+### Engine (ADR-083)
+**Where it lives.** The engine (the `sdlc_engine` package, the reusable stage workflow `sdlc-stage.yml`, the goldens and the
+project template) is `RASMiranda/sdlc-engine`, a public repository with its own tests, `docs/CONFIG.md` and
+`docs/SECURITY-MODEL.md`. This repository keeps only what is the project's own: the caller `sdlc.yml`, `.github/sdlc-config.json`,
+the role files in `.claude/agents/`, the labels and forms, `CODEOWNERS`, `REVIEW.md` and `scripts/hooks/guard.py` (standard
+library only, it does not import the engine). The folders `engine/` and `project-config/` are reserved: the stage workflow
+deletes and re-creates them in the workspace, so this repository must never have them (`check-project` rule `reserved`).
+
+**The pin rule.** The engine is referenced only by a full 40-hex commit SHA with the version in a comment, never a branch or
+a tag, and there is **one** pin: the `uses:` line of `.github/workflows/sdlc.yml`, for example
+`RASMiranda/sdlc-engine/.github/workflows/sdlc-stage.yml@<40 hex> # v0.2.1`. The comment is required: Dependabot reads it,
+and it can only track tagged releases. `tests.yml` has no copy: its check step reads the SHA from that line, fails unless
+there is exactly one match of 40 hex characters, installs that engine and runs `python -m sdlc_engine check-project --root .`.
+`tests/test_sdlc_config.py` pins the line's shape. There is no `engine` input, so this line is the only version.
+
+**How to bump.**
+1. Normally: merge the Dependabot pull request (weekly, group `sdlc-engine`, never auto-merged). It edits the `uses:` line
+   and its comment. Its `tests` check runs `check-project` against the new version, so a config that no longer fits fails
+   there. Read the engine's `CHANGELOG.md` first; a BREAKING entry (for example a new `config_version`) needs the config
+   change pushed to the Dependabot branch before you merge.
+2. By hand: edit the SHA and the `# vX.Y.Z` comment on that one line together, in one pull request, and wait for the `tests` check.
+3. Locally: `pip install git+https://github.com/RASMiranda/sdlc-engine@<sha>`, then (with `PYTHONPATH` unset)
+   `python -m sdlc_engine check-project --root .` must print `ok:`, then `python -m pytest -q`.
+4. The first run after a bump is its canary: the stage workflow's job summary names the engine commit it ran.
+Third-party actions come in the `actions-third-party` group, 7 days after their release (`cooldown`); the engine is not delayed.
+
+**How to roll back.** Revert the whole pull request that made the change (ADR-083), or repoint the `uses:` SHA (and its
+comment) to the previous release in a new pull request: `tests.yml` follows by itself. The pull request's commits are not
+independently green: the old tests assert the old layout (the in-repository engine and `sdlc-stage.yml`), so reverting
+only the second commit leaves a suite that cannot run. A previous engine release also needs the `config_version` it reads.
+
+**Agent commits** carry the committer name `sdlc-engine-bot`, set by the engine's workflow, not `career-ai-sdlc`.
 
 ### Limits you should know
 The workflow is checked by tests of its rules, not run yet: the first real issue is its first run. It spends API credit

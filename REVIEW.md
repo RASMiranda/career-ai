@@ -9,8 +9,9 @@ Look for the failure that would reach the owner, not for style.
 - **Docs** (`docs/`, `README.md`): a statement that is false about the code or the diff. A doc that lies is the failure.
 - **Workflow and config** (`.github/`, `.github/sdlc-config.json`): a change that misroutes a run: the wrong stage runs,
   a gate is skipped, a label or a protected path is missing or wrong, a step that should fail is allowed to pass.
-- **SDLC code** (`src/sdlc_engine/`): a leak (a secret or personal data reaching a posted text), or posted text that was
-  not scanned. Also an agent able to write a protected path.
+- **SDLC code** (the `sdlc.yml` caller, `.github/sdlc-config.json` and the engine pin, the `uses:` line of `sdlc.yml`; the
+  engine itself is in `RASMiranda/sdlc-engine`): a pin that is not a full commit SHA, a second copy of the pin, a config change
+  that lets an agent write a protected path, or a secret or personal data reaching a posted text.
 - **Tests**: a test that passes without checking anything: no assertion, an assertion that cannot fail, a test edited to
   match a fix, a skipped test with no reason.
 - **Pipeline, state and apply code** (`src/jobscan/`): a run that can skip the send or the commit, state that is wrong
