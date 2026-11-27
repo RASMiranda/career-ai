@@ -156,8 +156,7 @@
     "**/authorization*.yaml",
     "**/.env*",
     "scripts/**",
-    ".gitignore",
-    "src/sdlc_engine/**"
+    ".gitignore"
   ],
   "limits": {
     "max_files": 60,
